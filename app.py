@@ -143,6 +143,14 @@ st.markdown("""
     label, .stNumberInput label, .stMarkdown, p, span {
         color: #cfd3da !important;
     }
+    .finviz-filterbar label {
+        color: #FFD700 !important;
+        font-weight: 700 !important;
+        text-transform: uppercase;
+        font-size: 11px !important;
+        letter-spacing: 0.5px;
+        text-shadow: 0 0 6px rgba(255,215,0,0.3);
+    }
     div[data-testid="stNumberInput"] input {
         background-color: #1a1e27;
         color: #ffffff;
@@ -753,7 +761,6 @@ if ULTIMOS_RESULTADOS:
             <td style="color:{color_cambio_val}; font-weight:700;">{c['cambio_pct']:.1f}%</td>
             <td>{formatear_numero_grande(c['volumen_momento'])}</td>
             <td>{formatear_numero_grande(c.get('float_shares'))}</td>
-            <td>{round(c.get('volumen_relativo', 0), 2)}</td>
         </tr>
         """
     tabla_html = f"""
@@ -761,13 +768,12 @@ if ULTIMOS_RESULTADOS:
     <table class="scanner-grid">
         <thead>
             <tr>
-                <th>Hora</th>
-                <th>Ticker</th>
-                <th>Precio</th>
-                <th>Cambio %</th>
-                <th>Volumen</th>
-                <th>Flotación</th>
-                <th>Vol. Rel.</th>
+                <th>HORA</th>
+                <th>TICK</th>
+                <th>PRE</th>
+                <th>CHG%</th>
+                <th>VOL</th>
+                <th>FLT</th>
             </tr>
         </thead>
         <tbody>
