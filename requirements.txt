@@ -6,3 +6,4 @@ pandas_ta_classic
 alpaca_py
 openai
 streamlit-autorefresh
+plotly
