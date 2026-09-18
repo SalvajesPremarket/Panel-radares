@@ -29,13 +29,14 @@ RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
 VALORES_POR_DEFECTO = {
     "precio_min": 2.0,
     "precio_max": 20.0,
-    "gap_min": 7.0,
+    "gap_min": 4.0,
     "gap_max": 500.0,
-    "flotacion_max": 10_000_000,
-    "vol_rel_min": 1.3,
+    "flotacion_max": 20_000_000,
+    "vol_rel_min": 1.8,
+    "volumen_momento_min": 15000,
     "intervalo_refresco": 15,
     "direccion_cruce": "Hacia arriba",
-    "macd_signo": "Positivo",
+    "macd_signo": "Neutro",
     "top_n": 10,
 }
 
@@ -61,8 +62,7 @@ if "config_filtros" not in st.session_state:
 
 cfg = st.session_state.config_filtros
 
-# Inicialización de las variables
-TOP_N = cfg.get("top_n", 10)
+# Inicialización de las variables (se completan más abajo desde los controles de la interfaz)
 
 # ==========================================
 # 🎨 ESTILO OSCURO TIPO FINVIZ
@@ -148,7 +148,7 @@ with c7:
         index=[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].index(cfg["intervalo_refresco"])
     )
 
-d1, d2 = st.columns(2)
+d1, d2, d3, d4 = st.columns(4)
 with d1:
     opciones_cruce = ["Hacia arriba", "Hacia abajo", "Neutro"]
     DIRECCION_CRUCE = st.selectbox(
@@ -163,6 +163,21 @@ with d2:
         options=opciones_macd,
         index=opciones_macd.index(cfg.get("macd_signo", "Positivo"))
     )
+with d3:
+    VOLUMEN_MOMENTO_MINIMO = st.number_input(
+        "Vol. mínimo del momento",
+        value=int(cfg.get("volumen_momento_min", 0)),
+        step=1000,
+        min_value=0
+    )
+with d4:
+    TOP_N = st.number_input(
+        "Top N candidatos",
+        value=int(cfg.get("top_n", 10)),
+        step=1,
+        min_value=1,
+        max_value=50
+    )
 st.markdown('</div>', unsafe_allow_html=True)
 
 # Guardar cualquier cambio en los filtros automáticamente
@@ -173,6 +188,7 @@ nuevo_cfg = {
     "gap_max": GAP_MAXIMO_PORCENTAJE,
     "flotacion_max": FLOTACION_MAXIMA_ACCIONES,
     "vol_rel_min": VOLUMEN_RELATIVO_MINIMO,
+    "volumen_momento_min": VOLUMEN_MOMENTO_MINIMO,
     "intervalo_refresco": INTERVALO_REFRESCO_SEGUNDOS,
     "direccion_cruce": DIRECCION_CRUCE,
     "macd_signo": MACD_SIGNO,
@@ -435,6 +451,8 @@ def ejecutar_ciclo_escaneo():
         if precio_cierre_anterior <= 0:
             continue
         if not (PRECIO_MIN <= precio_actual <= PRECIO_MAX):
+            continue
+        if volumen_momento < VOLUMEN_MOMENTO_MINIMO:
             continue
         cambio_porcentaje = ((precio_actual - precio_cierre_anterior) / precio_cierre_anterior) * 100
         if not (GAP_MINIMO_PORCENTAJE <= cambio_porcentaje <= GAP_MAXIMO_PORCENTAJE):
