@@ -3,4 +3,4 @@ pandas
 numpy
 yfinance
 pandas_ta
-alpaca-py
+alpaca_py
