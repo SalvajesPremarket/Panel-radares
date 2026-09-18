@@ -4,3 +4,4 @@ numpy
 yfinance
 pandas_ta_classic
 alpaca_py
+openai
