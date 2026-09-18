@@ -70,43 +70,75 @@ cfg = st.session_state.config_filtros
 st.markdown("""
 <style>
     .stApp {
-        background-color: #0e1117;
+        background-color: #0a0e1a;
         color: #e6e6e6;
     }
-    [data-testid="stHeader"] { background-color: #0e1117; }
-    [data-testid="stSidebar"] { background-color: #0e1117; }
+    [data-testid="stHeader"] { background-color: #0a0e1a; }
+    [data-testid="stSidebar"] { background-color: #0a0e1a; }
     .block-container { padding-top: 1rem; }
 
     .finviz-topbar {
-        background-color: #12151c;
-        padding: 12px 20px;
-        border-radius: 6px;
-        margin-bottom: 14px;
-        border: 1px solid #2a2e39;
+        position: relative;
+        background: linear-gradient(135deg, #0d1420 0%, #131b2c 55%, #0d1420 100%);
+        padding: 26px 90px;
+        border-radius: 10px;
+        margin-bottom: 18px;
+        border: 1px solid #2a3348;
+        border-bottom: 3px solid #c9a227;
         text-align: center;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.45);
     }
     .finviz-topbar h1 {
-        color: #ffffff;
-        font-size: 24px;
+        color: #f5f5f5;
+        font-size: 26px;
         margin: 0;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        letter-spacing: 2px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .finviz-topbar .subtitle {
+        color: #8b93a7;
+        font-size: 11px;
+        letter-spacing: 3px;
+        margin-top: 6px;
+        text-transform: uppercase;
         font-family: Arial, sans-serif;
-        text-align: center;
     }
     .finviz-badge {
-        background-color: #2ecc71;
-        color: white;
+        background: linear-gradient(90deg, #16c784, #0e9e68);
+        color: #0a0e1a;
         font-size: 11px;
-        padding: 3px 8px;
-        border-radius: 3px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 20px;
         margin-left: 10px;
         vertical-align: middle;
+        letter-spacing: 1px;
     }
+    .market-figure {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 56px;
+        height: 56px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        background: #0a0e1a;
+        box-shadow: 0 0 0 2px #c9a227, 0 4px 12px rgba(0,0,0,0.5);
+    }
+    .market-figure.bull { left: 24px; }
+    .market-figure.bear { right: 24px; }
     .finviz-filterbar {
-        background-color: #12151c;
-        border: 1px solid #2a2e39;
-        border-radius: 6px;
-        padding: 12px 16px 2px 16px;
-        margin-bottom: 14px;
+        background-color: #11151f;
+        border: 1px solid #232838;
+        border-radius: 10px;
+        padding: 14px 18px 4px 18px;
+        margin-bottom: 16px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.3);
     }
     label, .stNumberInput label, .stMarkdown, p, span {
         color: #cfd3da !important;
@@ -114,15 +146,21 @@ st.markdown("""
     div[data-testid="stNumberInput"] input {
         background-color: #1a1e27;
         color: #ffffff;
+        border: 1px solid #2a3348 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="finviz-topbar">
-    <h1>SCANNER PRE MARKET <span class="finviz-badge">LIVE</span></h1>
+    <div class="market-figure bull">🐂</div>
+    <h1>SCANNER PRE MARKET <span class="finviz-badge">● LIVE</span></h1>
+    <div class="subtitle">Radar de oportunidades en tiempo real</div>
+    <div class="market-figure bear">🐻</div>
 </div>
 """, unsafe_allow_html=True)
+
+
 
 # ==========================================
 # 📊 FILTROS (barra horizontal tipo Finviz, guardados automáticamente)
@@ -393,9 +431,9 @@ def actualizar_cuadro_flotante_html(texto_tabla):
         <title>📊 SCANNER PRE MARKET 1.1.1</title>
         <meta http-equiv="refresh" content="30">
         <style>
-            body {{ background-color: #121212; color: #00ffcc; font-family: 'Courier New', Courier, monospace; padding: 20px; }}
+            body {{ background-color: #121212; color: #c9a227; font-family: 'Courier New', Courier, monospace; padding: 20px; }}
             pre {{ background-color: #1e1e1e; padding: 25px; border-radius: 8px; border: 1px solid #333; font-size: 14px; color: #ffffff; line-height: 1.5; }}
-            h2 {{ color: #00ffcc; font-family: Arial, sans-serif; text-align: center; margin-bottom: 2px; }}
+            h2 {{ color: #c9a227; font-family: Arial, sans-serif; text-align: center; margin-bottom: 2px; }}
             .info {{ color: #888; font-size: 11px; text-align: center; margin-bottom: 20px; }}
         </style>
     </head>
@@ -611,10 +649,10 @@ if ULTIMOS_RESULTADOS:
     )
     fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
     fig.update_layout(
-        paper_bgcolor="#0e1117",
-        plot_bgcolor="#0e1117",
+        paper_bgcolor="#0a0e1a",
+        plot_bgcolor="#0a0e1a",
         font_color="#e6e6e6",
-        title_font_color="#00ffcc",
+        title_font_color="#c9a227",
         coloraxis_showscale=False,
         margin=dict(t=50, b=10, l=10, r=10),
     )
@@ -632,12 +670,12 @@ if ULTIMOS_RESULTADOS:
         df.style
         .map(color_cambio, subset=['Cambio %'])
         .set_properties(**{
-            'background-color': '#12151c',
+            'background-color': '#11151f',
             'color': '#e6e6e6',
             'border-color': '#2a2e39'
         })
         .set_table_styles([
-            {'selector': 'th', 'props': [('background-color', '#0e1117'), ('color', '#00ffcc'), ('font-weight', 'bold')]}
+            {'selector': 'th', 'props': [('background-color', '#0a0e1a'), ('color', '#c9a227'), ('font-weight', 'bold')]}
         ])
     )
     st.dataframe(styled, use_container_width=True, hide_index=True)
