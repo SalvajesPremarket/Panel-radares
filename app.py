@@ -133,7 +133,7 @@ with c1:
     PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5)
 with c2:
     PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5)
-[18/9/2026 10:29] Minor Gomez: with c3:
+with c3:
     GAP_MINIMO_PORCENTAJE = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0)
 with c4:
     GAP_MAXIMO_PORCENTAJE = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0)
