@@ -143,7 +143,9 @@ st.markdown("""
     .stMarkdown, p, span {
         color: #cfd3da !important;
     }
-    label, .stNumberInput label, .stSelectbox label {
+    label, .stNumberInput label, .stSelectbox label,
+    label p, .stNumberInput label p, .stSelectbox label p,
+    [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] {
         color: #FFD700 !important;
         font-weight: 700 !important;
         text-transform: uppercase;
@@ -797,7 +799,7 @@ st.markdown("""
         border-radius: 10px;
         overflow: hidden;
         box-shadow: 0 2px 12px rgba(0,0,0,0.35);
-        margin-top: 14px;
+        margin-top: 8px;
     }
     .scanner-grid {
         width: 100%;
@@ -806,7 +808,7 @@ st.markdown("""
     }
     .scanner-grid th {
         background-color: #0a0e1a;
-        color: #FFD700;
+        color: #FFD700 !important;
         font-weight: 700;
         text-transform: uppercase;
         font-size: 12px;
@@ -835,7 +837,7 @@ st.markdown("""
         border-bottom: none;
         border-radius: 10px 10px 0 0;
         padding: 10px 16px;
-        margin-top: 14px;
+        margin-top: 8px;
         color: #FFD700;
         font-weight: 700;
         font-size: 13px;
@@ -847,8 +849,19 @@ st.markdown("""
         font-weight: 400;
         margin-left: 6px;
     }
+    .cuadrito-titulo {
+        color: #FFD700;
+        font-weight: 800;
+        font-size: 15px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        margin: 18px 0 0 0;
+        font-family: Arial, sans-serif;
+    }
 </style>
 """, unsafe_allow_html=True)
+
+st.markdown('<div class="cuadrito-titulo">Activos Encontrados</div>', unsafe_allow_html=True)
 
 if ULTIMOS_RESULTADOS:
     recientes = sorted(ULTIMOS_RESULTADOS, key=lambda x: x['actualizado'], reverse=True)
@@ -885,7 +898,7 @@ else:
     radio_superior = "10px"
 
 tabla_html = f"""
-<div class="scanner-grid-wrap" style="margin-top:{'0' if ULTIMOS_RESULTADOS else '14px'}; border-radius:{radio_superior};">
+<div class="scanner-grid-wrap" style="margin-top:{'0' if ULTIMOS_RESULTADOS else '8px'}; border-radius:{radio_superior};">
 <table class="scanner-grid">
     <thead>
         <tr>
