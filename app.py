@@ -61,6 +61,11 @@ if "config_filtros" not in st.session_state:
 
 cfg = st.session_state.config_filtros
 
+# Inicialización de las variables
+DIRECCION_CRUCE = cfg.get("direccion_cruce", "Hacia arriba")
+MACD_SIGNO = cfg.get("macd_signo", "Positivo")
+TOP_N = cfg.get("top_n", 10)
+
 # ==========================================
 # 🎨 ESTILO OSCURO TIPO FINVIZ
 # ==========================================
@@ -441,7 +446,7 @@ def ejecutar_ciclo_escaneo():
         if volumen_relativo < VOLUMEN_RELATIVO_MINIMO:
             continue
 
-        cruzando_ema20, macd_cumple = calcular_ema_macd(ticker, cfg["direccion_cruce"], cfg["macd_signo"])
+        cruzando_ema20, macd_cumple = calcular_ema_macd(ticker, DIRECCION_CRUCE, MACD_SIGNO)
         if not (cruzando_ema20 and macd_cumple):
             continue
 
