@@ -62,8 +62,6 @@ if "config_filtros" not in st.session_state:
 cfg = st.session_state.config_filtros
 
 # Inicialización de las variables
-DIRECCION_CRUCE = cfg.get("direccion_cruce", "Hacia arriba")
-MACD_SIGNO = cfg.get("macd_signo", "Positivo")
 TOP_N = cfg.get("top_n", 10)
 
 # ==========================================
@@ -148,6 +146,22 @@ with c7:
         "Refresco (seg)",
         options=[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
         index=[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].index(cfg["intervalo_refresco"])
+    )
+
+d1, d2 = st.columns(2)
+with d1:
+    opciones_cruce = ["Hacia arriba", "Hacia abajo", "Neutro"]
+    DIRECCION_CRUCE = st.selectbox(
+        "Cruce EMA20",
+        options=opciones_cruce,
+        index=opciones_cruce.index(cfg.get("direccion_cruce", "Hacia arriba"))
+    )
+with d2:
+    opciones_macd = ["Positivo", "Negativo", "Neutro"]
+    MACD_SIGNO = st.selectbox(
+        "MACD",
+        options=opciones_macd,
+        index=opciones_macd.index(cfg.get("macd_signo", "Positivo"))
     )
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -268,7 +282,11 @@ def calcular_datos_fundamentales(ticker):
 
 def calcular_ema_macd(ticker, direccion_cruce="Hacia arriba", macd_signo="Positivo"):
     try:
-        df = yf.Ticker(ticker).history(period="5d", interval="1m")
+        # 🔧 FIX: prepost=True para que traiga velas de premarket/afterhours en tiempo real.
+        # Sin esto, fuera de horario regular (9:30-16:00 ET) yfinance devuelve
+        # las últimas velas del cierre de ayer, así que "cruzó la EMA hace poco"
+        # casi nunca se cumple durante premarket.
+        df = yf.Ticker(ticker).history(period="5d", interval="1m", prepost=True)
         if df is None or len(df) < 40:
             return False, False
 
@@ -400,6 +418,9 @@ def ejecutar_ciclo_escaneo():
             pass
         time.sleep(pausa_entre_lotes)
 
+    # 🔧 DEBUG: cuántos snapshots llegaron en total
+    print(f"   [DEBUG] Snapshots recibidos de Alpaca: {len(snapshots)}")
+
     preseleccion = []
     for ticker, snap in snapshots.items():
         if not snap or not snap.latest_trade or not snap.daily_bar or not snap.previous_daily_bar:
@@ -408,6 +429,8 @@ def ejecutar_ciclo_escaneo():
         precio_actual = snap.latest_trade.price
         precio_cierre_anterior = snap.previous_daily_bar.close
         volumen_dia = snap.daily_bar.volume
+        # Volumen del momento: volumen de la última vela de 1 minuto (no el acumulado del día)
+        volumen_momento = snap.minute_bar.volume if snap.minute_bar else 0
 
         if precio_cierre_anterior <= 0:
             continue
@@ -422,6 +445,7 @@ def ejecutar_ciclo_escaneo():
             "precio": precio_actual,
             "cambio_pct": cambio_porcentaje,
             "volumen_dia": volumen_dia,
+            "volumen_momento": volumen_momento,
             "actualizado": snap.latest_trade.timestamp
         })
 
@@ -429,31 +453,48 @@ def ejecutar_ciclo_escaneo():
         print("   ⏳ Sin candidatos que cumplan precio/gap% todavía.")
         return
 
-    print(f"   [DEBUG] Preselección por precio/gap%: {len(preseleccion)} candidatos: {[c['ticker'] for c in preseleccion]}")
+    print(f"   [DEBUG] Etapa 1 (precio/gap%): {len(preseleccion)} candidatos: {[c['ticker'] for c in preseleccion]}")
+
     candidatos_finales = []
+    descartados_float_vol = 0
+    descartados_tecnico = 0
     for c in preseleccion:
         ticker = c['ticker']
 
         float_shares, vol_promedio = calcular_datos_fundamentales(ticker)
         if float_shares is None:
+            descartados_float_vol += 1
             continue
         if float_shares >= FLOTACION_MAXIMA_ACCIONES:
+            descartados_float_vol += 1
             continue
         if not vol_promedio or vol_promedio <= 0:
+            descartados_float_vol += 1
             continue
 
         volumen_relativo = c['volumen_dia'] / vol_promedio
         if volumen_relativo < VOLUMEN_RELATIVO_MINIMO:
+            descartados_float_vol += 1
             continue
 
         cruzando_ema20, macd_cumple = calcular_ema_macd(ticker, DIRECCION_CRUCE, MACD_SIGNO)
-        if not (cruzando_ema20 and macd_cumple):
+        requiere_ema = DIRECCION_CRUCE != "Neutro"
+        requiere_macd = MACD_SIGNO != "Neutro"
+        cumple_ema = (not requiere_ema) or cruzando_ema20
+        cumple_macd = (not requiere_macd) or macd_cumple
+        if not (cumple_ema and cumple_macd):
+            descartados_tecnico += 1
             continue
 
         c['float_shares'] = float_shares
         c['volumen_relativo'] = volumen_relativo
         c['tiene_noticia'] = tiene_noticia_reciente(ticker)
         candidatos_finales.append(c)
+
+    # 🔧 DEBUG: cuántos sobrevivieron cada etapa y cuántos se cayeron en cada una
+    print(f"   [DEBUG] Etapa 2 (float/volumen relativo): descartados {descartados_float_vol}")
+    print(f"   [DEBUG] Etapa 3 (EMA20): descartados {descartados_tecnico}")
+    print(f"   [DEBUG] Etapa final: {len(candidatos_finales)} candidatos: {[c['ticker'] for c in candidatos_finales]}")
 
     if not candidatos_finales:
         print("   ⏳ Ningún candidato cumple todos los filtros técnicos todavía.")
@@ -469,7 +510,7 @@ def ejecutar_ciclo_escaneo():
     tabla_texto += "-" * 28 + "\n"
     for c in top_candidatos:
         ticker_mostrado = f"🔥{c['ticker']}" if c['tiene_noticia'] else c['ticker']
-        vol_formateado = formatear_numero_grande(c['volumen_dia'])
+        vol_formateado = formatear_numero_grande(c['volumen_momento'])
         flt_formateado = formatear_numero_grande(c['float_shares'])
         chg_texto = f"{c['cambio_pct']:.0f}%"
         tabla_texto += f"{ticker_mostrado:<5}|{c['precio']:>5.2f}|{chg_texto:>4}|{vol_formateado:>5}|{flt_formateado:>5}\n"
@@ -532,7 +573,7 @@ if ULTIMOS_RESULTADOS:
             "Ticker": c["ticker"],
             "Precio": round(c["precio"], 2),
             "Cambio %": round(c["cambio_pct"], 1),
-            "Volumen": formatear_numero_grande(c["volumen_dia"]),
+            "Volumen": formatear_numero_grande(c["volumen_momento"]),
             "Flotación": formatear_numero_grande(c.get("float_shares")),
             "Vol. Relativo": round(c.get("volumen_relativo", 0), 2),
             "Noticia": "🔥" if c.get("tiene_noticia") else "",
