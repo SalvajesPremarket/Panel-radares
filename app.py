@@ -681,3 +681,101 @@ if ULTIMOS_RESULTADOS:
     st.dataframe(styled, use_container_width=True, hide_index=True)
 else:
     st.info("Sin candidatos que cumplan los filtros en este momento.")
+
+# ==========================================
+# 🕒 CANDIDATOS · MÁS RECIENTES PRIMERO (cuadro con rejilla)
+# ==========================================
+st.markdown("""
+<style>
+    .recientes-header {
+        color: #FFD700;
+        font-family: Arial, sans-serif;
+        font-size: 18px;
+        font-weight: 800;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        margin: 20px 0 10px 0;
+        text-shadow: 0 0 10px rgba(255,215,0,0.45);
+    }
+    .scanner-grid-wrap {
+        border: 1px solid #2a3348;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    }
+    .scanner-grid {
+        width: 100%;
+        border-collapse: collapse;
+        background-color: #11151f;
+    }
+    .scanner-grid th {
+        background-color: #0a0e1a;
+        color: #FFD700;
+        font-weight: 800;
+        text-transform: uppercase;
+        font-size: 12px;
+        letter-spacing: 1px;
+        padding: 10px 12px;
+        border-right: 1px solid #2a3348;
+        border-bottom: 2px solid #c9a227;
+        text-align: center;
+        text-shadow: 0 0 6px rgba(255,215,0,0.35);
+    }
+    .scanner-grid th:last-child { border-right: none; }
+    .scanner-grid td {
+        padding: 9px 12px;
+        border-right: 1px solid #232838;
+        border-bottom: 1px solid #232838;
+        text-align: center;
+        color: #e6e6e6;
+        font-family: 'Courier New', monospace;
+        font-size: 13px;
+    }
+    .scanner-grid td:last-child { border-right: none; }
+    .scanner-grid tr:nth-child(even) td { background-color: #151a26; }
+    .scanner-grid tr:last-child td { border-bottom: none; }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown('<div class="recientes-header">🕒 Candidatos · Más recientes primero</div>', unsafe_allow_html=True)
+
+if ULTIMOS_RESULTADOS:
+    recientes = sorted(ULTIMOS_RESULTADOS, key=lambda x: x['actualizado'], reverse=True)
+    filas_html = ""
+    for c in recientes:
+        hora = c["actualizado"].strftime("%H:%M:%S") if hasattr(c["actualizado"], "strftime") else c["actualizado"]
+        color_cambio_val = "#2ecc71" if c["cambio_pct"] >= 0 else "#e74c3c"
+        filas_html += f"""
+        <tr>
+            <td>{hora}</td>
+            <td style="font-weight:700;">{"🔥" if c.get('tiene_noticia') else ""}{c['ticker']}</td>
+            <td>${c['precio']:.2f}</td>
+            <td style="color:{color_cambio_val}; font-weight:700;">{c['cambio_pct']:.1f}%</td>
+            <td>{formatear_numero_grande(c['volumen_momento'])}</td>
+            <td>{formatear_numero_grande(c.get('float_shares'))}</td>
+            <td>{round(c.get('volumen_relativo', 0), 2)}</td>
+        </tr>
+        """
+    tabla_html = f"""
+    <div class="scanner-grid-wrap">
+    <table class="scanner-grid">
+        <thead>
+            <tr>
+                <th>Hora</th>
+                <th>Ticker</th>
+                <th>Precio</th>
+                <th>Cambio %</th>
+                <th>Volumen</th>
+                <th>Flotación</th>
+                <th>Vol. Rel.</th>
+            </tr>
+        </thead>
+        <tbody>
+            {filas_html}
+        </tbody>
+    </table>
+    </div>
+    """
+    st.markdown(tabla_html, unsafe_allow_html=True)
+else:
+    st.info("Sin candidatos recientes todavía.")
