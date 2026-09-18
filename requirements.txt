@@ -2,5 +2,5 @@ streamlit
 pandas
 numpy
 yfinance
-pandas_ta
+pandas_ta_classic
 alpaca_py
