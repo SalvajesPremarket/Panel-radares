@@ -140,10 +140,10 @@ st.markdown("""
         margin-bottom: 16px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.3);
     }
-    label, .stNumberInput label, .stMarkdown, p, span {
+    .stMarkdown, p, span {
         color: #cfd3da !important;
     }
-    .finviz-filterbar label {
+    label, .stNumberInput label, .stSelectbox label {
         color: #FFD700 !important;
         font-weight: 700 !important;
         text-transform: uppercase;
@@ -220,58 +220,58 @@ st.markdown("""
 # ==========================================
 # 📊 FILTROS (barra horizontal tipo Finviz, guardados automáticamente)
 # ==========================================
-st.markdown('<div class="finviz-filterbar">', unsafe_allow_html=True)
-c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-with c1:
-    PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5)
-with c2:
-    PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5)
-with c3:
-    GAP_MINIMO_PORCENTAJE = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0)
-with c4:
-    GAP_MAXIMO_PORCENTAJE = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0)
-with c5:
-    FLOTACION_MAXIMA_ACCIONES = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000)
-with c6:
-    VOLUMEN_RELATIVO_MINIMO = st.number_input("Vol. relativo mín.", value=float(cfg["vol_rel_min"]), step=0.1)
-with c7:
-    INTERVALO_REFRESCO_SEGUNDOS = st.selectbox(
-        "Refresco (seg)",
-        options=[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-        index=[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].index(cfg["intervalo_refresco"])
-    )
+filtro_box = st.container(border=True)
+with filtro_box:
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    with c1:
+        PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5)
+    with c2:
+        PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5)
+    with c3:
+        GAP_MINIMO_PORCENTAJE = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0)
+    with c4:
+        GAP_MAXIMO_PORCENTAJE = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0)
+    with c5:
+        FLOTACION_MAXIMA_ACCIONES = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000)
+    with c6:
+        VOLUMEN_RELATIVO_MINIMO = st.number_input("Vol. relativo mín.", value=float(cfg["vol_rel_min"]), step=0.1)
+    with c7:
+        INTERVALO_REFRESCO_SEGUNDOS = st.selectbox(
+            "Refresco (seg)",
+            options=[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+            index=[1, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].index(cfg["intervalo_refresco"])
+        )
 
-d1, d2, d3, d4 = st.columns(4)
-with d1:
-    opciones_cruce = ["Hacia arriba", "Hacia abajo", "Neutro"]
-    DIRECCION_CRUCE = st.selectbox(
-        "Cruce EMA20",
-        options=opciones_cruce,
-        index=opciones_cruce.index(cfg.get("direccion_cruce", "Hacia arriba"))
-    )
-with d2:
-    opciones_macd = ["Positivo", "Negativo", "Neutro"]
-    MACD_SIGNO = st.selectbox(
-        "MACD",
-        options=opciones_macd,
-        index=opciones_macd.index(cfg.get("macd_signo", "Positivo"))
-    )
-with d3:
-    VOLUMEN_MOMENTO_MINIMO = st.number_input(
-        "Vol. mínimo del momento",
-        value=int(cfg.get("volumen_momento_min", 0)),
-        step=1000,
-        min_value=0
-    )
-with d4:
-    TOP_N = st.number_input(
-        "Top N candidatos",
-        value=int(cfg.get("top_n", 10)),
-        step=1,
-        min_value=1,
-        max_value=50
-    )
-st.markdown('</div>', unsafe_allow_html=True)
+    d1, d2, d3, d4 = st.columns(4)
+    with d1:
+        opciones_cruce = ["Hacia arriba", "Hacia abajo", "Neutro"]
+        DIRECCION_CRUCE = st.selectbox(
+            "Cruce EMA20",
+            options=opciones_cruce,
+            index=opciones_cruce.index(cfg.get("direccion_cruce", "Hacia arriba"))
+        )
+    with d2:
+        opciones_macd = ["Positivo", "Negativo", "Neutro"]
+        MACD_SIGNO = st.selectbox(
+            "MACD",
+            options=opciones_macd,
+            index=opciones_macd.index(cfg.get("macd_signo", "Positivo"))
+        )
+    with d3:
+        VOLUMEN_MOMENTO_MINIMO = st.number_input(
+            "Vol. mínimo del momento",
+            value=int(cfg.get("volumen_momento_min", 0)),
+            step=1000,
+            min_value=0
+        )
+    with d4:
+        TOP_N = st.number_input(
+            "Top N candidatos",
+            value=int(cfg.get("top_n", 10)),
+            step=1,
+            min_value=1,
+            max_value=50
+        )
 
 # Guardar cualquier cambio en los filtros automáticamente
 nuevo_cfg = {
