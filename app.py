@@ -15,7 +15,7 @@ from alpaca.data.requests import StockSnapshotRequest
 from openai import OpenAI
 from threading import Thread
 
-st.set_page_config(page_title="Panel Radares", layout="wide")
+st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 print("⚙️ Iniciando el Sistema de Radar Definitivo...")
 
@@ -38,12 +38,14 @@ st.markdown("""
         border-radius: 6px;
         margin-bottom: 14px;
         border: 1px solid #2a2e39;
+        text-align: center;
     }
     .finviz-topbar h1 {
         color: #ffffff;
-        font-size: 22px;
+        font-size: 24px;
         margin: 0;
         font-family: Arial, sans-serif;
+        text-align: center;
     }
     .finviz-badge {
         background-color: #2ecc71;
@@ -73,7 +75,7 @@ st.markdown("""
 
 st.markdown("""
 <div class="finviz-topbar">
-    <h1>⚡ panelradares <span class="finviz-badge">LIVE</span></h1>
+    <h1>SCANNER PRE MARKET <span class="finviz-badge">LIVE</span></h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -119,11 +121,15 @@ deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepsee
 
 CACHE_FLOAT = {}
 CACHE_VOL_PROMEDIO = {}
-BOT_ENCENDIDO = True
 
 if "ULTIMOS_RESULTADOS" not in globals():
     ULTIMOS_RESULTADOS = []
     ULTIMA_ACTUALIZACION = None
+
+if "bot_on" not in st.session_state:
+    st.session_state.bot_on = True
+
+BOT_ENCENDIDO = st.session_state.bot_on
 
 
 def cargar_universo_mercado():
@@ -415,6 +421,20 @@ if "hilo_iniciado" not in st.session_state:
     st.session_state.hilo_iniciado = True
     hilo_servicio = Thread(target=bucle_control_scanner, daemon=True)
     hilo_servicio.start()
+
+# ==========================================
+# 🟢🔴 BOTÓN DE ENCENDIDO/APAGADO
+# ==========================================
+col_estado, col_bot = st.columns([3, 1])
+with col_estado:
+    if st.session_state.bot_on:
+        st.markdown("### 🟢 Scanner ENCENDIDO")
+    else:
+        st.markdown("### 🔴 Scanner APAGADO")
+with col_bot:
+    st.session_state.bot_on = st.toggle("Encender / Apagar", value=st.session_state.bot_on, key="toggle_bot_encendido")
+
+BOT_ENCENDIDO = st.session_state.bot_on
 
 # ==========================================
 # 🖥️ TABLA DE RESULTADOS (estilo Finviz oscuro)
