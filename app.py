@@ -3,6 +3,7 @@ import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 import os
+import json
 import time
 import requests
 import pandas as pd
@@ -18,6 +19,46 @@ from threading import Thread
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 print("⚙️ Iniciando el Sistema de Radar Definitivo...")
+
+# ==========================================
+# 💾 PERSISTENCIA DE FILTROS
+# ==========================================
+RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
+
+VALORES_POR_DEFECTO = {
+    "precio_min": 2.0,
+    "precio_max": 20.0,
+    "gap_min": 7.0,
+    "gap_max": 500.0,
+    "flotacion_max": 10_000_000,
+    "vol_rel_min": 1.3,
+    "intervalo_refresco": 15,
+}
+
+
+def cargar_config():
+    config = VALORES_POR_DEFECTO.copy()
+    try:
+        with open(RUTA_CONFIG, "r") as f:
+            guardado = json.load(f)
+            config.update(guardado)
+    except Exception:
+        pass
+    return config
+
+
+def guardar_config(config):
+    try:
+        with open(RUTA_CONFIG, "w") as f:
+            json.dump(config, f)
+    except Exception as e:
+        print(f"⚠️ No se pudo guardar la configuración: {e}")
+
+
+if "config_filtros" not in st.session_state:
+    st.session_state.config_filtros = cargar_config()
+
+cfg = st.session_state.config_filtros
 
 # ==========================================
 # 🎨 ESTILO OSCURO TIPO FINVIZ
@@ -80,29 +121,45 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 📊 FILTROS (barra horizontal tipo Finviz)
+# 📊 FILTROS (barra horizontal tipo Finviz, guardados automáticamente)
 # ==========================================
 st.markdown('<div class="finviz-filterbar">', unsafe_allow_html=True)
-c1, c2, c3, c4, c5, c6 = st.columns(6)
+c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
 with c1:
-    PRECIO_MIN = st.number_input("Precio mín. ($)", value=2.0, step=0.5)
+    PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5)
 with c2:
-    PRECIO_MAX = st.number_input("Precio máx. ($)", value=20.0, step=0.5)
+    PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5)
 with c3:
-    GAP_MINIMO_PORCENTAJE = st.number_input("Gap mín. (%)", value=7.0, step=1.0)
+    GAP_MINIMO_PORCENTAJE = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0)
 with c4:
-    GAP_MAXIMO_PORCENTAJE = st.number_input("Gap máx. (%)", value=500.0, step=10.0)
+    GAP_MAXIMO_PORCENTAJE = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0)
 with c5:
-    FLOTACION_MAXIMA_ACCIONES = st.number_input("Flotación máx.", value=10_000_000, step=1_000_000)
+    FLOTACION_MAXIMA_ACCIONES = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000)
 with c6:
-    VOLUMEN_RELATIVO_MINIMO = st.number_input("Vol. relativo mín.", value=1.3, step=0.1)
+    VOLUMEN_RELATIVO_MINIMO = st.number_input("Vol. relativo mín.", value=float(cfg["vol_rel_min"]), step=0.1)
+with c7:
+    INTERVALO_REFRESCO_SEGUNDOS = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1)
 st.markdown('</div>', unsafe_allow_html=True)
+
+# Guardar cualquier cambio en los filtros automáticamente
+nuevo_cfg = {
+    "precio_min": PRECIO_MIN,
+    "precio_max": PRECIO_MAX,
+    "gap_min": GAP_MINIMO_PORCENTAJE,
+    "gap_max": GAP_MAXIMO_PORCENTAJE,
+    "flotacion_max": FLOTACION_MAXIMA_ACCIONES,
+    "vol_rel_min": VOLUMEN_RELATIVO_MINIMO,
+    "intervalo_refresco": INTERVALO_REFRESCO_SEGUNDOS,
+}
+if nuevo_cfg != st.session_state.config_filtros:
+    st.session_state.config_filtros = nuevo_cfg
+    guardar_config(nuevo_cfg)
 
 MINUTOS_NOTICIA_RECIENTE = 60
 TICKERS_POR_MINUTO = 15000
 TAMANO_LOTE_SNAPSHOT = 300
 MAX_CANDIDATOS_A_ANALIZAR = 20
-INTERVALO_ESCANEO_SEGUNDOS = 2
+INTERVALO_ESCANEO_SEGUNDOS = INTERVALO_REFRESCO_SEGUNDOS
 VENTANA_CRUCE_EMA_MINUTOS = 15
 MARGEN_PROXIMIDAD_EMA = 0.05
 
@@ -441,15 +498,15 @@ BOT_ENCENDIDO = st.session_state.bot_on
 # ==========================================
 col_toggle, col_manual, col_info = st.columns([1.3, 1.3, 3])
 with col_toggle:
-    auto_on = st.toggle("Auto-refresh 15s", value=True, key="auto_refresh_toggle")
+    auto_on = st.toggle("Auto-refresh", value=True, key="auto_refresh_toggle")
 with col_manual:
     if st.button("🔄 Refrescar ahora"):
         st.rerun()
 with col_info:
-    st.markdown(f"**#1 / {len(ULTIMOS_RESULTADOS)} Total**")
+    st.markdown(f"**#1 / {len(ULTIMOS_RESULTADOS)} Total** · Refresco cada {INTERVALO_REFRESCO_SEGUNDOS}s")
 
 if auto_on:
-    st_autorefresh(interval=15000, key="auto_refresh_radar")
+    st_autorefresh(interval=INTERVALO_REFRESCO_SEGUNDOS * 1000, key="auto_refresh_radar")
 
 if ULTIMA_ACTUALIZACION:
     st.caption(f"Última actualización: {ULTIMA_ACTUALIZACION.strftime('%H:%M:%S')}")
