@@ -281,3 +281,4 @@ def calcular_ema_macd(ticker, direccion_cruce="Hacia arriba", macd_signo="Positi
 
         precio_act = cierres.iloc[-1]
         ema_act = ema20.iloc[-1]
+
