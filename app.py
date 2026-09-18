@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import streamlit as st
+st.title("Panel Radares")
+st.write("El scanner está corriendo en segundo plano...")
 import yfinance as yf
 import os
 import time
