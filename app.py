@@ -140,7 +140,6 @@ with c5:
 with c6:
     VOLUMEN_RELATIVO_MINIMO = st.number_input("Vol. relativo mín.", value=float(cfg["vol_rel_min"]), step=0.1)
 
-# Botones Desplegables Solicitados
 with c7:
     opciones_ema = ["Cualquiera", "Hacia arriba", "Hacia abajo"]
     indice_ema = opciones_ema.index(cfg.get("filtro_ema20", "Hacia arriba")) if cfg.get("filtro_ema20") in opciones_ema else 1
@@ -274,7 +273,6 @@ def calcular_datos_fundamentales(ticker):
         return None, None
 
 
-# Lógica adaptada para evaluar filtros dinámicos basados en la selección de la interfaz
 def calcular_ema_macd(ticker):
     try:
         df = yf.Ticker(ticker).history(period="5d", interval="1m")
@@ -282,3 +280,9 @@ def calcular_ema_macd(ticker):
             return False
 
         cierres = df['Close']
+        ema20 = ta.ema(cierres, length=20)
+        macd_df = ta.macd(cierres)
+
+        if ema20 is None or macd_df is None or len(ema20) < VENTANA_CRUCE_EMA_MINUTOS + 1:
+            return False
+
