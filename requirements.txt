@@ -27,3 +27,4 @@ pytz>=2024.1
 # Bollinger, EMAs, MACD, Parabolic SAR, etc. Se habilitará en Fase 2.
 #
 # ta>=0.11.0
+yfinance
