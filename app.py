@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import streamlit as st
-st.title("Panel Radares")
-st.write("El scanner está corriendo en segundo plano...")
+from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 import os
 import time
@@ -15,30 +14,32 @@ from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest
 from openai import OpenAI
 from threading import Thread
-import webbrowser
+
+st.set_page_config(page_title="Panel Radares", layout="wide")
+st.title("⚡ Scanner Pre Market")
 
 print("⚙️ Iniciando el Sistema de Radar Definitivo...")
 
 # ==========================================
-# 📊 CONFIGURACIÓN GENERAL Y FILTROS
+# 📊 FILTROS (editables desde la barra lateral)
 # ==========================================
-PRECIO_MIN = 2.0
-PRECIO_MAX = 20.0
-GAP_MINIMO_PORCENTAJE = 7.0
-GAP_MAXIMO_PORCENTAJE = 500.0
-FLOTACION_MAXIMA_ACCIONES = 10_000_000
-VOLUMEN_RELATIVO_MINIMO = 1.3   # bajado de 2.0 a 1.3 para dejar pasar más candidatos; subilo si querés exigir más fuerza
-MINUTOS_NOTICIA_RECIENTE = 60   # ventana para considerar una noticia "de última hora"
-TICKERS_POR_MINUTO = 15000      # ritmo de escaneo objetivo contra la API de Alpaca
-TAMANO_LOTE_SNAPSHOT = 300
-MAX_CANDIDATOS_A_ANALIZAR = 15
-INTERVALO_ESCANEO_SEGUNDOS = 2  # pausa entre un ciclo completo y el siguiente
-VENTANA_CRUCE_EMA_MINUTOS = 15  # busca el cruce en cualquiera de las últimas N velas de 1min, no solo en la última
-MARGEN_PROXIMIDAD_EMA = 0.05    # qué tan lejos de la EMA20 puede estar el precio actual (5% en vez de 2%)
+st.sidebar.header("⚙️ Filtros del Scanner")
 
-# ==========================================
-# 🗂 NOMBRE DE ARCHIVO ÚNICO PARA ESTE BOT
-# ==========================================
+PRECIO_MIN = st.sidebar.number_input("Precio mínimo ($)", value=2.0, step=0.5)
+PRECIO_MAX = st.sidebar.number_input("Precio máximo ($)", value=20.0, step=0.5)
+GAP_MINIMO_PORCENTAJE = st.sidebar.number_input("Gap mínimo (%)", value=7.0, step=1.0)
+GAP_MAXIMO_PORCENTAJE = st.sidebar.number_input("Gap máximo (%)", value=500.0, step=10.0)
+FLOTACION_MAXIMA_ACCIONES = st.sidebar.number_input("Flotación máxima (acciones)", value=10_000_000, step=1_000_000)
+VOLUMEN_RELATIVO_MINIMO = st.sidebar.number_input("Volumen relativo mínimo", value=1.3, step=0.1)
+
+MINUTOS_NOTICIA_RECIENTE = 60
+TICKERS_POR_MINUTO = 15000
+TAMANO_LOTE_SNAPSHOT = 300
+MAX_CANDIDATOS_A_ANALIZAR = 20
+INTERVALO_ESCANEO_SEGUNDOS = 2
+VENTANA_CRUCE_EMA_MINUTOS = 15
+MARGEN_PROXIMIDAD_EMA = 0.05
+
 NOMBRE_ARCHIVO_HTML = "radar_premarket.html"
 
 # Credenciales Globales
@@ -46,7 +47,6 @@ ALPACA_API_KEY = st.secrets["ALPACA_API_KEY"]
 ALPACA_SECRET_KEY = st.secrets["ALPACA_SECRET_KEY"]
 DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
 
-# Telegram
 TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = "-1004440734539"
 
@@ -54,10 +54,14 @@ trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 data_client = StockHistoricalDataClient(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY)
 deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 
-UNIVERSO_MERCADO = []
 CACHE_FLOAT = {}
 CACHE_VOL_PROMEDIO = {}
-BOT_ENCENDIDO = False  # Controlado ahora por el botón de la ventana flotante
+BOT_ENCENDIDO = True
+
+# Estos dos deben sobrevivir a los reruns de Streamlit, por eso el guard con globals()
+if "ULTIMOS_RESULTADOS" not in globals():
+    ULTIMOS_RESULTADOS = []
+    ULTIMA_ACTUALIZACION = None
 
 
 def cargar_universo_mercado():
@@ -76,8 +80,12 @@ def cargar_universo_mercado():
     return tickers
 
 
-UNIVERSO_MERCADO = cargar_universo_mercado()
-print(f"📊 ¡Éxito! Bot cargado con {len(UNIVERSO_MERCADO)} activos del mercado completo.")
+# Cargar el universo de tickers UNA sola vez por sesión (evita descargarlo cada 15s)
+if "universo_mercado" not in st.session_state:
+    st.session_state.universo_mercado = cargar_universo_mercado()
+    print(f"📊 ¡Éxito! Bot cargado con {len(st.session_state.universo_mercado)} activos del mercado completo.")
+
+UNIVERSO_MERCADO = st.session_state.universo_mercado
 
 id_mensaje_activo = None
 
@@ -112,7 +120,6 @@ def enviar_radar_a_telegram(texto_tabla):
 
 
 def calcular_datos_fundamentales(ticker):
-    """Devuelve (float_shares, volumen_promedio) usando yfinance, con caché por ticker."""
     global CACHE_FLOAT, CACHE_VOL_PROMEDIO
     if ticker in CACHE_FLOAT and ticker in CACHE_VOL_PROMEDIO:
         return CACHE_FLOAT[ticker], CACHE_VOL_PROMEDIO[ticker]
@@ -129,11 +136,6 @@ def calcular_datos_fundamentales(ticker):
 
 
 def calcular_ema_macd(ticker):
-    """Devuelve (cruzo_recientemente_ema20, macd_positivo) usando velas de 1 minuto.
-    En vez de exigir que el cruce pase justo en la última vela, busca si el precio
-    cruzó de abajo hacia arriba de la EMA20 en cualquiera de las últimas
-    VENTANA_CRUCE_EMA_MINUTOS velas, y que el precio actual siga relativamente
-    cerca de la EMA20 (dentro de MARGEN_PROXIMIDAD_EMA)."""
     try:
         df = yf.Ticker(ticker).history(period="5d", interval="1m")
         if df is None or len(df) < 40:
@@ -152,10 +154,8 @@ def calcular_ema_macd(ticker):
         if pd.isna(ema_act) or ema_act <= 0:
             return False, False
 
-        # El precio actual debe estar por encima de la EMA20 y no demasiado lejos de ella
         cerca_de_ema = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
 
-        # Buscar el cruce (de abajo hacia arriba) en cualquiera de las últimas N velas
         cruzo_recientemente = False
         for i in range(-VENTANA_CRUCE_EMA_MINUTOS, -1):
             precio_prev_i, precio_act_i = cierres.iloc[i - 1], cierres.iloc[i]
@@ -179,7 +179,6 @@ def calcular_ema_macd(ticker):
 
 
 def tiene_noticia_reciente(ticker):
-    """Consulta la API de noticias de Alpaca por artículos en la última hora."""
     try:
         desde = (datetime.now(timezone.utc) - timedelta(minutes=MINUTOS_NOTICIA_RECIENTE)).strftime("%Y-%m-%dT%H:%M:%SZ")
         url = "https://data.alpaca.markets/v1beta1/news"
@@ -227,7 +226,7 @@ def actualizar_cuadro_flotante_html(texto_tabla):
     </head>
     <body>
         <h2>⚡️ SCANNER PRE MARKET 1.1.1</h2>
-        <div class="info">Auto-refresco cada 30 seg. Arrastra esta pestaña fuera para hacerla un cuadro flotante.</div>
+        <div class="info">Auto-refresco cada 30 seg.</div>
         <pre>{texto_tabla}</pre>
     </body>
     </html>
@@ -241,15 +240,16 @@ def actualizar_cuadro_flotante_html(texto_tabla):
 
 
 def ejecutar_ciclo_escaneo():
+    global ULTIMOS_RESULTADOS, ULTIMA_ACTUALIZACION
+
     print(f"\n🔄 [{datetime.now().strftime('%H:%M:%S')}] Buscando en el mercado completo...")
 
-    # Pausa entre lotes de snapshot para no superar TICKERS_POR_MINUTO
     pausa_entre_lotes = 60.0 / (TICKERS_POR_MINUTO / TAMANO_LOTE_SNAPSHOT)
 
     snapshots = {}
     for i in range(0, len(UNIVERSO_MERCADO), TAMANO_LOTE_SNAPSHOT):
         if not BOT_ENCENDIDO:
-            return  # se apagó a mitad del escaneo
+            return
         lote = UNIVERSO_MERCADO[i:i + TAMANO_LOTE_SNAPSHOT]
         try:
             filtro = StockSnapshotRequest(symbol_or_symbols=lote)
@@ -260,7 +260,6 @@ def ejecutar_ciclo_escaneo():
             pass
         time.sleep(pausa_entre_lotes)
 
-    # --- Filtros "baratos" que solo usan el snapshot: precio y gap% ---
     preseleccion = []
     for ticker, snap in snapshots.items():
         if not snap or not snap.latest_trade or not snap.daily_bar or not snap.previous_daily_bar:
@@ -291,38 +290,25 @@ def ejecutar_ciclo_escaneo():
         print("   ⏳ Sin candidatos que cumplan precio/gap% todavía.")
         return
 
-    # --- Filtros "caros": flotación, volumen relativo, EMA20, MACD, noticias ---
     print(f"   [DEBUG] Preselección por precio/gap%: {len(preseleccion)} candidatos: {[c['ticker'] for c in preseleccion]}")
     candidatos_finales = []
-    fallo_float_sin_dato = 0
-    fallo_float_muy_alto = 0
-    fallo_vol_promedio_sin_dato = 0
-    fallo_vol_relativo = 0
-    fallo_ema_macd = 0
-    valores_vol_relativo_fallidos = []
     for c in preseleccion:
         ticker = c['ticker']
 
         float_shares, vol_promedio = calcular_datos_fundamentales(ticker)
         if float_shares is None:
-            fallo_float_sin_dato += 1
             continue
         if float_shares >= FLOTACION_MAXIMA_ACCIONES:
-            fallo_float_muy_alto += 1
             continue
         if not vol_promedio or vol_promedio <= 0:
-            fallo_vol_promedio_sin_dato += 1
             continue
 
         volumen_relativo = c['volumen_dia'] / vol_promedio
         if volumen_relativo < VOLUMEN_RELATIVO_MINIMO:
-            fallo_vol_relativo += 1
-            valores_vol_relativo_fallidos.append((ticker, round(volumen_relativo, 2)))
             continue
 
         cruzando_ema20, macd_positivo = calcular_ema_macd(ticker)
         if not (cruzando_ema20 and macd_positivo):
-            fallo_ema_macd += 1
             continue
 
         c['float_shares'] = float_shares
@@ -331,17 +317,15 @@ def ejecutar_ciclo_escaneo():
         candidatos_finales.append(c)
 
     if not candidatos_finales:
-        top10_vol_relativo = sorted(valores_vol_relativo_fallidos, key=lambda x: x[1], reverse=True)[:10]
-        print(f"   ⏳ Ningún candidato cumple todos los filtros técnicos todavía. "
-              f"[DEBUG] sin dato de float: {fallo_float_sin_dato}, "
-              f"float demasiado alto: {fallo_float_muy_alto}, "
-              f"sin dato de vol. promedio: {fallo_vol_promedio_sin_dato}, "
-              f"por volumen relativo: {fallo_vol_relativo}, por EMA20/MACD: {fallo_ema_macd}")
-        print(f"   [DEBUG] Top 10 volumen relativo entre los que fallaron ese filtro: {top10_vol_relativo}")
+        print("   ⏳ Ningún candidato cumple todos los filtros técnicos todavía.")
         return
 
     candidatos_finales = sorted(candidatos_finales, key=lambda x: x['actualizado'], reverse=True)
     top_candidatos = candidatos_finales[:MAX_CANDIDATOS_A_ANALIZAR]
+
+    # Guardar para mostrar en el panel web
+    ULTIMOS_RESULTADOS = top_candidatos
+    ULTIMA_ACTUALIZACION = datetime.now()
 
     tabla_texto = f"{'TICK':<5}|{'PRE':>5}|{'CHG%':>4}|{'VOL':>5}|{'FLT':>5}\n"
     tabla_texto += "-" * 28 + "\n"
@@ -357,9 +341,6 @@ def ejecutar_ciclo_escaneo():
     actualizar_cuadro_flotante_html(tabla_texto)
 
 
-# ==========================================
-# 🔄 PROCESAMIENTO ASÍNCRONO DEL SCANNER
-# ==========================================
 def bucle_control_scanner():
     while True:
         if BOT_ENCENDIDO:
@@ -370,6 +351,38 @@ def bucle_control_scanner():
         time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
 
 
-# Lanzar el hilo del scanner en segundo plano (arranca en pausa hasta que le des al botón)
-hilo_servicio = Thread(target=bucle_control_scanner, daemon=True)
-hilo_servicio.start()
+# Lanzar el hilo del scanner en segundo plano UNA sola vez por sesión
+if "hilo_iniciado" not in st.session_state:
+    st.session_state.hilo_iniciado = True
+    hilo_servicio = Thread(target=bucle_control_scanner, daemon=True)
+    hilo_servicio.start()
+
+# ==========================================
+# 🖥️ PANEL DE RESULTADOS
+# ==========================================
+st_autorefresh(interval=15000, key="auto_refresh_radar")
+
+st.subheader("📡 Últimos resultados del scanner")
+
+if ULTIMA_ACTUALIZACION:
+    st.caption(f"Última actualización: {ULTIMA_ACTUALIZACION.strftime('%H:%M:%S')}")
+else:
+    st.caption("Esperando el primer escaneo con resultados...")
+
+if ULTIMOS_RESULTADOS:
+    tabla = pd.DataFrame([
+        {
+            "Ticker": c["ticker"],
+            "Precio": round(c["precio"], 2),
+            "Cambio %": round(c["cambio_pct"], 1),
+            "Volumen": formatear_numero_grande(c["volumen_dia"]),
+            "Flotación": formatear_numero_grande(c.get("float_shares")),
+            "Vol. Relativo": round(c.get("volumen_relativo", 0), 2),
+            "Noticia": "🔥" if c.get("tiene_noticia") else "",
+            "Actualizado": c["actualizado"].strftime("%H:%M:%S") if hasattr(c["actualizado"], "strftime") else c["actualizado"],
+        }
+        for c in ULTIMOS_RESULTADOS
+    ])
+    st.dataframe(tabla, use_container_width=True, hide_index=True)
+else:
+    st.info("Sin candidatos que cumplan los filtros en este momento.")
