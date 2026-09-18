@@ -89,17 +89,13 @@ st.markdown("""
         box-shadow: 0 6px 20px rgba(0,0,0,0.45);
     }
     .finviz-topbar h1 {
-        color: #ffe34d;
+        color: #c9a227;
         font-size: 26px;
         margin: 0;
         font-family: 'Segoe UI', Arial, sans-serif;
         letter-spacing: 2px;
-        font-weight: 800;
+        font-weight: 700;
         text-transform: uppercase;
-        text-shadow:
-            0 0 8px rgba(255,215,0,0.95),
-            0 0 18px rgba(255,200,0,0.75),
-            0 0 32px rgba(255,180,0,0.5);
     }
     .finviz-topbar .subtitle {
         color: #8b93a7;
@@ -132,7 +128,7 @@ st.markdown("""
         justify-content: center;
         font-size: 28px;
         background: #0a0e1a;
-        box-shadow: 0 0 0 2px #ffd700, 0 0 16px rgba(255,215,0,0.55), 0 4px 12px rgba(0,0,0,0.5);
+        box-shadow: 0 0 0 2px #c9a227, 0 4px 12px rgba(0,0,0,0.5);
     }
     .market-figure.bull { left: 24px; }
     .market-figure.bear { right: 24px; }
@@ -148,15 +144,11 @@ st.markdown("""
         color: #cfd3da !important;
     }
     label, .stNumberInput label, .stSelectbox label {
-        color: #FFEE00 !important;
-        font-weight: 800 !important;
+        color: #FFD700 !important;
+        font-weight: 700 !important;
         text-transform: uppercase;
         font-size: 11px !important;
         letter-spacing: 0.5px;
-        text-shadow:
-            0 0 6px rgba(255,238,0,0.95),
-            0 0 14px rgba(255,215,0,0.7),
-            0 0 22px rgba(255,190,0,0.4);
     }
     div[data-testid="stNumberInput"] input {
         background-color: #1a1e27;
@@ -794,8 +786,6 @@ if ULTIMOS_RESULTADOS:
     </div>
     """
     st.markdown(tabla_html_principal, unsafe_allow_html=True)
-else:
-    st.info("Sin candidatos que cumplan los filtros en este momento.")
 
 # ==========================================
 # 🕒 CUADRO DE CANDIDATOS (rejilla completa, sin encabezado de texto)
@@ -816,16 +806,15 @@ st.markdown("""
     }
     .scanner-grid th {
         background-color: #0a0e1a;
-        color: #FFEE00;
-        font-weight: 800;
+        color: #FFD700;
+        font-weight: 700;
         text-transform: uppercase;
         font-size: 12px;
         letter-spacing: 1px;
         padding: 10px 12px;
         border-right: 1px solid #2a3348;
-        border-bottom: 2px solid #ffd700;
+        border-bottom: 2px solid #c9a227;
         text-align: center;
-        text-shadow: 0 0 8px rgba(255,215,0,0.8);
     }
     .scanner-grid th:last-child { border-right: none; }
     .scanner-grid td {
@@ -840,11 +829,44 @@ st.markdown("""
     .scanner-grid td:last-child { border-right: none; }
     .scanner-grid tr:nth-child(even) td { background-color: #151a26; }
     .scanner-grid tr:last-child td { border-bottom: none; }
+    .cuadrito-caratula {
+        background: linear-gradient(135deg, #11151f 0%, #171d2c 100%);
+        border: 1px solid #2a3348;
+        border-bottom: none;
+        border-radius: 10px 10px 0 0;
+        padding: 10px 16px;
+        margin-top: 14px;
+        color: #FFD700;
+        font-weight: 700;
+        font-size: 13px;
+        letter-spacing: 0.5px;
+        font-family: 'Courier New', monospace;
+    }
+    .cuadrito-caratula .cuadrito-resumen {
+        color: #e6e6e6;
+        font-weight: 400;
+        margin-left: 6px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 if ULTIMOS_RESULTADOS:
     recientes = sorted(ULTIMOS_RESULTADOS, key=lambda x: x['actualizado'], reverse=True)
+
+    resumen_partes = [
+        f"{'🔥' if c.get('tiene_noticia') else ''}{c['ticker']} {c['cambio_pct']:+.1f}%"
+        for c in recientes
+    ]
+    resumen_texto = "  ·  ".join(resumen_partes)
+    plural = "S" if len(recientes) != 1 else ""
+    caratula_html = f"""
+    <div class="cuadrito-caratula">
+        ⚡️ {len(recientes)} CANDIDATO{plural} DETECTADO{plural}
+        <span class="cuadrito-resumen">{resumen_texto}</span>
+    </div>
+    """
+    st.markdown(caratula_html, unsafe_allow_html=True)
+
     filas_html = ""
     for c in recientes:
         color_cambio_val = "#2ecc71" if c["cambio_pct"] >= 0 else "#e74c3c"
@@ -857,24 +879,27 @@ if ULTIMOS_RESULTADOS:
             <td>{formatear_numero_grande(c.get('float_shares'))}</td>
         </tr>
         """
-    tabla_html = f"""
-    <div class="scanner-grid-wrap">
-    <table class="scanner-grid">
-        <thead>
-            <tr>
-                <th>TICK</th>
-                <th>PRE</th>
-                <th>CHG%</th>
-                <th>VOL</th>
-                <th>FLT</th>
-            </tr>
-        </thead>
-        <tbody>
-            {filas_html}
-        </tbody>
-    </table>
-    </div>
-    """
-    st.markdown(tabla_html, unsafe_allow_html=True)
+    radio_superior = "0 0 10px 10px"
 else:
-    st.info("Sin candidatos recientes todavía.")
+    filas_html = ""
+    radio_superior = "10px"
+
+tabla_html = f"""
+<div class="scanner-grid-wrap" style="margin-top:{'0' if ULTIMOS_RESULTADOS else '14px'}; border-radius:{radio_superior};">
+<table class="scanner-grid">
+    <thead>
+        <tr>
+            <th>TICK</th>
+            <th>PRE</th>
+            <th>CHG%</th>
+            <th>VOL</th>
+            <th>FLT</th>
+        </tr>
+    </thead>
+    <tbody>
+        {filas_html}
+    </tbody>
+</table>
+</div>
+"""
+st.markdown(tabla_html, unsafe_allow_html=True)
