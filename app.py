@@ -1,4 +1,4 @@
-f[18/9/2026 10:29] Minor Gomez: from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
@@ -244,7 +244,7 @@ if "universo_mercado" not in st.session_state:
 UNIVERSO_MERCADO = st.session_state.universo_mercado
 
 id_mensaje_activo = None
-[18/9/2026 10:29] Minor Gomez: def enviar_radar_a_telegram(texto_tabla):
+def enviar_radar_a_telegram(texto_tabla):
     global id_mensaje_activo
     try:
         mensaje_html = f"⚡️ <b>SCANNER PRE MARKET 1.1.1</b>\n<pre>{texto_tabla}</pre>"
@@ -333,7 +333,7 @@ def calcular_ema_macd(ticker, direccion_cruce="Hacia arriba", macd_signo="Positi
         cruzando_ema20 = cerca_de_ema and cruzo_recientemente
 
         columnas_macd = [c for c in macd_df.columns if c.startswith('MACD_')]
-[18/9/2026 10:29] Minor Gomez: macd_line = macd_df[columnas_macd[0]].iloc[-1] if columnas_macd else None
+        macd_line = macd_df[columnas_macd[0]].iloc[-1] if columnas_macd else None
         if macd_signo == "Positivo":
             macd_cumple = macd_line is not None and not pd.isna(macd_line) and macd_line > 0
         else:
@@ -439,7 +439,7 @@ def ejecutar_ciclo_escaneo():
             continue
         if not (PRECIO_MIN <= precio_actual <= PRECIO_MAX):
             continue
-[18/9/2026 10:29] Minor Gomez: cambio_porcentaje = ((precio_actual - precio_cierre_anterior) / precio_cierre_anterior) * 100
+        cambio_porcentaje = ((precio_actual - precio_cierre_anterior) / precio_cierre_anterior) * 100
         if not (GAP_MINIMO_PORCENTAJE <= cambio_porcentaje <= GAP_MAXIMO_PORCENTAJE):
             continue
 
@@ -545,7 +545,7 @@ with col_manual:
         st.rerun()
 with col_info:
     st.markdown(f"#1 / {len(ULTIMOS_RESULTADOS)} Total · Refresco cada {INTERVALO_REFRESCO_SEGUNDOS}s")
-[18/9/2026 10:29] Minor Gomez: if auto_on:
+if auto_on:
     st_autorefresh(interval=INTERVALO_REFRESCO_SEGUNDOS * 1000, key="auto_refresh_radar")
 
 if ULTIMA_ACTUALIZACION:
