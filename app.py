@@ -13,7 +13,6 @@ from alpaca.data.requests import StockSnapshotRequest
 from openai import OpenAI
 from threading import Thread
 import webbrowser
-import tkinter as tk
 
 print("⚙️ Iniciando el Sistema de Radar Definitivo...")
 
