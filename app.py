@@ -161,10 +161,57 @@ st.markdown("""
 
 st.markdown("""
 <div class="finviz-topbar">
-    <div class="market-figure bull">🐂</div>
+    <div class="market-figure bull">
+        <svg viewBox="0 0 100 100" width="42" height="42">
+            <defs>
+                <linearGradient id="bullGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#a9743f"/>
+                    <stop offset="55%" stop-color="#6b4423"/>
+                    <stop offset="100%" stop-color="#3a2412"/>
+                </linearGradient>
+                <linearGradient id="hornGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#f5ecd6"/>
+                    <stop offset="100%" stop-color="#c9b48a"/>
+                </linearGradient>
+            </defs>
+            <path d="M18,38 Q2,16 13,3 Q26,18 31,37 Z" fill="url(#hornGrad)"/>
+            <path d="M82,38 Q98,16 87,3 Q74,18 69,37 Z" fill="url(#hornGrad)"/>
+            <ellipse cx="50" cy="60" rx="36" ry="31" fill="url(#bullGrad)"/>
+            <ellipse cx="50" cy="45" rx="30" ry="16" fill="#7d5631" opacity="0.5"/>
+            <ellipse cx="50" cy="80" rx="21" ry="15" fill="#2a1a0d"/>
+            <ellipse cx="42" cy="80" rx="3.2" ry="5" fill="#000"/>
+            <ellipse cx="58" cy="80" rx="3.2" ry="5" fill="#000"/>
+            <circle cx="34" cy="52" r="4.2" fill="#0a0a0a"/>
+            <circle cx="66" cy="52" r="4.2" fill="#0a0a0a"/>
+            <circle cx="35.5" cy="50.5" r="1.2" fill="#fff"/>
+            <circle cx="67.5" cy="50.5" r="1.2" fill="#fff"/>
+        </svg>
+    </div>
     <h1>SCANNER PRE MARKET <span class="finviz-badge">● LIVE</span></h1>
     <div class="subtitle">Radar de oportunidades en tiempo real</div>
-    <div class="market-figure bear">🐻</div>
+    <div class="market-figure bear">
+        <svg viewBox="0 0 100 100" width="42" height="42">
+            <defs>
+                <radialGradient id="bearGrad" cx="45%" cy="35%" r="65%">
+                    <stop offset="0%" stop-color="#8a6a45"/>
+                    <stop offset="60%" stop-color="#5a3f24"/>
+                    <stop offset="100%" stop-color="#2e2013"/>
+                </radialGradient>
+            </defs>
+            <circle cx="21" cy="22" r="13" fill="url(#bearGrad)"/>
+            <circle cx="79" cy="22" r="13" fill="url(#bearGrad)"/>
+            <circle cx="21" cy="22" r="6" fill="#3a2a18"/>
+            <circle cx="79" cy="22" r="6" fill="#3a2a18"/>
+            <circle cx="50" cy="56" r="39" fill="url(#bearGrad)"/>
+            <ellipse cx="50" cy="70" rx="19" ry="15" fill="#b89a72"/>
+            <ellipse cx="50" cy="64" rx="6.5" ry="4.5" fill="#1a1208"/>
+            <path d="M50,67 L50,74" stroke="#1a1208" stroke-width="2"/>
+            <circle cx="34" cy="48" r="4.2" fill="#0a0a0a"/>
+            <circle cx="66" cy="48" r="4.2" fill="#0a0a0a"/>
+            <circle cx="35.5" cy="46.5" r="1.2" fill="#fff"/>
+            <circle cx="67.5" cy="46.5" r="1.2" fill="#fff"/>
+        </svg>
+    </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -666,27 +713,44 @@ if ULTIMOS_RESULTADOS:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    def color_cambio(val):
-        try:
-            v = float(val)
-        except (TypeError, ValueError):
-            return ''
-        color = '#2ecc71' if v >= 0 else '#e74c3c'
-        return f'color: {color}; font-weight: 700'
-
-    styled = (
-        df.style
-        .map(color_cambio, subset=['Cambio %'])
-        .set_properties(**{
-            'background-color': '#11151f',
-            'color': '#e6e6e6',
-            'border-color': '#2a2e39'
-        })
-        .set_table_styles([
-            {'selector': 'th', 'props': [('background-color', '#0a0e1a'), ('color', '#c9a227'), ('font-weight', 'bold')]}
-        ])
-    )
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    filas_html_principal = ""
+    for i, c in enumerate(ULTIMOS_RESULTADOS):
+        color_cambio_val = "#2ecc71" if c["cambio_pct"] >= 0 else "#e74c3c"
+        hora_act = c["actualizado"].strftime("%H:%M:%S") if hasattr(c["actualizado"], "strftime") else c["actualizado"]
+        filas_html_principal += f"""
+        <tr>
+            <td>{i + 1}</td>
+            <td style="font-weight:700;">{"🔥" if c.get('tiene_noticia') else ""}{c['ticker']}</td>
+            <td>${c['precio']:.2f}</td>
+            <td style="color:{color_cambio_val}; font-weight:700;">{c['cambio_pct']:.1f}%</td>
+            <td>{formatear_numero_grande(c['volumen_momento'])}</td>
+            <td>{formatear_numero_grande(c.get('float_shares'))}</td>
+            <td>{round(c.get('volumen_relativo', 0), 2)}</td>
+            <td>{hora_act}</td>
+        </tr>
+        """
+    tabla_html_principal = f"""
+    <div class="scanner-grid-wrap">
+    <table class="scanner-grid">
+        <thead>
+            <tr>
+                <th>No.</th>
+                <th>TICK</th>
+                <th>PRE</th>
+                <th>CHG%</th>
+                <th>VOL</th>
+                <th>FLT</th>
+                <th>VOL. REL.</th>
+                <th>HORA</th>
+            </tr>
+        </thead>
+        <tbody>
+            {filas_html_principal}
+        </tbody>
+    </table>
+    </div>
+    """
+    st.markdown(tabla_html_principal, unsafe_allow_html=True)
 else:
     st.info("Sin candidatos que cumplan los filtros en este momento.")
 
