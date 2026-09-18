@@ -388,4 +388,194 @@ def ejecutar_ciclo_escaneo():
         lote = UNIVERSO_MERCADO[i:i + TAMANO_LOTE_SNAPSHOT]
         try:
             filtro = StockSnapshotRequest(symbol_or_symbols=lote)
-            resultado_lote = data
+            resultado_lote = data_client.get_stock_snapshot(filtro)
+            if resultado_lote:
+                snapshots.update(resultado_lote)
+        except:
+            pass
+        time.sleep(pausa_entre_lotes)
+
+    preseleccion = []
+    for ticker, snap in snapshots.items():
+        if not snap or not snap.latest_trade or not snap.daily_bar or not snap.previous_daily_bar:
+            continue
+
+        precio_actual = snap.latest_trade.price
+        precio_cierre_anterior = snap.previous_daily_bar.close
+        volumen_dia = snap.daily_bar.volume
+
+        if precio_cierre_anterior <= 0:
+            continue
+        if not (PRECIO_MIN <= precio_actual <= PRECIO_MAX):
+            continue
+        cambio_porcentaje = ((precio_actual - precio_cierre_anterior) / precio_cierre_anterior) * 100
+        if not (GAP_MINIMO_PORCENTAJE <= cambio_porcentaje <= GAP_MAXIMO_PORCENTAJE):
+            continue
+
+        preseleccion.append({
+            "ticker": ticker,
+            "precio": precio_actual,
+            "cambio_pct": cambio_porcentaje,
+            "volumen_dia": volumen_dia,
+            "actualizado": snap.latest_trade.timestamp
+        })
+
+    if not preseleccion:
+        print("   ⏳ Sin candidatos que cumplan precio/gap% todavía.")
+        return
+
+    print(f"   [DEBUG] Preselección por precio/gap%: {len(preseleccion)} candidatos: {[c['ticker'] for c in preseleccion]}")
+    candidatos_finales = []
+    for c in preseleccion:
+        ticker = c['ticker']
+
+        float_shares, vol_promedio = calcular_datos_fundamentales(ticker)
+        if float_shares is None:
+            continue
+        if float_shares >= FLOTACION_MAXIMA_ACCIONES:
+            continue
+        if not vol_promedio or vol_promedio <= 0:
+            continue
+
+        volumen_relativo = c['volumen_dia'] / vol_promedio
+        if volumen_relativo < VOLUMEN_RELATIVO_MINIMO:
+            continue
+
+        cruzando_ema20, macd_cumple = calcular_ema_macd(ticker, cfg["direccion_cruce"], cfg["macd_signo"])
+        if not (cruzando_ema20 and macd_cumple):
+            continue
+
+        c['float_shares'] = float_shares
+        c['volumen_relativo'] = volumen_relativo
+        c['tiene_noticia'] = tiene_noticia_reciente(ticker)
+        candidatos_finales.append(c)
+
+    if not candidatos_finales:
+        print("   ⏳ Ningún candidato cumple todos los filtros técnicos todavía.")
+        return
+
+    candidatos_finales = sorted(candidatos_finales, key=lambda x: x['actualizado'], reverse=True)
+    top_candidatos = candidatos_finales[:MAX_CANDIDATOS_A_ANALIZAR]
+
+    ULTIMOS_RESULTADOS = top_candidatos
+    ULTIMA_ACTUALIZACION = datetime.now()
+
+    tabla_texto = f"{'TICK':<5}|{'PRE':>5}|{'CHG%':>4}|{'VOL':>5}|{'FLT':>5}\n"
+    tabla_texto += "-" * 28 + "\n"
+    for c in top_candidatos:
+        ticker_mostrado = f"🔥{c['ticker']}" if c['tiene_noticia'] else c['ticker']
+        vol_formateado = formatear_numero_grande(c['volumen_dia'])
+        flt_formateado = formatear_numero_grande(c['float_shares'])
+        chg_texto = f"{c['cambio_pct']:.0f}%"
+        tabla_texto += f"{ticker_mostrado:<5}|{c['precio']:>5.2f}|{chg_texto:>4}|{vol_formateado:>5}|{flt_formateado:>5}\n"
+
+    print("   📊 ¡Candidatos encontrados! Actualizando canales...")
+    enviar_radar_a_telegram(tabla_texto)
+    actualizar_cuadro_flotante_html(tabla_texto)
+
+def bucle_control_scanner():
+    while True:
+        if BOT_ENCENDIDO:
+            try:
+                ejecutar_ciclo_escaneo()
+            except Exception as e:
+                print(f"⚠️ Error en escaneo: {e}")
+        time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
+
+if "hilo_iniciado" not in st.session_state:
+    st.session_state.hilo_iniciado = True
+    hilo_servicio = Thread(target=bucle_control_scanner, daemon=True)
+    hilo_servicio.start()
+
+# ==========================================
+# 🟢🔴 BOTÓN DE ENCENDIDO/APAGADO
+# ==========================================
+col_estado, col_bot = st.columns([3, 1])
+with col_estado:
+    if st.session_state.bot_on:
+        st.markdown("### 🟢 Scanner ENCENDIDO")
+    else:
+        st.markdown("### 🔴 Scanner APAGADO")
+with col_bot:
+    st.session_state.bot_on = st.toggle("Encender / Apagar", value=st.session_state.bot_on, key="toggle_bot_encendido")
+
+BOT_ENCENDIDO = st.session_state.bot_on
+
+# ==========================================
+# 🖥 TABLA DE RESULTADOS (estilo Finviz oscuro)
+# ==========================================
+col_toggle, col_manual, col_info = st.columns([1.3, 1.3, 3])
+with col_toggle:
+    auto_on = st.toggle("Auto-refresh", value=True, key="auto_refresh_toggle")
+with col_manual:
+    if st.button("🔄 Refrescar ahora"):
+        st.rerun()
+with col_info:
+    st.markdown(f"#1 / {len(ULTIMOS_RESULTADOS)} Total · Refresco cada {INTERVALO_REFRESCO_SEGUNDOS}s")
+if auto_on:
+    st_autorefresh(interval=INTERVALO_REFRESCO_SEGUNDOS * 1000, key="auto_refresh_radar")
+
+if ULTIMA_ACTUALIZACION:
+    st.caption(f"Última actualización: {ULTIMA_ACTUALIZACION.strftime('%H:%M:%S')}")
+else:
+    st.caption("Esperando el primer escaneo con resultados...")
+
+if ULTIMOS_RESULTADOS:
+    df = pd.DataFrame([
+        {
+            "No.": i + 1,
+            "Ticker": c["ticker"],
+            "Precio": round(c["precio"], 2),
+            "Cambio %": round(c["cambio_pct"], 1),
+            "Volumen": formatear_numero_grande(c["volumen_dia"]),
+            "Flotación": formatear_numero_grande(c.get("float_shares")),
+            "Vol. Relativo": round(c.get("volumen_relativo", 0), 2),
+            "Noticia": "🔥" if c.get("tiene_noticia") else "",
+            "Actualizado": c["actualizado"].strftime("%H:%M:%S") if hasattr(c["actualizado"], "strftime") else c["actualizado"],
+        }
+        for i, c in enumerate(ULTIMOS_RESULTADOS)
+    ])
+
+    fig = px.bar(
+        df.sort_values("Cambio %", ascending=False),
+        x="Ticker",
+        y="Cambio %",
+        color="Cambio %",
+        color_continuous_scale=["#e74c3c", "#2ecc71"],
+        title=f"Top {TOP_N} · Cambio % pre-market",
+        text="Cambio %",
+    )
+    fig.update_traces(texttemplate='%{text:.1f}%', textposition='outside')
+    fig.update_layout(
+        paper_bgcolor="#0e1117",
+        plot_bgcolor="#0e1117",
+        font_color="#e6e6e6",
+        title_font_color="#00ffcc",
+        coloraxis_showscale=False,
+        margin=dict(t=50, b=10, l=10, r=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    def color_cambio(val):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ''
+        color = '#2ecc71' if v >= 0 else '#e74c3c'
+        return f'color: {color}; font-weight: 700'
+
+    styled = (
+        df.style
+        .map(color_cambio, subset=['Cambio %'])
+        .set_properties(**{
+            'background-color': '#12151c',
+            'color': '#e6e6e6',
+            'border-color': '#2a2e39'
+        })
+        .set_table_styles([
+            {'selector': 'th', 'props': [('background-color', '#0e1117'), ('color', '#00ffcc'), ('font-weight', 'bold')]}
+        ])
+    )
+    st.dataframe(styled, use_container_width=True, hide_index=True)
+else:
+    st.info("Sin candidatos que cumplan los filtros en este momento.")
