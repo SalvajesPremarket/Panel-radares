@@ -187,7 +187,7 @@ TELEGRAM_CHAT_ID = "-1004440734539"
 
 trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
 data_client = StockHistoricalDataClient(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY)
-deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://deepseek.com")
+deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepseek.com")
 
 CACHE_FLOAT = {}
 CACHE_VOL_PROMEDIO = {}
@@ -233,7 +233,7 @@ def enviar_radar_a_telegram(texto_tabla):
         cabeceras = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
         if id_mensaje_activo is None:
-            url = f"https://telegram.org{TELEGRAM_BOT_TOKEN}/sendMessage"
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             respuesta = requests.post(url, json=payload, headers=cabeceras, timeout=15)
             if respuesta.status_code == 200:
                 id_mensaje_activo = respuesta.json()["result"]["message_id"]
@@ -241,7 +241,7 @@ def enviar_radar_a_telegram(texto_tabla):
             else:
                 print(f"   ❌ Telegram rechazó el mensaje. Estado HTTP: {respuesta.status_code} - {respuesta.text}")
         else:
-            url = f"https://telegram.org{TELEGRAM_BOT_TOKEN}/editMessageText"
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText"
             payload["message_id"] = id_mensaje_activo
             respuesta = requests.post(url, json=payload, headers=cabeceras, timeout=15)
             if respuesta.status_code != 200 and "message is not modified" not in respuesta.text:
