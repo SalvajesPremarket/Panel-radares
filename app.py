@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+rom datetime import datetime, timedelta, timezone
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
@@ -1200,71 +1200,196 @@ st.markdown("""
         top: 50%;
         transform: translateY(-50%);
         width: 64px;
-        height: 64px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 28px;
-        background: #0a0e1a;
-        box-shadow: 0 0 0 2px #c9a227, 0 4px 12px rgba(0,0,0,0.5);
+import os
+import json
+import time
+import requests
+import threading
+from datetime import datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+import pandas as pd
+import pandas_ta_classic as ta
+import plotly.express as px
+import streamlit as st
+import yfinance as yf
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockSnapshotRequest
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import AssetClass, AssetStatus
+from alpaca.trading.requests import GetAssetsRequest
+from streamlit_autorefresh import st_autorefresh
+from threading import Thread
+
+st.set_page_config(page_title="Scanner Pre Market", layout="wide")
+
+print("⚙️ Iniciando el Sistema de Radar Definitivo...")
+
+# ==========================================
+# 🔒 CONTROL DE ACCESO: SISTEMA DE TOKENS ANTI-PIRATERÍA
+# ==========================================
+def verificar_token(token_usuario):
+    try:
+        tokens_validos = st.secrets.get("TOKENS_AUTORIZADOS", {})
+        if token_usuario in tokens_validos:
+            fecha_exp_str = tokens_validos[token_usuario]
+            fecha_expiracion = datetime.strptime(fecha_exp_str, "%Y-%m-%d").date()
+            if datetime.now().date() <= fecha_expiracion:
+                return True, fecha_exp_str
+            return False, "EXPIRADO"
+    except Exception as e:
+        print(f"⚠️ Error en validación de token: {e}")
+    return False, "INVALIDO"
+
+def pantalla_autenticacion():
+    st.markdown("<style>.stApp { background-color: #0a0e1a; }</style>", unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="max-width: 460px; margin: 60px auto; background: #11151f; 
+                border: 1px solid #2a3348; border-radius: 12px; padding: 40px; text-align: center;">
+        <h2 style="color:#FFD700; font-family:sans-serif; margin-bottom:5px;">SISTEMA PROTEGIDO</h2>
+        <p style="color:#8b93a7; font-size:11px; letter-spacing:2px; margin-bottom:20px;">SCANNER PRE MARKET v1.1.1</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.form("modulo_seguridad"):
+        token_ingresado = st.text_input("Introduce tu Token de Acceso Profesional", type="password")
+        boton_entrar = st.form_submit_button("Validar Licencia y Conectar Servidores")
+        
+    if boton_entrar:
+        token_limpio = token_ingresado.strip()
+        es_valido, estado = verificar_token(token_limpio)
+        if es_valido:
+            st.session_state["token_verificado"] = token_limpio
+            st.session_state["fecha_vencimiento"] = estado
+            st.success("¡Licencia verificada! Conectando...")
+            st.rerun()
+        elif estado == "EXPIRADO":
+            st.error("🔒 Token expirado. Renueva tu suscripción.")
+        else:
+            st.error("❌ Token no válido. Acceso denegado.")
+    st.stop()
+
+if "token_verificado" not in st.session_state:
+    pantalla_autenticacion()
+
+TOKEN_ACTIVO = st.session_state["token_verificado"]
+FECHA_VENCIMIENTO_LICENCIA = st.session_state["fecha_vencimiento"]
+
+# ==========================================
+# 💾 PERSISTENCIA DE FILTROS
+# ==========================================
+RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
+
+def cargar_config():
+    try:
+        if os.path.exists(RUTA_CONFIG):
+            with open(RUTA_CONFIG, "r") as f:
+                return json.load(f)
+    except Exception: pass
+    return {
+        "precio_min": 2.0, "precio_max": 20.0, "gap_min": 4.0, "gap_max": 500.0,
+        "flotacion_max": 20_000_000, "vol_rel_min": 1.8, "volumen_momento_min": 15000,
+        "intervalo_refresco": 15, "direccion_cruce": "Hacia arriba", "macd_signo": "Neutro", "top_n": 10
     }
-    .market-figure.bull { left: 24px; }
-    .market-figure.bear { right: 24px; }
-    .stMarkdown, p, span {
-        color: #cfd3da !important;
-    }
-    label, .stNumberInput label, .stSelectbox label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] {
-        color: #FFD700 !important;
-        font-weight: 700 !important;
-        text-transform: uppercase;
-        font-size: 11px !important;
-        letter-spacing: 0.5px;
-    }
-    div[data-testid="stNumberInput"] input {
-        background-color: #1a1e27;
-        color: #ffffff;
-        border: 1px solid #2a3348 !important;
-    }
+
+def guardar_config(config):
+    try:
+        with open(RUTA_CONFIG, "w") as f: json.dump(config, f)
+    except Exception: pass
+
+if "config_filtros" not in st.session_state:
+    st.session_state.config_filtros = cargar_config()
+
+cfg = st.session_state.config_filtros
+
+# ==========================================
+# 🎨 ESTILOS FINVIZ OSCURO AUTOMÁTICO
+# ==========================================
+st.markdown("""
+<style>
+    .stApp { background-color: #0a0e1a; color: #e6e6e6; }
+    [data-testid="stHeader"], [data-testid="stSidebar"] { background-color: #0a0e1a; }
+    .finviz-topbar { background: linear-gradient(135deg, #0d1420 0%, #131b2c 100%); padding: 20px; border-radius: 10px; margin-bottom: 15px; border: 1px solid #2a3348; border-bottom: 3px solid #ffd700; text-align: center; }
+    .finviz-topbar h1 { color: #c9a227; font-size: 24px; margin: 0; font-family: sans-serif; font-weight: 700; }
+    label, [data-testid="stWidgetLabel"] p { color: #FFD700 !important; font-weight: 700 !important; text-transform: uppercase; font-size: 11px !important; }
+    div[data-testid="stNumberInput"] input { background-color: #1a1e27; color: #ffffff; border: 1px solid #2a3348 !important; }
+    .scanner-grid-wrap { border: 1px solid #2a3348; border-radius: 10px; overflow: hidden; margin-top: 10px; }
+    .scanner-grid { width: 100%; border-collapse: collapse; background-color: #11151f; }
+    .scanner-grid th { background-color: #0a0e1a; color: #FFD700 !important; font-weight: 700; font-size: 12px; padding: 10px; border-bottom: 2px solid #c9a227; text-align: center; }
+    .scanner-grid td { padding: 9px; border-bottom: 1px solid #232838; text-align: center; color: #e6e6e6; font-family: monospace; font-size: 13px; }
+    .scanner-grid tr:nth-child(even) td { background-color: #151a26; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("""
-<div class="finviz-topbar">
-    <div class="market-figure bull">
-        <svg viewBox="0 0 100 100" width="52" height="52">
-            <defs>
-                <linearGradient id="goldGradBull" x1="10%" y1="0%" x2="95%" y2="100%">
-                    <stop offset="0%" stop-color="#fff6d0"/>
-                    <stop offset="22%" stop-color="#ffe680"/>
-                    <stop offset="48%" stop-color="#ffcc33"/>
-                    <stop offset="72%" stop-color="#d99a12"/>
-                    <stop offset="100%" stop-color="#8a5f08"/>
-                </linearGradient>
-                <linearGradient id="goldHighlightBull" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stop-color="#fffdf0"/>
-                    <stop offset="100%" stop-color="#ffd84d"/>
-                </linearGradient>
-            </defs>
-            <path d="M85,55 Q98,50 97,62 Q95,72 84,68" fill="none" stroke="url(#goldGradBull)" stroke-width="4" stroke-linecap="round"/>
-            <path d="M40,30 Q30,10 18,12 Q26,26 34,36 Z" fill="url(#goldHighlightBull)"/>
-            <path d="M50,26 Q52,6 64,4 Q60,20 54,32 Z" fill="url(#goldHighlightBull)"/>
-            <circle cx="34" cy="34" rx="4.5" ry="6" fill="url(#goldGradBull)"/>
-            <ellipse cx="58" cy="62" rx="34" ry="20" fill="url(#goldGradBull)"/>
-            <ellipse cx="58" cy="55" rx="28" ry="10" fill="url(#goldHighlightBull)" opacity="0.55"/>
-            <rect x="30" y="72" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
-            <rect x="46" y="76" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
-            <rect x="70" y="76" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
-            <rect x="84" y="72" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
-            <ellipse cx="30" cy="48" rx="16" ry="13" fill="url(#goldGradBull)"/>
-            <ellipse cx="24" cy="46" rx="7" ry="6" fill="url(#goldHighlightBull)" opacity="0.6"/>
-            <ellipse cx="18" cy="52" rx="7" ry="5.5" fill="url(#goldHighlightBull)"/>
-            <circle cx="15" cy="52" r="1.4" fill="#4a2e00"/>
-            <circle cx="21" cy="52" r="1.4" fill="#4a2e00"/>
-            <circle cx="29" cy="42" r="2.6" fill="#2a1a00"/>
-            <circle cx="30" cy="41" r="0.8" fill="#fff"/>
-        </svg>
-    </div>
-    <h1>SCANNER PRE MARKET <span class="finviz-badge">● LIVE</span></h1>
-    <div class="subtitle">Radar de oportunidades en tiempo real</div>
+st.markdown('<div class="finviz-topbar"><h1>🐂 SCANNER PRE MARKET LIVE 🐻</h1><div style="color:#8b93a7; font-size:11px; letter-spacing:2px;">RADAR INSTITUCIONAL EN TIEMPO REAL</div></div>', unsafe_allow_html=True)
+st.markdown(f'<div style="text-align:right; color:#8b93a7; font-size:11px; margin-bottom:10px;">🔐 LICENCIA: <span style="color:#16c784;">{TOKEN_ACTIVO}</span> (Vence: {FECHA_VENCIMIENTO_LICENCIA})</div>', unsafe_allow_html=True)
 
+# ==========================================
+# 📊 CONTROL DE FILTROS EN INTERFAZ
+# ==========================================
+filtro_box = st.container(border=True)
+with filtro_box:
+    c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+    with c1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5)
+    with c2: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5)
+    with c3: GAP_MINIMO_PORCENTAJE = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0)
+    with c4: GAP_MAXIMO_PORCENTAJE = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0)
+    with c5: FLOTACION_MAXIMA_ACCIONES = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000)
+    with c6: VOLUMEN_RELATIVO_MINIMO = st.number_input("Vol. relativo mín.", value=float(cfg["vol_rel_min"]), step=0.1)
+    with c7: INTERVALO_REFRESCO_SEGUNDOS = st.selectbox("Refresco (seg)", options=[1, 5, 10, 15, 30, 60], index=[1, 5, 10, 15, 30, 60].index(cfg["intervalo_refresco"]))
+
+    d1, d2, d3, d4 = st.columns(4)
+    with d1: DIRECCION_CRUCE = st.selectbox("Cruce EMA20", options=["Hacia arriba", "Hacia abajo", "Neutro"], index=["Hacia arriba", "Hacia abajo", "Neutro"].index(cfg.get("direccion_cruce", "Hacia arriba")))
+    with d2: MACD_SIGNO = st.selectbox("MACD", options=["Positivo", "Negativo", "Neutro"], index=["Positivo", "Negativo", "Neutro"].index(cfg.get("macd_signo", "Neutro")))
+    with d3: VOLUMEN_MOMENTO_MINIMO = st.number_input("Vol. mínimo momento", value=int(cfg.get("volumen_momento_min", 15000)), step=1000)
+    with d4: TOP_N = st.number_input("Top N candidatos", value=int(cfg.get("top_n", 10)), min_value=1, max_value=50)
+
+nuevo_cfg = {
+    "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MINIMO_PORCENTAJE, "gap_max": GAP_MAXIMO_PORCENTAJE,
+    "flotacion_max": FLOTACION_MAXIMA_ACCIONES, "vol_rel_min": VOLUMEN_RELATIVO_MINIMO, "volumen_momento_min": VOLUMEN_MOMENTO_MINIMO,
+    "intervalo_refresco": INTERVALO_REFRESCO_SEGUNDOS, "direccion_cruce": DIRECCION_CRUCE, "macd_signo": MACD_SIGNO, "top_n": TOP_N
+}
+if nuevo_cfg != st.session_state.config_filtros:
+    st.session_state.config_filtros = nuevo_cfg
+    guardar_config(nuevo_cfg)
+
+# ==========================================
+# ⚡️ INFRAESTRUCTURA DE CONEXIÓN CON APIS
+# ==========================================
+MINUTOS_NOTICIA_RECIENTE = 60
+TICKERS_POR_MINUTO = 15000
+TAMANO_LOTE_SNAPSHOT = 300
+VENTANA_CRUCE_EMA_MINUTOS = 15
+MARGEN_PROXIMIDAD_EMA = 0.05
+NOMBRE_ARCHIVO_HTML = "radar_premarket.html"
+
+ALPACA_API_KEY = st.secrets["ALPACA_API_KEY"]
+ALPACA_SECRET_KEY = st.secrets["ALPACA_SECRET_KEY"]
+TELEGRAM_BOT_TOKEN = st.secrets["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_CHAT_ID = "-1004440734539"
+
+trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+data_client = StockHistoricalDataClient(api_key=ALPACA_API_KEY, secret_key=ALPACA_SECRET_KEY)
+
+if "CACHE_FLOAT" not in st.session_state: st.session_state.CACHE_FLOAT = {}
+if "CACHE_VOL_PROMEDIO" not in st.session_state: st.session_state.CACHE_VOL_PROMEDIO = {}
+if "ULTIMOS_RESULTADOS" not in st.session_state: st.session_state.ULTIMOS_RESULTADOS = []
+if "ULTIMA_ACTUALIZACION" not in st.session_state: st.session_state.ULTIMA_ACTUALIZACION = None
+if "bot_on" not in st.session_state: st.session_state.bot_on = True
+
+DATA_LOCK = threading.Lock()
+
+@st.cache_resource
+def cargar_universo_mercado():
+    solicitud = GetAssetsRequest(asset_class=AssetClass.US_EQUITY, status=AssetStatus.ACTIVE)
+    activos = trading_client.get_all_assets(solicitud)
+    return [a.symbol for a in activos if a.tradable and a.exchange in ("NASDAQ", "NYSE", "AMEX", "ARCA") and "." not in a.symbol and "-" not in a.symbol]
+
+if "universo_mercado" not in st.session_state:
+    st.session_state.universo_mercado = cargar_universo_mercado()
+
+UNIVERSO_MERCADO = st.session_state.universo_mercado
+id_mensaje_activo = None
+
+def enviar_radar_a_telegram(texto_tabla):
