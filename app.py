@@ -22,6 +22,97 @@ st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 print("⚙️ Iniciando el Sistema de Radar Definitivo...")
 
 # ==========================================
+# 🔐 CONTROL DE ACCESO: PRUEBA GRATIS 30 DÍAS + PAGO ÚNICO PAYPAL
+# ==========================================
+DIAS_DE_PRUEBA = 30
+PRECIO_ACCESO = "65.00"
+MONEDA_ACCESO = "USD"
+CORREO_PAYPAL_RECEPTOR = "minorgt45@gmail.com"
+GOOGLE_SCRIPT_URL = st.secrets.get("GOOGLE_SCRIPT_URL", "")
+
+def obtener_email_usuario():
+    try:
+        correo = st.experimental_user.email
+        if correo:
+            return correo
+    except Exception:
+        pass
+    try:
+        correo = st.user.email
+        if correo:
+            return correo
+    except Exception:
+        pass
+    return None
+
+def verificar_acceso_usuario(email):
+    try:
+        respuesta = requests.get(
+            GOOGLE_SCRIPT_URL,
+            params={"action": "check_or_create", "email": email},
+            timeout=10
+        )
+        if respuesta.status_code == 200:
+            return respuesta.json()
+    except Exception as e:
+        print(f"⚠️ Error verificando acceso: {e}")
+    return None
+
+def mostrar_pantalla_de_pago(email, dias_restantes):
+    link_pago = (
+        "https://www.paypal.com/cgi-bin/webscr"
+        "?cmd=_xclick"
+        f"&business={CORREO_PAYPAL_RECEPTOR}"
+        "&item_name=Acceso%20de%20por%20vida%20-%20Scanner%20Pre%20Market"
+        f"&amount={PRECIO_ACCESO}"
+        f"&currency_code={MONEDA_ACCESO}"
+        f"&custom={email}"
+        f"&notify_url={GOOGLE_SCRIPT_URL}"
+    )
+    st.markdown("""
+    <style>
+        .stApp { background-color: #0a0e1a; }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="max-width:520px; margin:80px auto; background:#11151f; border:1px solid #2a3348;
+                border-radius:14px; padding:40px 36px; text-align:center; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+        <div style="font-size:42px; margin-bottom:10px;">⏳</div>
+        <h2 style="color:#FFD700; text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">
+            Tu prueba gratis terminó
+        </h2>
+        <p style="color:#cfd3da; font-size:14px; margin-bottom:24px;">
+            Tuviste {DIAS_DE_PRUEBA} días de acceso completo al Scanner Pre Market.
+            Para seguir usándolo, el acceso es de <b style="color:#FFD700;">por vida</b>
+            con un pago único de <b style="color:#FFD700;">${PRECIO_ACCESO} {MONEDA_ACCESO}</b>.
+        </p>
+        <a href="{link_pago}" target="_blank" style="display:inline-block; background:#ffc439; color:#111;
+           font-weight:800; padding:14px 32px; border-radius:8px; text-decoration:none; font-size:15px;
+           box-shadow:0 4px 14px rgba(255,196,57,0.4);">
+            Pagar con PayPal — ${PRECIO_ACCESO}
+        </a>
+        <p style="color:#5c6577; font-size:11px; margin-top:22px;">
+            Correo verificado: {email}<br>
+            Tu acceso se activa automáticamente en cuanto PayPal confirme el pago.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+_email_usuario = obtener_email_usuario()
+_acceso_permitido = True
+_dias_restantes_prueba = None
+
+if _email_usuario and GOOGLE_SCRIPT_URL:
+    _info_acceso = verificar_acceso_usuario(_email_usuario)
+    if _info_acceso is not None:
+        if not _info_acceso.get("paid") and not _info_acceso.get("trial_activo"):
+            _acceso_permitido = False
+            mostrar_pantalla_de_pago(_email_usuario, 0)
+            st.stop()
+        elif not _info_acceso.get("paid"):
+            _dias_restantes_prueba = _info_acceso.get("dias_restantes")
+
+# ==========================================
 # 💾 PERSISTENCIA DE FILTROS
 # ==========================================
 RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
@@ -251,6 +342,14 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+if _dias_restantes_prueba is not None:
+    st.markdown(f"""
+    <div style="text-align:center; color:#FFD700; font-size:12px; font-weight:700;
+                letter-spacing:0.5px; text-transform:uppercase; margin-bottom:10px;">
+        🎁 Prueba gratis: {_dias_restantes_prueba} día{"s" if _dias_restantes_prueba != 1 else ""} restante{"s" if _dias_restantes_prueba != 1 else ""}
+    </div>
+    """, unsafe_allow_html=True)
 
 
 
