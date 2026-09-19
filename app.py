@@ -51,6 +51,7 @@ st.success("🔓 Acceso concedido correctamente.")
 GITHUB_USER = "SalvajesPremarket"
 GITHUB_REPO = "Panel-radares"
 GITHUB_BRANCH = "main"
+
 URL_FILTROS = f"https://githubusercontent.com{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}/config_filtros_radar.json"
 
 @st.cache_data(ttl=600)
