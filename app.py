@@ -48,9 +48,9 @@ st.success("🔓 Acceso concedido correctamente.")
 # 2. CARGA DE CONFIGURACIÓN DE FILTROS DESDE GITHUB
 # ---------------------------------------------------------
 # REEMPLAZA ESTAS VARIABLES CON TUS DATOS REALES DE GITHUB
-GITHUB_USER = "TU_USUARIO_DE_GITHUB"
-GITHUB_REPO = "TU_NOMBRE_DE_REPOSITORIO"
-GITHUB_BRANCH = "main"  # o 'master'
+GITHUB_USER = "SalvajesPremarket"
+GITHUB_REPO = "Panel-radares"
+GITHUB_BRANCH = "main"
 URL_FILTROS = f"https://githubusercontent.com{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}/config_filtros_radar.json"
 
 @st.cache_data(ttl=600)
