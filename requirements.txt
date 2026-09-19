@@ -1,9 +1,8 @@
 streamlit
-pandas
-numpy
-yfinance
-pandas_ta_classic
-alpaca_py
-openai
 streamlit-autorefresh
+yfinance
+pandas
+pandas-ta-classic
 plotly
+requests
+alpaca-py
