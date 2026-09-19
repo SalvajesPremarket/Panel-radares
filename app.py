@@ -1005,37 +1005,266 @@ if ULTIMOS_RESULTADOS:
 
     filas_html = ""
     for c in recientes:
-        color_cambio_val = "#2ecc71" if c["cambio_pct"] >= 0 else "#e74c3c"
-        filas_html += f"""
-        <tr>
-            <td style="font-weight:700;">{"🔥" if c.get('tiene_noticia') else ""}{c['ticker']}</td>
-            <td>${c['precio']:.2f}</td>
-            <td style="color:{color_cambio_val}; font-weight:700;">{c['cambio_pct']:.1f}%</td>
-            <td>{formatear_numero_grande(c['volumen_momento'])}</td>
-            <td>{formatear_numero_grande(c.get('float_shares'))}</td>
-        </tr>
-        """
-    radio_superior = "0 0 10px 10px"
-else:
-    filas_html = ""
-    radio_superior = "10px"
+     import os
+import json
+import time
+import requests
+import threading
+from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-tabla_html = f"""
-<div class="scanner-grid-wrap" style="margin-top:{'0' if ULTIMOS_RESULTADOS else '8px'}; border-radius:{radio_superior};">
-<table class="scanner-grid">
-    <thead>
-        <tr>
-            <th>TICK</th>
-            <th>PRE</th>
-            <th>CHG%</th>
-            <th>VOL</th>
-            <th>FLT</th>
-        </tr>
-    </thead>
-    <tbody>
-        {filas_html}
-    </tbody>
-</table>
-</div>
-"""
-st.markdown(tabla_html, unsafe_allow_html=True)
+import pandas as pd
+import pandas_ta_classic as ta
+import plotly.express as px
+import streamlit as st
+import yfinance as yf
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockSnapshotRequest
+from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import AssetClass, AssetStatus
+from alpaca.trading.requests import GetAssetsRequest
+from openai import OpenAI
+from streamlit_autorefresh import st_autorefresh
+from threading import Thread
+
+st.set_page_config(page_title="Scanner Pre Market", layout="wide")
+
+print("⚙️ Iniciando el Sistema de Radar Definitivo...")
+
+# ==========================================
+# 🔒 CONTROL DE ACCESO: SISTEMA DE TOKENS ANTI-PIRATERÍA
+# ==========================================
+def verificar_token(token_usuario):
+    """Valida el token contra los secretos de la app y comprueba la fecha de expiración."""
+    try:
+        tokens_validos = st.secrets.get("TOKENS_AUTORIZADOS", {})
+        if token_usuario in tokens_validos:
+            fecha_exp_str = tokens_validos[token_usuario]
+            fecha_expiracion = datetime.strptime(fecha_exp_str, "%Y-%m-%d").date()
+            fecha_actual = datetime.now().date()
+            
+            if fecha_actual <= fecha_expiracion:
+                return True, fecha_exp_str
+            else:
+                return False, "EXPIRADO"
+    except Exception as e:
+        print(f"⚠️ Error en validación de token: {e}")
+    return False, "INVALIDO"
+
+def pantalla_autenticacion():
+    """Renderiza una interfaz limpia y oscura para solicitar el token de acceso."""
+    st.markdown("""
+    <style>
+        .stApp { background-color: #0a0e1a; }
+        .auth-container {
+            max-width: 460px; margin: 100px auto; background: #11151f; 
+            border: 1px solid #2a3348; border-radius: 12px; padding: 40px; 
+            text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div class="auth-container">
+        <h2 style="color:#FFD700; font-family:Arial, sans-serif; letter-spacing:1px; margin-bottom:5px;">
+            SISTEMA PROTEGIDO
+        </h2>
+        <p style="color:#8b93a7; font-size:12px; text-transform:uppercase; letter-spacing:2px; margin-bottom:25px;">
+            Scanner Pre Market v1.1.1
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    with st.form("modulo_seguridad"):
+        token_ingresado = st.text_input("Introduce tu Token de Acceso Profesional", type="password", help="Pídele tu token personalizado al desarrollador del sistema.")
+        boton_entrar = st.form_submit_button("Validar Licencia y Conectar Servidores")
+        
+    if boton_entrar:
+        token_limpio = token_ingresado.strip()
+        es_valido, estado = verificar_token(token_limpio)
+        
+        if es_valido:
+            st.session_state["token_verificado"] = token_limpio
+            st.session_state["fecha_vencimiento"] = estado
+            st.success("¡Licencia verificada correctamente! Conectando con Wall Street...")
+            st.rerun()
+        elif estado == "EXPIRADO":
+            st.error("🔒 Este token de acceso ha expirado. Por favor, renueva tu suscripción.")
+        else:
+            st.error("❌ Token no válido. Acceso denegado. Intento registrado en el sistema.")
+    st.stop()
+
+# Ejecución del muro de seguridad perimetral antes de arrancar APIs
+if "token_verificado" not in st.session_state:
+    pantalla_autenticacion()
+
+TOKEN_ACTIVO = st.session_state["token_verificado"]
+FECHA_VENCIMIENTO_LICENCIA = st.session_state["fecha_vencimiento"]
+
+# ==========================================
+# 💾 PERSISTENCIA DE FILTROS
+# ==========================================
+RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
+
+VALORES_POR_DEFECTO = {
+    "precio_min": 2.0,
+    "precio_max": 20.0,
+    "gap_min": 4.0,
+    "gap_max": 500.0,
+    "flotacion_max": 20_000_000,
+    "vol_rel_min": 1.8,
+    "volumen_momento_min": 15000,
+    "intervalo_refresco": 15,
+    "direccion_cruce": "Hacia arriba",
+    "macd_signo": "Neutro",
+    "top_n": 10,
+}
+
+def cargar_config():
+    config = VALORES_POR_DEFECTO.copy()
+    try:
+        with open(RUTA_CONFIG, "r") as f:
+            guardado = json.load(f)
+            config.update(guardado)
+    except Exception:
+        pass
+    return config
+
+def guardar_config(config):
+    try:
+        with open(RUTA_CONFIG, "w") as f:
+            json.dump(config, f)
+    except Exception as e:
+        print(f"⚠️ No se pudo guardar la configuración: {e}")
+
+if "config_filtros" not in st.session_state:
+    st.session_state.config_filtros = cargar_config()
+
+cfg = st.session_state.config_filtros
+
+# ==========================================
+# 🎨 ESTILO OSCURO TIPO FINVIZ (Con vectores originales)
+# ==========================================
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #0a0e1a;
+        color: #e6e6e6;
+    }
+    [data-testid="stHeader"] { background-color: #0a0e1a; }
+    [data-testid="stSidebar"] { background-color: #0a0e1a; }
+    .block-container { padding-top: 1rem; }
+
+    .finviz-topbar {
+        position: relative;
+        background: linear-gradient(135deg, #0d1420 0%, #131b2c 55%, #0d1420 100%);
+        padding: 26px 90px;
+        border-radius: 10px;
+        margin-bottom: 18px;
+        border: 1px solid #2a3348;
+        border-bottom: 3px solid #ffd700;
+        text-align: center;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.45);
+    }
+    .finviz-topbar h1 {
+        color: #c9a227;
+        font-size: 26px;
+        margin: 0;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        letter-spacing: 2px;
+        font-weight: 700;
+        text-transform: uppercase;
+    }
+    .finviz-topbar .subtitle {
+        color: #8b93a7;
+        font-size: 11px;
+        letter-spacing: 3px;
+        margin-top: 6px;
+        text-transform: uppercase;
+        font-family: Arial, sans-serif;
+    }
+    .finviz-badge {
+        background: linear-gradient(90deg, #16c784, #0e9e68);
+        color: #0a0e1a;
+        font-size: 11px;
+        font-weight: 700;
+        padding: 3px 10px;
+        border-radius: 20px;
+        margin-left: 10px;
+        vertical-align: middle;
+        letter-spacing: 1px;
+    }
+    .market-figure {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        background: #0a0e1a;
+        box-shadow: 0 0 0 2px #c9a227, 0 4px 12px rgba(0,0,0,0.5);
+    }
+    .market-figure.bull { left: 24px; }
+    .market-figure.bear { right: 24px; }
+    .stMarkdown, p, span {
+        color: #cfd3da !important;
+    }
+    label, .stNumberInput label, .stSelectbox label, [data-testid="stWidgetLabel"] p, [data-testid="stWidgetLabel"] {
+        color: #FFD700 !important;
+        font-weight: 700 !important;
+        text-transform: uppercase;
+        font-size: 11px !important;
+        letter-spacing: 0.5px;
+    }
+    div[data-testid="stNumberInput"] input {
+        background-color: #1a1e27;
+        color: #ffffff;
+        border: 1px solid #2a3348 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="finviz-topbar">
+    <div class="market-figure bull">
+        <svg viewBox="0 0 100 100" width="52" height="52">
+            <defs>
+                <linearGradient id="goldGradBull" x1="10%" y1="0%" x2="95%" y2="100%">
+                    <stop offset="0%" stop-color="#fff6d0"/>
+                    <stop offset="22%" stop-color="#ffe680"/>
+                    <stop offset="48%" stop-color="#ffcc33"/>
+                    <stop offset="72%" stop-color="#d99a12"/>
+                    <stop offset="100%" stop-color="#8a5f08"/>
+                </linearGradient>
+                <linearGradient id="goldHighlightBull" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#fffdf0"/>
+                    <stop offset="100%" stop-color="#ffd84d"/>
+                </linearGradient>
+            </defs>
+            <path d="M85,55 Q98,50 97,62 Q95,72 84,68" fill="none" stroke="url(#goldGradBull)" stroke-width="4" stroke-linecap="round"/>
+            <path d="M40,30 Q30,10 18,12 Q26,26 34,36 Z" fill="url(#goldHighlightBull)"/>
+            <path d="M50,26 Q52,6 64,4 Q60,20 54,32 Z" fill="url(#goldHighlightBull)"/>
+            <circle cx="34" cy="34" rx="4.5" ry="6" fill="url(#goldGradBull)"/>
+            <ellipse cx="58" cy="62" rx="34" ry="20" fill="url(#goldGradBull)"/>
+            <ellipse cx="58" cy="55" rx="28" ry="10" fill="url(#goldHighlightBull)" opacity="0.55"/>
+            <rect x="30" y="72" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
+            <rect x="46" y="76" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
+            <rect x="70" y="76" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
+            <rect x="84" y="72" width="6" height="18" rx="2" fill="url(#goldGradBull)"/>
+            <ellipse cx="30" cy="48" rx="16" ry="13" fill="url(#goldGradBull)"/>
+            <ellipse cx="24" cy="46" rx="7" ry="6" fill="url(#goldHighlightBull)" opacity="0.6"/>
+            <ellipse cx="18" cy="52" rx="7" ry="5.5" fill="url(#goldHighlightBull)"/>
+            <circle cx="15" cy="52" r="1.4" fill="#4a2e00"/>
+            <circle cx="21" cy="52" r="1.4" fill="#4a2e00"/>
+            <circle cx="29" cy="42" r="2.6" fill="#2a1a00"/>
+            <circle cx="30" cy="41" r="0.8" fill="#fff"/>
+        </svg>
+    </div>
+    <h1>SCANNER PRE MARKET <span class="finviz-badge">● LIVE</span></h1>
+    <div class="subtitle">Radar de oportunidades en tiempo real</div>
+
