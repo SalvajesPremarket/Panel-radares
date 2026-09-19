@@ -6,6 +6,7 @@ import os
 import json
 import time
 import requests
+from urllib.parse import quote
 import pandas as pd
 import pandas_ta_classic as ta
 import plotly.express as px
@@ -66,7 +67,7 @@ def mostrar_pantalla_de_pago(email, dias_restantes):
         "&item_name=Acceso%20de%20por%20vida%20-%20Scanner%20Pre%20Market"
         f"&amount={PRECIO_ACCESO}"
         f"&currency_code={MONEDA_ACCESO}"
-        f"&custom={email}"
+        f"&custom={quote(email)}"
         f"&notify_url={GOOGLE_SCRIPT_URL}"
     )
     st.markdown("""
@@ -98,26 +99,42 @@ def mostrar_pantalla_de_pago(email, dias_restantes):
     </div>
     """, unsafe_allow_html=True)
 
-_email_usuario = obtener_email_usuario()
-_acceso_permitido = True
+def pedir_correo():
+    st.markdown("""
+    <style>
+        .stApp { background-color: #0a0e1a; }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown("### Ingresa tu correo para acceder a tu prueba gratis de 30 días")
+    with st.form("form_correo"):
+        correo = st.text_input("Correo electrónico")
+        enviado = st.form_submit_button("Entrar")
+    if enviado:
+        correo = correo.strip().lower()
+        if "@" in correo and "." in correo.split("@")[-1]:
+            st.session_state["email_ingresado"] = correo
+            st.rerun()
+        else:
+            st.error("Escribe un correo válido.")
+    st.stop()
+
+_email_usuario = obtener_email_usuario() or st.session_state.get("email_ingresado")
+
+if not _email_usuario:
+    pedir_correo()
+
 _dias_restantes_prueba = None
+_info_acceso = verificar_acceso_usuario(_email_usuario) if GOOGLE_SCRIPT_URL else None
 
-with st.expander("🔧 Diagnóstico control de acceso (bórrame después)", expanded=True):
-    st.write("Correo detectado:", _email_usuario)
-    st.write("GOOGLE_SCRIPT_URL configurado:", bool(GOOGLE_SCRIPT_URL))
-    if _email_usuario and GOOGLE_SCRIPT_URL:
-        _info_debug = verificar_acceso_usuario(_email_usuario)
-        st.write("Respuesta de la hoja:", _info_debug)
+if _info_acceso is None:
+    st.error("No se pudo verificar tu acceso. Intenta de nuevo en unos segundos.")
+    st.stop()
 
-if _email_usuario and GOOGLE_SCRIPT_URL:
-    _info_acceso = verificar_acceso_usuario(_email_usuario)
-    if _info_acceso is not None:
-        if not _info_acceso.get("paid") and not _info_acceso.get("trial_activo"):
-            _acceso_permitido = False
-            mostrar_pantalla_de_pago(_email_usuario, 0)
-            st.stop()
-        elif not _info_acceso.get("paid"):
-            _dias_restantes_prueba = _info_acceso.get("dias_restantes")
+if not _info_acceso.get("paid") and not _info_acceso.get("trial_activo"):
+    mostrar_pantalla_de_pago(_email_usuario, 0)
+    st.stop()
+elif not _info_acceso.get("paid"):
+    _dias_restantes_prueba = _info_acceso.get("dias_restantes")
 
 # ==========================================
 # 💾 PERSISTENCIA DE FILTROS
