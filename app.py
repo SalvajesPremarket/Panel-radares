@@ -102,6 +102,13 @@ _email_usuario = obtener_email_usuario()
 _acceso_permitido = True
 _dias_restantes_prueba = None
 
+with st.expander("🔧 Diagnóstico control de acceso (bórrame después)", expanded=True):
+    st.write("Correo detectado:", _email_usuario)
+    st.write("GOOGLE_SCRIPT_URL configurado:", bool(GOOGLE_SCRIPT_URL))
+    if _email_usuario and GOOGLE_SCRIPT_URL:
+        _info_debug = verificar_acceso_usuario(_email_usuario)
+        st.write("Respuesta de la hoja:", _info_debug)
+
 if _email_usuario and GOOGLE_SCRIPT_URL:
     _info_acceso = verificar_acceso_usuario(_email_usuario)
     if _info_acceso is not None:
