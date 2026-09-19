@@ -52,7 +52,7 @@ GITHUB_USER = "SalvajesPremarket"
 GITHUB_REPO = "Panel-radares"
 GITHUB_BRANCH = "main"
 
-URL_FILTROS = f"https://githubusercontent.com{GITHUB_USER}/{GITHUB_REPO}/{GITHUB_BRANCH}/config_filtros_radar.json"
+URL_FILTROS = "https://githubusercontent.com"
 
 @st.cache_data(ttl=600)
 def cargar_filtros_github():
