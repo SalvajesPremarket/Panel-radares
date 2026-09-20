@@ -656,14 +656,15 @@ st.markdown("""
     .stApp { background-color: #0a0e1a; color: #e6e6e6; }
     [data-testid="stHeader"], [data-testid="stSidebar"] { background-color: #0a0e1a; }
     .block-container { padding-top: 1rem; }
-    .finviz-topbar { position: relative; background: linear-gradient(135deg, #0d1420 0%, #131b2c 100%); padding: 14px 24px;
-        border-radius: 10px; margin-bottom: 12px; border: 1px solid #2a3348; border-bottom: 3px solid #ffd700;
-        display: flex; align-items: center; justify-content: center; gap: 24px; }
-    .finviz-topbar .topbar-centro { text-align: center; }
+    .finviz-topbar { position: relative; background: linear-gradient(135deg, #0d1420 0%, #131b2c 100%); padding: 18px 100px;
+        border-radius: 10px; margin-bottom: 12px; border: 1px solid #2a3348; border-bottom: 3px solid #ffd700; text-align: center; }
     .finviz-topbar h1 { color: #c9a227; font-size: 24px; margin: 0; font-family: sans-serif; font-weight: 700; }
-    .topbar-figura { flex: 0 0 auto; width: 70px; height: 70px;
+    .topbar-figura { position: absolute; top: 50%; transform: translateY(-50%); width: 84px; height: 84px;
+        border-radius: 50%; background: #0a0e1a; box-shadow: 0 0 0 2px #c9a227, 0 4px 12px rgba(0,0,0,0.5);
         display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .topbar-figura img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .topbar-figura img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+    .topbar-figura.toro { right: 20px; }
+    .topbar-figura.oso { left: 20px; }
     label, [data-testid="stWidgetLabel"] p { color: #FFD700 !important; font-weight: 700 !important;
         text-transform: uppercase; font-size: 11px !important; }
     div[data-testid="stNumberInput"] input { background-color: #1a1e27; color: #ffffff; border: 1px solid #2a3348 !important; }
@@ -675,10 +676,10 @@ IMG_OSO_B64 = "iVBORw0KGgoAAAANSUhEUgAAASwAAAErCAYAAABkeL7NAAEAAElEQVR4nOz9d5hc1
 
 st.markdown(
     f'<div class="finviz-topbar">'
-    f'<div class="topbar-figura"><img src="data:image/png;base64,{IMG_OSO_B64}"></div>'
-    f'<div class="topbar-centro"><h1>SCANNER PRE MARKET LIVE</h1>'
-    f'<div style="color:#8b93a7; font-size:11px; letter-spacing:2px;">RADAR EN TIEMPO REAL</div></div>'
-    f'<div class="topbar-figura"><img src="data:image/png;base64,{IMG_TORO_B64}"></div>'
+    f'<div class="topbar-figura toro"><img src="data:image/png;base64,{IMG_TORO_B64}"></div>'
+    f'<h1>SCANNER PRE MARKET LIVE</h1>'
+    f'<div style="color:#8b93a7; font-size:11px; letter-spacing:2px;">RADAR EN TIEMPO REAL</div>'
+    f'<div class="topbar-figura oso"><img src="data:image/png;base64,{IMG_OSO_B64}"></div>'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -813,214 +814,309 @@ panel_resultados()
 
 
 # ==========================================
-# 🟩🟥 CUADRO "EVENTOS EN VIVO" (debajo de la tabla)
-# Verde = el precio subió frente al evento anterior de ese ticker · Rojo = bajó
-# Respeta tus filtros numéricos (precio, gap, flotación, vol. relativo, vol. pre market)
+# 🔗 PANEL BROKER: 10 activos del scanner ↔ 10 colores ↔ 10 layouts del broker
+# Clic en una fila = envía ese símbolo al layout del color de esa fila.
+#   · Con webhook para ese color (ej. trigger de Macro Deck): se envía ahí.
+#   · Sin webhook: se envía al "puente" local (URL general).
+#   · Quantfury: copia el ticker al portapapeles.
+# El envío lo hace TU NAVEGADOR (no el servidor), así funciona con http://127.0.0.1 en tu PC.
+# No coloca órdenes: solo manda el símbolo.
 # ==========================================
-def hora_evento(ts):
-    try:
-        return ts.astimezone(ET).strftime("%I:%M:%S %p").lower().lstrip("0")
-    except Exception:
-        return str(ts)
+import streamlit.components.v1 as components
 
+PANEL_BROKER_ALTO_PX = 500
+PUENTE_LOCAL_POR_DEFECTO = "http://127.0.0.1:8765/enviar"
+BROKERS_DISPONIBLES = [
+    "Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)",
+    "Quantfury (portapapeles)", "Otro (webhook)",
+]
+RUTA_PANEL_BROKER = os.path.join(os.getcwd(), "config_panel_broker.json")
 
-CSS_EVENTOS = (
-    "<style>"
-    f".evt-scroll{{max-height:{EVENTOS_ALTO_PX}px;overflow-y:auto;border:1px solid #2a3348;border-radius:6px;}}"
-    "table.evt{width:100%;border-collapse:collapse;font-family:sans-serif;font-size:13px;}"
-    "table.evt th{position:sticky;top:0;z-index:1;background:linear-gradient(180deg,#1b3357 0%,#0f213c 100%);"
-    "color:#ffffff;font-weight:600;padding:8px 6px;text-align:center;border:1px solid #6b7a90;}"
-    "table.evt td{padding:6px 8px;text-align:center;border:1px solid #6b7a90;color:#0a0a0a;font-weight:500;}"
-    "table.evt tr.pos td{background:#1de9a5;}"
-    "table.evt tr.neg td{background:#ff6b6b;}"
-    "table.evt tr.pos td.flt{background:#a4f3cf;}"
-    "table.evt tr.neg td.flt{background:#ffb3b3;}"
-    "table.evt td.sym{font-weight:700;text-decoration:underline;}"
-    "table.evt td.vol{background:#4d5b6e !important;color:#ffffff;}"
-    "table.evt td.vacio{background:#12151c;color:#8b93a7;padding:18px;}"
-    "</style>"
+# 10 colores, uno por cada layout distinto de tu broker (fila 1 = color 1, fila 2 = color 2, ...)
+COLORES_LAYOUT = [
+    ("Rojo", "#e53935", "#ffffff"),
+    ("Naranja", "#fb8c00", "#000000"),
+    ("Amarillo", "#fdd835", "#000000"),
+    ("Verde", "#43a047", "#ffffff"),
+    ("Turquesa", "#00acc1", "#ffffff"),
+    ("Azul", "#1e88e5", "#ffffff"),
+    ("Morado", "#8e24aa", "#ffffff"),
+    ("Rosa", "#ec407a", "#ffffff"),
+    ("Marrón", "#8d6e63", "#ffffff"),
+    ("Gris", "#9e9e9e", "#000000"),
+]
+
+CSS_PANEL_BROKER = (
+    "body{margin:0;background:transparent;font-family:Calibri,'Segoe UI',Arial,sans-serif;}"
+    "table{width:100%;border-collapse:collapse;table-layout:fixed;}"
+    "th{background:#4472c4;color:#ffffff;font-weight:700;font-size:15px;padding:8px 6px;"
+    "border:1px solid #ffffff;text-align:center;line-height:1.15;}"
+    "th.cred{width:17%;text-align:left;font-size:13px;line-height:1.5;}"
+    "th.cred .m{font-weight:400;font-size:12px;opacity:.9;}"
+    "th.cred .bk{font-weight:400;font-size:11px;opacity:.85;margin-top:2px;}"
+    "td{height:34px;border:1px solid #808080;text-align:center;font-size:14px;color:#111111;"
+    "background:#ffffff;padding:0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}"
+    "td.col{font-weight:700;font-size:13px;}"
+    "td.sym{font-weight:700;}"
+    "tr.fila.ok{cursor:pointer;}"
+    "tr.fila.ok:hover td:not(.col){filter:brightness(.94);}"
+    "tr.pos td:not(.col){background:#d9f2e3;}"
+    "tr.neg td:not(.col){background:#fadbd8;}"
+    "tr.sel td:not(.col){box-shadow:inset 0 0 0 2px #1a3fa0;}"
+    "#msg{margin-top:8px;padding:6px 10px;border-radius:6px;background:#1f2937;color:#ffffff;"
+    "font-size:13px;display:none;}"
 )
 
+JS_PANEL_BROKER = r"""
+(function(){
+  const D = JSON.parse(document.getElementById("datos").textContent);
+  const msg = document.getElementById("msg");
+  let temporizador = null;
+  function aviso(txt, tipo){
+    msg.textContent = txt;
+    msg.style.display = "block";
+    msg.style.background = tipo === "ok" ? "#166534" : (tipo === "err" ? "#991b1b" : "#1f2937");
+    clearTimeout(temporizador);
+    temporizador = setTimeout(function(){ msg.style.display = "none"; }, 6000);
+  }
+  function guardarSel(tk){ try { sessionStorage.setItem("sel_ticker", tk); } catch(e) {} }
+  function leerSel(){ try { return sessionStorage.getItem("sel_ticker"); } catch(e) { return null; } }
 
-# ==========================================
-# 🔗 CONECTORES RÁPIDOS A BROKER (10 casillas verticales, a la izquierda de "Eventos en vivo")
-# Un clic envía el ticker activo al broker/layout que elijas en el engranaje ⚙️ de cada casilla.
-# ==========================================
-RUTA_CONECTORES = os.path.join(os.getcwd(), "config_conectores.json")
-N_CASILLAS = 10
+  const filas = document.querySelectorAll("tr.fila");
+  const previa = leerSel();
+  filas.forEach(function(tr){
+    const d = D.filas[+tr.dataset.i];
+    if (d && d.ticker === previa) tr.classList.add("sel");
+  });
 
-BROKERS_DISPONIBLES = ["Alpaca (API)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
-COLORES_DISPONIBLES = ["🔵", "🟢", "🔴", "🟡", "🟣", "🟠", "🟤", "⚪"]
+  filas.forEach(function(tr){
+    tr.addEventListener("click", async function(){
+      const i = +tr.dataset.i;
+      const d = D.filas[i];
+      if (!d) return;
+      filas.forEach(function(x){ x.classList.remove("sel"); });
+      tr.classList.add("sel");
+      guardarSel(d.ticker);
+      const color = D.colores[i];
+      const broker = D.cfg.broker || "";
+      const payload = {simbolo: d.ticker, ticker: d.ticker, color: color, color_num: i + 1, broker: broker};
+
+      // 1) Quantfury: copiar al portapapeles
+      if (broker.indexOf("Quantfury") === 0) {
+        try {
+          await navigator.clipboard.writeText(d.ticker);
+          aviso("✔ " + d.ticker + " copiado: pégalo en Quantfury", "ok");
+        } catch(e) {
+          aviso("⚠ No pude copiar automáticamente. Ticker: " + d.ticker, "err");
+        }
+        return;
+      }
+
+      // 2) Webhook propio de este color (ej. trigger de Macro Deck)
+      const hook = ((D.webhooks || [])[i] || "").trim();
+      if (hook) {
+        aviso("Enviando " + d.ticker + " → " + color + "…", "info");
+        try {
+          await fetch(hook, {method: "POST", mode: "no-cors",
+                             headers: {"Content-Type": "text/plain"}, body: JSON.stringify(payload)});
+          aviso("✔ " + d.ticker + " enviado al webhook de " + color + " (sin confirmación de respuesta)", "ok");
+        } catch(e) {
+          aviso("⚠ No pude alcanzar el webhook de " + color, "err");
+        }
+        return;
+      }
+
+      // 3) Puente local general
+      const puente = (D.cfg.puente || "").trim();
+      if (!puente) {
+        aviso("⚠ Falta la URL del puente o el webhook de " + color + " (botón ✏️)", "err");
+        return;
+      }
+      payload.api_key = D.cfg.api_key;
+      payload.api_secret = D.cfg.api_secret;
+      aviso("Enviando " + d.ticker + " → " + color + "…", "info");
+      try {
+        const r = await fetch(puente, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload)
+        });
+        let j = {};
+        try { j = await r.json(); } catch(e) {}
+        if (r.ok && j.ok !== false) aviso("✔ " + d.ticker + " enviado al layout " + color, "ok");
+        else aviso("⚠ El puente respondió con error" + (j.error ? ": " + j.error : ""), "err");
+      } catch(e) {
+        aviso("⚠ Sin conexión con el puente del broker (" + puente + ")", "err");
+      }
+    });
+  });
+})();
+"""
 
 
-def cargar_conectores():
+def construir_html_panel_broker(filas10, cfg):
+    """HTML del panel: encabezado azul, columna de colores a la izquierda y las 10 filas del scanner."""
+    key = cfg.get("api_key") or ""
+    sec = cfg.get("api_secret") or ""
+    key_txt = ("••••" + key[-4:]) if key else ""
+    sec_txt = "••••••••" if sec else ""
+    broker_txt = html_escape(cfg.get("broker") or "") if (key or sec) else ""
+
+    cuerpo = []
+    for i, (nombre, bg, fg) in enumerate(COLORES_LAYOUT):
+        d = filas10[i] if i < len(filas10) else None
+        celda_color = f'<td class="col" style="background:{bg};color:{fg}">{nombre}</td>'
+        if d is None:
+            cuerpo.append(f'<tr class="fila" data-i="{i}">{celda_color}' + "<td></td>" * 6 + "</tr>")
+            continue
+        clase = "ok " + ("pos" if d["subiendo"] else "neg")
+        cuerpo.append(
+            f'<tr class="fila {clase}" data-i="{i}">'
+            f'{celda_color}'
+            f'<td class="sym">{html_escape(str(d["ticker"]))}{" 🔥" if d["noticia"] else ""}</td>'
+            f'<td>{d["precio"]:.2f}</td>'
+            f'<td>{d["cambio"]:+.1f}%</td>'
+            f'<td>{d["volumen"]}</td>'
+            f'<td>{d["flotacion"]}</td>'
+            f'<td>{d["volrel"]:.2f}</td>'
+            f'</tr>'
+        )
+
+    webhooks = list(cfg.get("webhooks") or [])[: len(COLORES_LAYOUT)]
+    webhooks += [""] * (len(COLORES_LAYOUT) - len(webhooks))
+
+    datos = {
+        "filas": [
+            ({"ticker": d["ticker"]} if d else None)
+            for d in (list(filas10) + [None] * (len(COLORES_LAYOUT) - len(filas10)))[: len(COLORES_LAYOUT)]
+        ],
+        "colores": [c[0] for c in COLORES_LAYOUT],
+        "webhooks": webhooks,
+        "cfg": {
+            "broker": cfg.get("broker") or "",
+            "api_key": key,
+            "api_secret": sec,
+            "puente": cfg.get("puente") or "",
+        },
+    }
+    datos_json = json.dumps(datos, ensure_ascii=False).replace("</", "<\\/")
+
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'><style>" + CSS_PANEL_BROKER + "</style></head><body>"
+        "<table><thead><tr>"
+        f'<th class="cred">API Key: <span class="m">{key_txt}</span><br>'
+        f'API Secret: <span class="m">{sec_txt}</span>'
+        f'<div class="bk">{broker_txt}</div></th>'
+        "<th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>"
+        "<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>"
+        "</tr></thead><tbody>" + "".join(cuerpo) + "</tbody></table>"
+        '<div id="msg"></div>'
+        f'<script type="application/json" id="datos">{datos_json}</script>'
+        "<script>" + JS_PANEL_BROKER + "</script>"
+        "</body></html>"
+    )
+
+
+def _direccion_por_ticker():
+    """Última dirección conocida (True = subiendo / False = bajando) de cada ticker, según los eventos."""
+    dirs = {}
+    for ev in list(getattr(servicio, "eventos", [])):  # el más nuevo primero
+        dirs.setdefault(ev["ticker"], ev["subiendo"])
+    return dirs
+
+
+# --- Configuración por licencia (broker, puente y webhooks; la API Key/Secret NO se guardan en disco) ---
+def _clave_usuario():
+    return hashlib.sha256(str(TOKEN_ACTIVO).encode("utf-8")).hexdigest()[:16]
+
+
+def cargar_panel_broker():
     try:
-        with open(RUTA_CONECTORES, "r") as f:
-            data = json.load(f)
+        with open(RUTA_PANEL_BROKER, "r", encoding="utf-8") as f:
+            d = json.load(f).get(_clave_usuario(), {})
     except Exception:
-        data = {}
-    conectores = []
-    for i in range(N_CASILLAS):
-        d = data.get(str(i), {})
-        color_guardado = d.get("color", "")
-        if color_guardado not in COLORES_DISPONIBLES:
-            color_guardado = COLORES_DISPONIBLES[i % len(COLORES_DISPONIBLES)]
-        conectores.append({
-            "broker": d.get("broker", BROKERS_DISPONIBLES[0]),
-            "color": color_guardado,
-            "webhook_url": d.get("webhook_url", ""),
-        })
-    return conectores
+        d = {}
+    broker = d.get("broker", BROKERS_DISPONIBLES[0])
+    if broker not in BROKERS_DISPONIBLES:
+        broker = BROKERS_DISPONIBLES[0]
+    webhooks = [str(w) for w in list(d.get("webhooks", []))[: len(COLORES_LAYOUT)]]
+    webhooks += [""] * (len(COLORES_LAYOUT) - len(webhooks))
+    return {"broker": broker, "puente": d.get("puente", PUENTE_LOCAL_POR_DEFECTO), "webhooks": webhooks}
 
 
-def guardar_conectores(conectores):
+def guardar_panel_broker(cfg):
     try:
-        with open(RUTA_CONECTORES, "w") as f:
-            json.dump({str(i): c for i, c in enumerate(conectores)}, f)
+        try:
+            with open(RUTA_PANEL_BROKER, "r", encoding="utf-8") as f:
+                todo = json.load(f)
+        except Exception:
+            todo = {}
+        todo[_clave_usuario()] = cfg
+        with open(RUTA_PANEL_BROKER, "w", encoding="utf-8") as f:
+            json.dump(todo, f)
     except Exception:
         pass
 
 
-if "conectores" not in st.session_state:
-    st.session_state["conectores"] = cargar_conectores()
-if "ticker_activo" not in st.session_state:
-    st.session_state["ticker_activo"] = ""
-if "aviso_conector" not in st.session_state:
-    st.session_state["aviso_conector"] = None
+if "bk_cargado" not in st.session_state:
+    _ini = cargar_panel_broker()
+    st.session_state["bk_nombre"] = _ini["broker"]
+    st.session_state["bk_puente"] = _ini["puente"]
+    st.session_state["bk_api_key"] = ""
+    st.session_state["bk_api_secret"] = ""
+    for _i, _w in enumerate(_ini["webhooks"]):
+        st.session_state[f"bk_wh_{_i}"] = _w
+    st.session_state["_bk_guardado"] = _ini
+    st.session_state["bk_cargado"] = True
 
+# --- Edición de API Key / Secret del broker ---
+col_cred, _col_libre = st.columns([2, 5])
+with col_cred:
+    with st.popover("✏️ Editar API Key / Secret del broker"):
+        st.selectbox("Broker", BROKERS_DISPONIBLES, key="bk_nombre")
+        st.text_input("API Key", key="bk_api_key")
+        st.text_input("API Secret", type="password", key="bk_api_secret")
+        st.text_input("Puente local general (URL)", key="bk_puente")
+        st.caption("Webhook por color (opcional). Si un color tiene webhook, el clic va ahí; si no, va al puente general.")
+        for _i, (_nombre, _bg, _fg) in enumerate(COLORES_LAYOUT):
+            st.text_input(f"Webhook · {_nombre}", key=f"bk_wh_{_i}", placeholder="http://127.0.0.1:PUERTO/...")
+        st.caption("La API Key y el Secret se usan solo durante esta sesión. Broker, puente y webhooks se recuerdan para tu licencia.")
 
-def enviar_a_broker(indice, ticker):
-    """Envía `ticker` al broker configurado en la casilla `indice`.
-    - Alpaca: usa el mismo TradingClient que ya usa el motor (servicio.trading) para confirmar que el símbolo existe.
-    - TradeZero / Binance / Otro: hace POST a un webhook local (por ejemplo, un trigger HTTP de Macro Deck
-      que tú mapeas a las teclas rápidas de tu layout, igual que ya haces con tus hotkeys de Buy/Sell/Short/Cover).
-    - Quantfury: no tiene API pública, así que se copia el ticker al portapapeles para pegarlo tú mismo.
-    NOTA: esto NO coloca órdenes ni ejecuta operaciones — solo selecciona/envía el símbolo al broker o layout elegido.
-    """
-    conector = st.session_state["conectores"][indice]
-    broker = conector["broker"]
-    webhook_url = conector["webhook_url"]
-    ticker = (ticker or "").strip().upper()
-
-    if not ticker:
-        return False, "Elige un ticker activo (selecciona una fila en la tabla de resultados) antes de conectar."
-
-    try:
-        if broker.startswith("Alpaca"):
-            activo = servicio.trading.get_asset(ticker)
-            return True, f"Casilla {indice+1} · Alpaca: {ticker} confirmado ({activo.name})."
-        elif broker == "Quantfury (portapapeles)":
-            return True, f"COPIAR::{ticker}"
-        else:  # TradeZero (webhook) / Binance (webhook) / Otro (webhook)
-            if not webhook_url:
-                return False, f"Casilla {indice+1}: configura la URL del webhook local en el engranaje ⚙️."
-            r = requests.post(webhook_url, json={"ticker": ticker}, timeout=2)
-            r.raise_for_status()
-            return True, f"Casilla {indice+1} · {broker}: {ticker} enviado."
-    except Exception as exc:
-        return False, f"Casilla {indice+1}: error al conectar — {exc}"
-
-
-def panel_conectores():
-    st.markdown(
-        "<div style='color:#8b93a7;font-size:11px;letter-spacing:1px;margin-bottom:6px;'>"
-        "CONECTORES · 1 clic</div>",
-        unsafe_allow_html=True,
-    )
-    ticker_activo = st.text_input(
-        "Ticker activo", value=st.session_state["ticker_activo"], key="f_ticker_activo",
-        label_visibility="collapsed", placeholder="Ticker (ej. NVDA)",
-    ).strip().upper()
-    st.session_state["ticker_activo"] = ticker_activo
-
-    for i in range(N_CASILLAS):
-        conector = st.session_state["conectores"][i]
-        col_boton, col_gear = st.columns([4, 1])
-        with col_boton:
-            etiqueta = f"{conector['color']} {i+1} · {conector['broker'].split(' ')[0]}"
-            if st.button(etiqueta, key=f"btn_conector_{i}", use_container_width=True):
-                ok, msg = enviar_a_broker(i, ticker_activo)
-                if ok and msg.startswith("COPIAR::"):
-                    valor = msg.split("COPIAR::", 1)[1]
-                    st.components.v1.html(
-                        f"<script>navigator.clipboard.writeText('{valor}');</script>", height=0,
-                    )
-                    st.session_state["aviso_conector"] = (True, f"Casilla {i+1}: {valor} copiado — pégalo en Quantfury.")
-                else:
-                    st.session_state["aviso_conector"] = (ok, msg)
-        with col_gear:
-            with st.popover("⚙️", use_container_width=True):
-                nuevo_broker = st.selectbox(
-                    "Broker / layout", BROKERS_DISPONIBLES,
-                    index=BROKERS_DISPONIBLES.index(conector["broker"]), key=f"broker_{i}",
-                )
-                nuevo_color = st.selectbox(
-                    "Color de la casilla", COLORES_DISPONIBLES,
-                    index=COLORES_DISPONIBLES.index(conector["color"]) if conector["color"] in COLORES_DISPONIBLES else 0,
-                    key=f"color_{i}",
-                )
-                nuevo_webhook = conector["webhook_url"]
-                if not nuevo_broker.startswith("Alpaca") and nuevo_broker != "Quantfury (portapapeles)":
-                    nuevo_webhook = st.text_input(
-                        "URL webhook local (Macro Deck / puente)", value=conector["webhook_url"], key=f"webhook_{i}",
-                        placeholder="http://127.0.0.1:PUERTO/trigger",
-                    )
-                if (nuevo_broker, nuevo_color, nuevo_webhook) != (conector["broker"], conector["color"], conector["webhook_url"]):
-                    st.session_state["conectores"][i] = {"broker": nuevo_broker, "color": nuevo_color, "webhook_url": nuevo_webhook}
-                    guardar_conectores(st.session_state["conectores"])
-                    st.rerun()
-
-    if st.session_state["aviso_conector"]:
-        ok, msg = st.session_state["aviso_conector"]
-        (st.success if ok else st.warning)(msg)
+_cfg_guardable = {
+    "broker": st.session_state["bk_nombre"],
+    "puente": st.session_state["bk_puente"],
+    "webhooks": [st.session_state[f"bk_wh_{_i}"] for _i in range(len(COLORES_LAYOUT))],
+}
+if st.session_state.get("_bk_guardado") != _cfg_guardable:
+    guardar_panel_broker(_cfg_guardable)
+    st.session_state["_bk_guardado"] = _cfg_guardable
 
 
 @st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
-def panel_eventos():
-    eventos = filtrar_eventos(list(getattr(servicio, "eventos", [])), params)[:EVENTOS_MOSTRAR]
-
-    if eventos:
-        filas_html = "".join(
-            f'<tr class="{"pos" if e["subiendo"] else "neg"}">'
-            f'<td>{hora_evento(e["actualizado"])}</td>'
-            f'<td class="sym">{html_escape(str(e["ticker"]))}{" 🔥" if e["tiene_noticia"] else ""}</td>'
-            f'<td>{e["precio"]:.2f}</td>'
-            f'<td>{e["cambio_pct"]:+.1f}%</td>'
-            f'<td class="vol">{formatear_numero_grande(e["volumen_dia"])}</td>'
-            f'<td class="flt">{formatear_numero_grande(e["float_shares"])}</td>'
-            f'<td>{e["volumen_relativo"]:.2f}</td>'
-            f'</tr>'
-            for e in eventos
-        )
-    else:
-        filas_html = '<tr><td colspan="7" class="vacio">Sin eventos por ahora que cumplan tus filtros.</td></tr>'
-
-    st.markdown(
-        CSS_EVENTOS
-        + '<div class="evt-scroll"><table class="evt"><thead><tr>'
-        + '<th>Hora (ET)</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>'
-        + '<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>'
-        + '</tr></thead><tbody>'
-        + filas_html
-        + '</tbody></table></div>',
-        unsafe_allow_html=True,
-    )
+def panel_broker():
+    filas = filtrar_resultados(list(servicio.resultados), params)[: len(COLORES_LAYOUT)]
+    dirs = _direccion_por_ticker()
+    filas10 = [
+        {
+            "ticker": c["ticker"],
+            "noticia": bool(c["tiene_noticia"]),
+            "precio": c["precio"],
+            "cambio": c["cambio_pct"],
+            "volumen": formatear_numero_grande(c["volumen_dia"]),
+            "flotacion": formatear_numero_grande(c["float_shares"]),
+            "volrel": c["volumen_relativo"],
+            "subiendo": dirs.get(c["ticker"], True),
+        }
+        for c in filas
+    ]
+    cfg = {
+        "broker": st.session_state.get("bk_nombre", BROKERS_DISPONIBLES[0]),
+        "api_key": st.session_state.get("bk_api_key", ""),
+        "api_secret": st.session_state.get("bk_api_secret", ""),
+        "puente": st.session_state.get("bk_puente", ""),
+        "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT))],
+    }
+    components.html(construir_html_panel_broker(filas10, cfg), height=PANEL_BROKER_ALTO_PX, scrolling=False)
 
 
-with st.container(border=True):
-    col_t1, col_t2 = st.columns([3, 2])
-    with col_t1:
-        st.markdown(
-            "<div style='color:#ffffff;font-weight:700;font-size:15px;'>EVENTOS EN VIVO · MOMENTUM</div>",
-            unsafe_allow_html=True,
-        )
-    with col_t2:
-        st.markdown(
-            "<div style='text-align:right;color:#d5dcea;font-size:12px;'>🟩 sube · 🟥 baja</div>",
-            unsafe_allow_html=True,
-        )
-    col_conectores, col_eventos = st.columns([1, 5])
-    with col_conectores:
-        panel_conectores()
-    with col_eventos:
-        panel_eventos()
+panel_broker()
