@@ -660,7 +660,6 @@ st.markdown("""
         border-radius: 10px; margin-bottom: 12px; border: 1px solid #2a3348; border-bottom: 3px solid #ffd700; text-align: center; }
     .finviz-topbar h1 { color: #c9a227; font-size: 24px; margin: 0; font-family: sans-serif; font-weight: 700; }
     .topbar-figura { position: absolute; top: 50%; transform: translateY(-50%); width: 84px; height: 84px;
-        border-radius: 50%; background: #0a0e1a; box-shadow: 0 0 0 2px #c9a227, 0 4px 12px rgba(0,0,0,0.5);
         display: flex; align-items: center; justify-content: center; overflow: hidden; }
     .topbar-figura img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
     .topbar-figura.toro { right: 20px; }
@@ -801,7 +800,13 @@ def panel_resultados():
         .set_properties(**{"background-color": "#12151c", "color": "#e6e6e6", "border-color": "#2a2e39"})
         .set_table_styles([{"selector": "th", "props": [("background-color", "#0e1117"), ("color", "#00ffcc"), ("font-weight", "bold")]}])
     )
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    seleccion = st.dataframe(
+        styled, use_container_width=True, hide_index=True,
+        on_select="rerun", selection_mode="single-row", key="tabla_resultados",
+    )
+    filas_sel = seleccion.selection.rows if seleccion and seleccion.selection else []
+    if filas_sel:
+        st.session_state["ticker_activo"] = df.iloc[filas_sel[0]]["Ticker"]
 
 
 panel_resultados()
@@ -842,6 +847,138 @@ CSS_EVENTOS = (
 )
 
 
+# ==========================================
+# 🔗 CONECTORES RÁPIDOS A BROKER (10 casillas verticales, a la izquierda de "Eventos en vivo")
+# Un clic envía el ticker activo al broker/layout que elijas en el engranaje ⚙️ de cada casilla.
+# ==========================================
+RUTA_CONECTORES = os.path.join(os.getcwd(), "config_conectores.json")
+N_CASILLAS = 10
+
+BROKERS_DISPONIBLES = ["Alpaca (API)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
+COLORES_DISPONIBLES = ["#3b82c4", "#2ecc71", "#e74c3c", "#f1c40f", "#9b59b6", "#e67e22", "#1abc9c", "#95a5a6"]
+
+
+def cargar_conectores():
+    try:
+        with open(RUTA_CONECTORES, "r") as f:
+            data = json.load(f)
+    except Exception:
+        data = {}
+    conectores = []
+    for i in range(N_CASILLAS):
+        d = data.get(str(i), {})
+        conectores.append({
+            "broker": d.get("broker", BROKERS_DISPONIBLES[0]),
+            "color": d.get("color", COLORES_DISPONIBLES[i % len(COLORES_DISPONIBLES)]),
+            "webhook_url": d.get("webhook_url", ""),
+        })
+    return conectores
+
+
+def guardar_conectores(conectores):
+    try:
+        with open(RUTA_CONECTORES, "w") as f:
+            json.dump({str(i): c for i, c in enumerate(conectores)}, f)
+    except Exception:
+        pass
+
+
+if "conectores" not in st.session_state:
+    st.session_state["conectores"] = cargar_conectores()
+if "ticker_activo" not in st.session_state:
+    st.session_state["ticker_activo"] = ""
+if "aviso_conector" not in st.session_state:
+    st.session_state["aviso_conector"] = None
+
+
+def enviar_a_broker(indice, ticker):
+    """Envía `ticker` al broker configurado en la casilla `indice`.
+    - Alpaca: usa el mismo TradingClient que ya usa el motor (servicio.trading) para confirmar que el símbolo existe.
+    - TradeZero / Binance / Otro: hace POST a un webhook local (por ejemplo, un trigger HTTP de Macro Deck
+      que tú mapeas a las teclas rápidas de tu layout, igual que ya haces con tus hotkeys de Buy/Sell/Short/Cover).
+    - Quantfury: no tiene API pública, así que se copia el ticker al portapapeles para pegarlo tú mismo.
+    NOTA: esto NO coloca órdenes ni ejecuta operaciones — solo selecciona/envía el símbolo al broker o layout elegido.
+    """
+    conector = st.session_state["conectores"][indice]
+    broker = conector["broker"]
+    webhook_url = conector["webhook_url"]
+    ticker = (ticker or "").strip().upper()
+
+    if not ticker:
+        return False, "Elige un ticker activo (selecciona una fila en la tabla de resultados) antes de conectar."
+
+    try:
+        if broker.startswith("Alpaca"):
+            activo = servicio.trading.get_asset(ticker)
+            return True, f"Casilla {indice+1} · Alpaca: {ticker} confirmado ({activo.name})."
+        elif broker == "Quantfury (portapapeles)":
+            return True, f"COPIAR::{ticker}"
+        else:  # TradeZero (webhook) / Binance (webhook) / Otro (webhook)
+            if not webhook_url:
+                return False, f"Casilla {indice+1}: configura la URL del webhook local en el engranaje ⚙️."
+            r = requests.post(webhook_url, json={"ticker": ticker}, timeout=2)
+            r.raise_for_status()
+            return True, f"Casilla {indice+1} · {broker}: {ticker} enviado."
+    except Exception as exc:
+        return False, f"Casilla {indice+1}: error al conectar — {exc}"
+
+
+def panel_conectores():
+    st.markdown(
+        "<div style='color:#8b93a7;font-size:11px;letter-spacing:1px;margin-bottom:6px;'>"
+        "CONECTORES · 1 clic</div>",
+        unsafe_allow_html=True,
+    )
+    ticker_activo = st.text_input(
+        "Ticker activo", value=st.session_state["ticker_activo"], key="f_ticker_activo",
+        label_visibility="collapsed", placeholder="Ticker (ej. NVDA)",
+    ).strip().upper()
+    st.session_state["ticker_activo"] = ticker_activo
+
+    for i in range(N_CASILLAS):
+        conector = st.session_state["conectores"][i]
+        col_boton, col_gear = st.columns([4, 1])
+        with col_boton:
+            etiqueta = f"{i+1} · {conector['broker'].split(' ')[0]}"
+            st.markdown(
+                f"<style>#casilla_{i} button{{background:{conector['color']} !important;"
+                f"color:#0a0a0a !important;border:none !important;font-weight:700 !important;}}</style>"
+                f"<div id='casilla_{i}'>", unsafe_allow_html=True,
+            )
+            if st.button(etiqueta, key=f"btn_conector_{i}", use_container_width=True):
+                ok, msg = enviar_a_broker(i, ticker_activo)
+                if ok and msg.startswith("COPIAR::"):
+                    valor = msg.split("COPIAR::", 1)[1]
+                    st.components.v1.html(
+                        f"<script>navigator.clipboard.writeText('{valor}');</script>", height=0,
+                    )
+                    st.session_state["aviso_conector"] = (True, f"Casilla {i+1}: {valor} copiado — pégalo en Quantfury.")
+                else:
+                    st.session_state["aviso_conector"] = (ok, msg)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with col_gear:
+            with st.popover("⚙️", use_container_width=True):
+                nuevo_broker = st.selectbox(
+                    "Broker / layout", BROKERS_DISPONIBLES,
+                    index=BROKERS_DISPONIBLES.index(conector["broker"]), key=f"broker_{i}",
+                )
+                nuevo_color = st.color_picker("Color de la casilla", value=conector["color"], key=f"color_{i}")
+                nuevo_webhook = conector["webhook_url"]
+                if not nuevo_broker.startswith("Alpaca") and nuevo_broker != "Quantfury (portapapeles)":
+                    nuevo_webhook = st.text_input(
+                        "URL webhook local (Macro Deck / puente)", value=conector["webhook_url"], key=f"webhook_{i}",
+                        placeholder="http://127.0.0.1:PUERTO/trigger",
+                    )
+                if (nuevo_broker, nuevo_color, nuevo_webhook) != (conector["broker"], conector["color"], conector["webhook_url"]):
+                    st.session_state["conectores"][i] = {"broker": nuevo_broker, "color": nuevo_color, "webhook_url": nuevo_webhook}
+                    guardar_conectores(st.session_state["conectores"])
+                    st.rerun()
+
+    if st.session_state["aviso_conector"]:
+        ok, msg = st.session_state["aviso_conector"]
+        (st.success if ok else st.warning)(msg)
+
+
 @st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
 def panel_eventos():
     eventos = filtrar_eventos(list(getattr(servicio, "eventos", [])), params)[:EVENTOS_MOSTRAR]
@@ -877,4 +1014,8 @@ def panel_eventos():
     )
 
 
-panel_eventos()
+col_conectores, col_eventos = st.columns([1, 5])
+with col_conectores:
+    panel_conectores()
+with col_eventos:
+    panel_eventos()
