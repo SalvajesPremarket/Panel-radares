@@ -2,6 +2,7 @@ import os
 import json
 import time
 import hashlib
+from html import escape as html_escape
 import threading
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -68,6 +69,18 @@ VENTANA_CRUCE_EMA_MINUTOS = 15
 MARGEN_PROXIMIDAD_EMA = 0.05
 MINUTOS_NOTICIA_RECIENTE = 60
 
+# --- Cuadro "Eventos en vivo" (parte de abajo de la interfaz) ---
+MAX_EVENTOS = 500                      # eventos que guarda el motor en memoria
+EVENTOS_MOSTRAR = 40                   # filas visibles en el cuadro
+EVENTOS_ALTO_PX = 430                  # alto del cuadro (con scroll)
+
+# --- Botón encender/apagar del scanner ---
+MOSTRAR_BOTON_ENCENDIDO_A_TODOS = True  # True: lo ve cualquier usuario con licencia. False: solo el administrador
+
+# --- Opciones de los filtros técnicos (la primera es la que viene por defecto) ---
+OPCIONES_CRUCE_EMA = ["Hacia arriba", "Hacia abajo", "Neutro"]
+OPCIONES_MACD = ["Positivo", "Negativo", "No exigir"]
+
 NOMBRE_ARCHIVO_HTML = "radar_premarket.html"
 RUTA_CACHE_FUNDAMENTALES = os.path.join(os.getcwd(), "cache_fundamentales.json")
 RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
@@ -79,6 +92,7 @@ VALORES_POR_DEFECTO = {
     "gap_max": 500.0,
     "flotacion_max": 15_000_000,
     "vol_rel_min": 1.5,
+    "vol_premarket_min": 0,
     "intervalo_refresco": 5,
 }
 
@@ -169,9 +183,9 @@ def formatear_numero_grande(numero):
 
 
 def evaluar_tecnico(cierres):
-    """Devuelve (cruzando_ema20, macd_positivo) a partir de una serie de cierres de 1 minuto."""
+    """Devuelve (cruza_arriba, cruza_abajo, macd_positivo, macd_negativo) a partir de una serie de cierres de 1 minuto."""
     if cierres is None or len(cierres) < 40:
-        return False, False
+        return False, False, False, False
 
     ema20 = cierres.ewm(span=20, adjust=False).mean()
     macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
@@ -179,19 +193,23 @@ def evaluar_tecnico(cierres):
     precio_act = float(cierres.iloc[-1])
     ema_act = float(ema20.iloc[-1])
     if pd.isna(ema_act) or ema_act <= 0:
-        return False, False
+        return False, False, False, False
 
-    cerca_de_ema = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
+    cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
+    cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
 
-    cruzo_recientemente = False
+    cruzo_arriba = False
+    cruzo_abajo = False
     for i in range(-VENTANA_CRUCE_EMA_MINUTOS, -1):
         if cierres.iloc[i - 1] <= ema20.iloc[i - 1] and cierres.iloc[i] > ema20.iloc[i]:
-            cruzo_recientemente = True
-            break
+            cruzo_arriba = True
+        if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
+            cruzo_abajo = True
 
     macd_actual = macd_line.iloc[-1]
     macd_positivo = bool(not pd.isna(macd_actual) and macd_actual > 0)
-    return (cerca_de_ema and cruzo_recientemente), macd_positivo
+    macd_negativo = bool(not pd.isna(macd_actual) and macd_actual < 0)
+    return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo
 
 
 def descargar_cierres(tickers):
@@ -236,9 +254,17 @@ def filtrar_resultados(filas, p):
             continue
         if c["volumen_relativo"] < p["vol_rel_min"]:
             continue
-        if p["exigir_cruce"] and not c["cruzando_ema20"]:
+        cruce = p.get("cruce_ema", "Neutro")
+        if cruce == "Hacia arriba" and not c["cruzando_ema20"]:
             continue
-        if p["exigir_macd"] and not c["macd_positivo"]:
+        if cruce == "Hacia abajo" and not c["cruzando_ema20_abajo"]:
+            continue
+        macd = p.get("macd", "No exigir")
+        if macd == "Positivo" and not c["macd_positivo"]:
+            continue
+        if macd == "Negativo" and not c["macd_negativo"]:
+            continue
+        if c["volumen_dia"] < p.get("vol_premarket_min", 0):
             continue
         resultado.append(c)
 
@@ -249,6 +275,24 @@ def filtrar_resultados(filas, p):
     }
     resultado.sort(key=claves.get(p.get("orden", "Actualizado"), claves["Actualizado"]), reverse=True)
     return resultado[: int(p["top_n"])]
+
+
+def filtrar_eventos(eventos, p):
+    """Filtros numéricos del usuario aplicados al cuadro de eventos (sin EMA/MACD/Top N)."""
+    salida = []
+    for e in eventos:
+        if not (p["precio_min"] <= e["precio"] <= p["precio_max"]):
+            continue
+        if not (p["gap_min"] <= e["cambio_pct"] <= p["gap_max"]):
+            continue
+        if e["float_shares"] is None or e["float_shares"] >= p["flotacion_max"]:
+            continue
+        if e["volumen_relativo"] < p["vol_rel_min"]:
+            continue
+        if e["volumen_dia"] < p.get("vol_premarket_min", 0):
+            continue
+        salida.append(e)
+    return salida
 
 
 # ==========================================
@@ -276,6 +320,9 @@ class ServicioScanner:
 
         self.tg_msg_id = None
         self.tg_ultimo_hash = None
+
+        self.eventos = []                    # cuadro "Eventos en vivo" (el más nuevo primero)
+        self._ultimo_precio_evento = {}
 
         self.cache_tecnico = {}
         self.cache_fund = self._leer_cache_fundamentales()
@@ -387,8 +434,8 @@ class ServicioScanner:
             return
         series = descargar_cierres(pendientes)
         for t in pendientes:
-            cruzando, macd_pos = evaluar_tecnico(series.get(t))
-            self.cache_tecnico[t] = (ahora, cruzando, macd_pos)
+            cruz_arriba, cruz_abajo, macd_pos, macd_neg = evaluar_tecnico(series.get(t))
+            self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg)
 
     # ---------- noticias (una sola llamada para todos) ----------
     def _noticias_recientes(self, tickers):
@@ -460,6 +507,39 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         except Exception:
             pass
 
+    # ---------- eventos en vivo (cuadro de abajo) ----------
+    def _registrar_eventos(self, candidatos):
+        """Guarda un evento cada vez que cambia el último precio de un ticker del radar.
+        subiendo=True (verde): el precio subió frente al evento anterior de ese ticker.
+        subiendo=False (rojo): bajó. La primera vez que aparece, se usa el cambio % del día."""
+        try:
+            nuevos = []
+            for c in candidatos:
+                previo = self._ultimo_precio_evento.get(c["ticker"])
+                if previo is not None and previo == c["precio"]:
+                    continue
+                subiendo = (c["precio"] > previo) if previo is not None else (c["cambio_pct"] >= 0)
+                self._ultimo_precio_evento[c["ticker"]] = c["precio"]
+                nuevos.append({
+                    "ticker": c["ticker"],
+                    "precio": c["precio"],
+                    "cambio_pct": c["cambio_pct"],
+                    "volumen_dia": c["volumen_dia"],
+                    "float_shares": c["float_shares"],
+                    "volumen_relativo": c["volumen_relativo"],
+                    "tiene_noticia": c["tiene_noticia"],
+                    "actualizado": c["actualizado"],
+                    "subiendo": subiendo,
+                })
+            if nuevos:
+                try:
+                    nuevos.sort(key=lambda ev: ev["actualizado"], reverse=True)
+                except Exception:
+                    pass
+                self.eventos = (nuevos + self.eventos)[:MAX_EVENTOS]
+        except Exception as ex:
+            print(f"⚠️ Error registrando eventos: {ex}")
+
     # ---------- ciclo principal ----------
     def _ciclo(self):
         inicio = time.monotonic()
@@ -518,18 +598,21 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in enriquecidos:
-            _, cruzando, macd_pos = self.cache_tecnico.get(c["ticker"], (0, False, False))
-            c["cruzando_ema20"] = cruzando
+            _, cruz_arriba, cruz_abajo, macd_pos, macd_neg = self.cache_tecnico.get(c["ticker"], (0, False, False, False, False))
+            c["cruzando_ema20"] = cruz_arriba
+            c["cruzando_ema20_abajo"] = cruz_abajo
             c["macd_positivo"] = macd_pos
+            c["macd_negativo"] = macd_neg
             c["tiene_noticia"] = c["ticker"] in con_noticia
 
         self.resultados = enriquecidos
         self.ultima_actualizacion = datetime.now(ET)
         self.duracion_ciclo = time.monotonic() - inicio
+        self._registrar_eventos(enriquecidos)
 
         # Telegram / HTML con los filtros del dueño (los de config_filtros.json)
         p = dict(self.filtros_dueno)
-        p.update({"exigir_cruce": True, "exigir_macd": True, "top_n": 10, "orden": "Actualizado"})
+        p.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 10, "orden": "Actualizado"})
         top = filtrar_resultados(enriquecidos, p)
         if top:
             tabla = f"{'TICK':<5}|{'PRE':>5}|{'CHG%':>4}|{'VOL':>5}|{'FLT':>5}\n" + "-" * 28 + "\n"
@@ -629,23 +712,25 @@ with st.container(border=True):
     with c7:
         REFRESCO = st.number_input("Refresco pantalla (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
 
-    d1, d2, d3, d4, d5 = st.columns(5)
+    d1, d2, d3, d4, d5, d6 = st.columns(6)
     with d1:
-        EXIGIR_CRUCE = st.toggle("Exigir cruce EMA20", value=True, key="f_cruce")
+        CRUCE_EMA = st.selectbox("Exigir cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
     with d2:
-        EXIGIR_MACD = st.toggle("Exigir MACD positivo", value=True, key="f_macd")
+        MACD_MODO = st.selectbox("Exigir MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
     with d3:
-        ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Vol. relativo"], key="f_orden")
+        VOL_PM_MIN = st.number_input("Volumen pre market mín.", value=int(cfg["vol_premarket_min"]), min_value=0, step=10_000, key="f_vpm")
     with d4:
-        TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+        ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Vol. relativo"], key="f_orden")
     with d5:
+        TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+    with d6:
         AUTO_ON = st.toggle("Auto-refresh", value=True, key="f_auto")
 
 params = {
     "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX,
     "gap_min": GAP_MIN, "gap_max": GAP_MAX,
     "flotacion_max": FLOT_MAX, "vol_rel_min": VOLREL_MIN,
-    "exigir_cruce": EXIGIR_CRUCE, "exigir_macd": EXIGIR_MACD,
+    "cruce_ema": CRUCE_EMA, "macd": MACD_MODO, "vol_premarket_min": VOL_PM_MIN,
     "orden": ORDEN, "top_n": TOP_N,
 }
 
@@ -656,7 +741,7 @@ col_estado, col_bot = st.columns([3, 1])
 with col_estado:
     st.markdown("### 🟢 Scanner ENCENDIDO" if servicio.encendido else "### 🔴 Scanner APAGADO")
 with col_bot:
-    if ES_ADMIN:
+    if ES_ADMIN or MOSTRAR_BOTON_ENCENDIDO_A_TODOS:
         servicio.encendido = st.toggle("Encender / Apagar", value=servicio.encendido, key="toggle_motor")
 
 # ==========================================
@@ -702,8 +787,8 @@ def panel_resultados():
             "Volumen": formatear_numero_grande(c["volumen_dia"]),
             "Flotación": formatear_numero_grande(c["float_shares"]),
             "Vol. Relativo": round(c["volumen_relativo"], 2),
-            "EMA20": "✅" if c["cruzando_ema20"] else "",
-            "MACD+": "✅" if c["macd_positivo"] else "",
+            "EMA20": "✅" if c["cruzando_ema20"] else ("🔻" if c.get("cruzando_ema20_abajo") else ""),
+            "MACD": "✅" if c["macd_positivo"] else ("🔻" if c.get("macd_negativo") else ""),
             "Noticia": "🔥" if c["tiene_noticia"] else "",
             "Actualizado (ET)": c["actualizado"].astimezone(ET).strftime("%H:%M:%S") if hasattr(c["actualizado"], "astimezone") else str(c["actualizado"]),
         }
@@ -720,3 +805,76 @@ def panel_resultados():
 
 
 panel_resultados()
+
+
+# ==========================================
+# 🟩🟥 CUADRO "EVENTOS EN VIVO" (debajo de la tabla)
+# Verde = el precio subió frente al evento anterior de ese ticker · Rojo = bajó
+# Respeta tus filtros numéricos (precio, gap, flotación, vol. relativo, vol. pre market)
+# ==========================================
+def hora_evento(ts):
+    try:
+        return ts.astimezone(ET).strftime("%I:%M:%S %p").lower().lstrip("0")
+    except Exception:
+        return str(ts)
+
+
+CSS_EVENTOS = (
+    "<style>"
+    ".evt-wrap{border:1px solid #2a3348;border-radius:8px;overflow:hidden;background:#0a0e1a;margin-top:14px;}"
+    ".evt-titulo{display:flex;justify-content:space-between;align-items:center;"
+    "background:linear-gradient(180deg,#1f3a5f 0%,#12233d 100%);color:#ffffff;"
+    "font-family:sans-serif;font-weight:600;font-size:15px;padding:9px 14px;border-bottom:2px solid #3b82c4;}"
+    ".evt-titulo span.leyenda{font-size:12px;font-weight:500;color:#d5dcea;}"
+    f".evt-scroll{{max-height:{EVENTOS_ALTO_PX}px;overflow-y:auto;}}"
+    "table.evt{width:100%;border-collapse:collapse;font-family:sans-serif;font-size:13px;}"
+    "table.evt th{position:sticky;top:0;z-index:1;background:linear-gradient(180deg,#1b3357 0%,#0f213c 100%);"
+    "color:#ffffff;font-weight:600;padding:8px 6px;text-align:center;border:1px solid #6b7a90;}"
+    "table.evt td{padding:6px 8px;text-align:center;border:1px solid #6b7a90;color:#0a0a0a;font-weight:500;}"
+    "table.evt tr.pos td{background:#1de9a5;}"
+    "table.evt tr.neg td{background:#ff6b6b;}"
+    "table.evt tr.pos td.flt{background:#a4f3cf;}"
+    "table.evt tr.neg td.flt{background:#ffb3b3;}"
+    "table.evt td.sym{font-weight:700;text-decoration:underline;}"
+    "table.evt td.vol{background:#4d5b6e !important;color:#ffffff;}"
+    "table.evt td.vacio{background:#12151c;color:#8b93a7;padding:18px;}"
+    "</style>"
+)
+
+
+@st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
+def panel_eventos():
+    eventos = filtrar_eventos(list(getattr(servicio, "eventos", [])), params)[:EVENTOS_MOSTRAR]
+
+    if eventos:
+        filas_html = "".join(
+            f'<tr class="{"pos" if e["subiendo"] else "neg"}">'
+            f'<td>{hora_evento(e["actualizado"])}</td>'
+            f'<td class="sym">{html_escape(str(e["ticker"]))}{" 🔥" if e["tiene_noticia"] else ""}</td>'
+            f'<td>{e["precio"]:.2f}</td>'
+            f'<td>{e["cambio_pct"]:+.1f}%</td>'
+            f'<td class="vol">{formatear_numero_grande(e["volumen_dia"])}</td>'
+            f'<td class="flt">{formatear_numero_grande(e["float_shares"])}</td>'
+            f'<td>{e["volumen_relativo"]:.2f}</td>'
+            f'</tr>'
+            for e in eventos
+        )
+    else:
+        filas_html = '<tr><td colspan="7" class="vacio">Sin eventos por ahora que cumplan tus filtros.</td></tr>'
+
+    st.markdown(
+        CSS_EVENTOS
+        + '<div class="evt-wrap">'
+        + '<div class="evt-titulo"><span>EVENTOS EN VIVO · MOMENTUM</span>'
+        + '<span class="leyenda">🟩 sube · 🟥 baja</span></div>'
+        + '<div class="evt-scroll"><table class="evt"><thead><tr>'
+        + '<th>Hora (ET)</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>'
+        + '<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>'
+        + '</tr></thead><tbody>'
+        + filas_html
+        + '</tbody></table></div></div>',
+        unsafe_allow_html=True,
+    )
+
+
+panel_eventos()
