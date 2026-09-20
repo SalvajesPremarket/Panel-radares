@@ -656,14 +656,14 @@ st.markdown("""
     .stApp { background-color: #0a0e1a; color: #e6e6e6; }
     [data-testid="stHeader"], [data-testid="stSidebar"] { background-color: #0a0e1a; }
     .block-container { padding-top: 1rem; }
-    .finviz-topbar { position: relative; background: linear-gradient(135deg, #0d1420 0%, #131b2c 100%); padding: 18px 100px;
-        border-radius: 10px; margin-bottom: 12px; border: 1px solid #2a3348; border-bottom: 3px solid #ffd700; text-align: center; }
+    .finviz-topbar { position: relative; background: linear-gradient(135deg, #0d1420 0%, #131b2c 100%); padding: 14px 24px;
+        border-radius: 10px; margin-bottom: 12px; border: 1px solid #2a3348; border-bottom: 3px solid #ffd700;
+        display: flex; align-items: center; justify-content: center; gap: 24px; }
+    .finviz-topbar .topbar-centro { text-align: center; }
     .finviz-topbar h1 { color: #c9a227; font-size: 24px; margin: 0; font-family: sans-serif; font-weight: 700; }
-    .topbar-figura { position: absolute; top: 50%; transform: translateY(-50%); width: 84px; height: 84px;
+    .topbar-figura { flex: 0 0 auto; width: 70px; height: 70px;
         display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .topbar-figura img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
-    .topbar-figura.toro { right: 20px; }
-    .topbar-figura.oso { left: 20px; }
+    .topbar-figura img { max-width: 100%; max-height: 100%; object-fit: contain; }
     label, [data-testid="stWidgetLabel"] p { color: #FFD700 !important; font-weight: 700 !important;
         text-transform: uppercase; font-size: 11px !important; }
     div[data-testid="stNumberInput"] input { background-color: #1a1e27; color: #ffffff; border: 1px solid #2a3348 !important; }
@@ -675,10 +675,10 @@ IMG_OSO_B64 = "iVBORw0KGgoAAAANSUhEUgAAASwAAAErCAYAAABkeL7NAAEAAElEQVR4nOz9d5hc1
 
 st.markdown(
     f'<div class="finviz-topbar">'
-    f'<div class="topbar-figura toro"><img src="data:image/png;base64,{IMG_TORO_B64}"></div>'
-    f'<h1>SCANNER PRE MARKET LIVE</h1>'
-    f'<div style="color:#8b93a7; font-size:11px; letter-spacing:2px;">RADAR EN TIEMPO REAL</div>'
-    f'<div class="topbar-figura oso"><img src="data:image/png;base64,{IMG_OSO_B64}"></div>'
+    f'<div class="topbar-figura"><img src="data:image/png;base64,{IMG_OSO_B64}"></div>'
+    f'<div class="topbar-centro"><h1>SCANNER PRE MARKET LIVE</h1>'
+    f'<div style="color:#8b93a7; font-size:11px; letter-spacing:2px;">RADAR EN TIEMPO REAL</div></div>'
+    f'<div class="topbar-figura"><img src="data:image/png;base64,{IMG_TORO_B64}"></div>'
     f'</div>',
     unsafe_allow_html=True,
 )
@@ -826,12 +826,7 @@ def hora_evento(ts):
 
 CSS_EVENTOS = (
     "<style>"
-    ".evt-wrap{border:1px solid #2a3348;border-radius:8px;overflow:hidden;background:#0a0e1a;margin-top:14px;}"
-    ".evt-titulo{display:flex;justify-content:space-between;align-items:center;"
-    "background:linear-gradient(180deg,#1f3a5f 0%,#12233d 100%);color:#ffffff;"
-    "font-family:sans-serif;font-weight:600;font-size:15px;padding:9px 14px;border-bottom:2px solid #3b82c4;}"
-    ".evt-titulo span.leyenda{font-size:12px;font-weight:500;color:#d5dcea;}"
-    f".evt-scroll{{max-height:{EVENTOS_ALTO_PX}px;overflow-y:auto;}}"
+    f".evt-scroll{{max-height:{EVENTOS_ALTO_PX}px;overflow-y:auto;border:1px solid #2a3348;border-radius:6px;}}"
     "table.evt{width:100%;border-collapse:collapse;font-family:sans-serif;font-size:13px;}"
     "table.evt th{position:sticky;top:0;z-index:1;background:linear-gradient(180deg,#1b3357 0%,#0f213c 100%);"
     "color:#ffffff;font-weight:600;padding:8px 6px;text-align:center;border:1px solid #6b7a90;}"
@@ -855,7 +850,7 @@ RUTA_CONECTORES = os.path.join(os.getcwd(), "config_conectores.json")
 N_CASILLAS = 10
 
 BROKERS_DISPONIBLES = ["Alpaca (API)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
-COLORES_DISPONIBLES = ["#3b82c4", "#2ecc71", "#e74c3c", "#f1c40f", "#9b59b6", "#e67e22", "#1abc9c", "#95a5a6"]
+COLORES_DISPONIBLES = ["🔵", "🟢", "🔴", "🟡", "🟣", "🟠", "🟤", "⚪"]
 
 
 def cargar_conectores():
@@ -867,9 +862,12 @@ def cargar_conectores():
     conectores = []
     for i in range(N_CASILLAS):
         d = data.get(str(i), {})
+        color_guardado = d.get("color", "")
+        if color_guardado not in COLORES_DISPONIBLES:
+            color_guardado = COLORES_DISPONIBLES[i % len(COLORES_DISPONIBLES)]
         conectores.append({
             "broker": d.get("broker", BROKERS_DISPONIBLES[0]),
-            "color": d.get("color", COLORES_DISPONIBLES[i % len(COLORES_DISPONIBLES)]),
+            "color": color_guardado,
             "webhook_url": d.get("webhook_url", ""),
         })
     return conectores
@@ -939,12 +937,7 @@ def panel_conectores():
         conector = st.session_state["conectores"][i]
         col_boton, col_gear = st.columns([4, 1])
         with col_boton:
-            etiqueta = f"{i+1} · {conector['broker'].split(' ')[0]}"
-            st.markdown(
-                f"<style>#casilla_{i} button{{background:{conector['color']} !important;"
-                f"color:#0a0a0a !important;border:none !important;font-weight:700 !important;}}</style>"
-                f"<div id='casilla_{i}'>", unsafe_allow_html=True,
-            )
+            etiqueta = f"{conector['color']} {i+1} · {conector['broker'].split(' ')[0]}"
             if st.button(etiqueta, key=f"btn_conector_{i}", use_container_width=True):
                 ok, msg = enviar_a_broker(i, ticker_activo)
                 if ok and msg.startswith("COPIAR::"):
@@ -955,14 +948,17 @@ def panel_conectores():
                     st.session_state["aviso_conector"] = (True, f"Casilla {i+1}: {valor} copiado — pégalo en Quantfury.")
                 else:
                     st.session_state["aviso_conector"] = (ok, msg)
-            st.markdown("</div>", unsafe_allow_html=True)
         with col_gear:
             with st.popover("⚙️", use_container_width=True):
                 nuevo_broker = st.selectbox(
                     "Broker / layout", BROKERS_DISPONIBLES,
                     index=BROKERS_DISPONIBLES.index(conector["broker"]), key=f"broker_{i}",
                 )
-                nuevo_color = st.color_picker("Color de la casilla", value=conector["color"], key=f"color_{i}")
+                nuevo_color = st.selectbox(
+                    "Color de la casilla", COLORES_DISPONIBLES,
+                    index=COLORES_DISPONIBLES.index(conector["color"]) if conector["color"] in COLORES_DISPONIBLES else 0,
+                    key=f"color_{i}",
+                )
                 nuevo_webhook = conector["webhook_url"]
                 if not nuevo_broker.startswith("Alpaca") and nuevo_broker != "Quantfury (portapapeles)":
                     nuevo_webhook = st.text_input(
@@ -1001,21 +997,30 @@ def panel_eventos():
 
     st.markdown(
         CSS_EVENTOS
-        + '<div class="evt-wrap">'
-        + '<div class="evt-titulo"><span>EVENTOS EN VIVO · MOMENTUM</span>'
-        + '<span class="leyenda">🟩 sube · 🟥 baja</span></div>'
         + '<div class="evt-scroll"><table class="evt"><thead><tr>'
         + '<th>Hora (ET)</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>'
         + '<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>'
         + '</tr></thead><tbody>'
         + filas_html
-        + '</tbody></table></div></div>',
+        + '</tbody></table></div>',
         unsafe_allow_html=True,
     )
 
 
-col_conectores, col_eventos = st.columns([1, 5])
-with col_conectores:
-    panel_conectores()
-with col_eventos:
-    panel_eventos()
+with st.container(border=True):
+    col_t1, col_t2 = st.columns([3, 2])
+    with col_t1:
+        st.markdown(
+            "<div style='color:#ffffff;font-weight:700;font-size:15px;'>EVENTOS EN VIVO · MOMENTUM</div>",
+            unsafe_allow_html=True,
+        )
+    with col_t2:
+        st.markdown(
+            "<div style='text-align:right;color:#d5dcea;font-size:12px;'>🟩 sube · 🟥 baja</div>",
+            unsafe_allow_html=True,
+        )
+    col_conectores, col_eventos = st.columns([1, 5])
+    with col_conectores:
+        panel_conectores()
+    with col_eventos:
+        panel_eventos()
