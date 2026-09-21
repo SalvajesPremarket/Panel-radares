@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 import yfinance as yf
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest
@@ -21,7 +22,57 @@ from alpaca.trading.requests import GetAssetsRequest
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 # ==========================================
+# 📱 PWA: permitir "Agregar a pantalla de inicio" desde el navegador del celular
+# (no requiere archivos aparte: el manifest va embebido como data-URI)
+# ==========================================
+_PWA_MANIFEST = json.dumps({
+    "name": "Scanner Pre Market",
+    "short_name": "PreMarket",
+    "start_url": ".",
+    "display": "standalone",
+    "background_color": "#0a0e1a",
+    "theme_color": "#0a0e1a",
+    "icons": [{
+        "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E"
+               "%3Crect width='192' height='192' rx='28' fill='%230a0e1a'/%3E"
+               "%3Cpath d='M30 130 L70 90 L100 115 L162 45' stroke='%2300ffcc' stroke-width='12' "
+               "fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E",
+        "sizes": "192x192", "type": "image/svg+xml", "purpose": "any",
+    }],
+}, ensure_ascii=False)
+_PWA_MANIFEST_URI = "data:application/manifest+json," + _PWA_MANIFEST.replace(" ", "%20").replace("#", "%23")
+_PWA_ICON_URI = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E"
+    "%3Crect width='192' height='192' rx='28' fill='%230a0e1a'/%3E"
+    "%3Cpath d='M30 130 L70 90 L100 115 L162 45' stroke='%2300ffcc' stroke-width='12' "
+    "fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+)
+components.html(
+    "<script>"
+    "(function(){"
+    "  try{"
+    "    var d = window.parent.document;"
+    "    function tag(name, attrs){"
+    "      var el = d.createElement(name);"
+    "      for (var k in attrs){ el.setAttribute(k, attrs[k]); }"
+    "      return el;"
+    "    }"
+    f"    d.head.appendChild(tag('link', {{rel:'manifest', href:{json.dumps(_PWA_MANIFEST_URI)}}}));"
+    f"    d.head.appendChild(tag('link', {{rel:'apple-touch-icon', href:{json.dumps(_PWA_ICON_URI)}}}));"
+    "    d.head.appendChild(tag('meta', {name:'theme-color', content:'#0a0e1a'}));"
+    "    d.head.appendChild(tag('meta', {name:'mobile-web-app-capable', content:'yes'}));"
+    "    d.head.appendChild(tag('meta', {name:'apple-mobile-web-app-capable', content:'yes'}));"
+    "    d.head.appendChild(tag('meta', {name:'apple-mobile-web-app-status-bar-style', content:'black-translucent'}));"
+    "    d.head.appendChild(tag('meta', {name:'apple-mobile-web-app-title', content:'PreMarket'}));"
+    "  } catch(e) {}"
+    "})();"
+    "</script>",
+    height=0, width=0,
+)
+
+# ==========================================
 # 🙈 OCULTAR BARRA SUPERIOR DE STREAMLIT (Share, GitHub, editar, menú, badges)
+# 📱 + AJUSTES RESPONSIVOS para que se vea bien en celular
 # ==========================================
 st.markdown("""
 <style>
@@ -38,8 +89,24 @@ st.markdown("""
         display: none !important;
         visibility: hidden !important;
     }
+
+    /* --- Responsivo: pantallas de celular (ancho <= 640px) --- */
+    @media (max-width: 640px) {
+        .block-container {
+            padding-left: 0.6rem !important;
+            padding-right: 0.6rem !important;
+            padding-top: 1rem !important;
+        }
+        h1 { font-size: 1.3rem !important; }
+        h2 { font-size: 1.1rem !important; }
+        h3 { font-size: 1rem !important; }
+        [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+        /* la tabla de resultados no se recorta: permite scroll horizontal */
+        [data-testid="stDataFrame"] { overflow-x: auto !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
+
 
 ET = ZoneInfo("America/New_York")
 
@@ -660,9 +727,8 @@ st.markdown("""
         border-radius: 10px; margin-bottom: 12px; border: 1px solid #2a3348; border-bottom: 3px solid #ffd700; text-align: center; }
     .finviz-topbar h1 { color: #c9a227; font-size: 24px; margin: 0; font-family: sans-serif; font-weight: 700; }
     .topbar-figura { position: absolute; top: 50%; transform: translateY(-50%); width: 84px; height: 84px;
-        border-radius: 50%; background: #0a0e1a; box-shadow: 0 0 0 2px #c9a227, 0 4px 12px rgba(0,0,0,0.5);
-        display: flex; align-items: center; justify-content: center; overflow: hidden; }
-    .topbar-figura img { width: 100%; height: 100%; object-fit: cover; object-position: center; }
+        display: flex; align-items: center; justify-content: center; }
+    .topbar-figura img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; object-position: center; display: block; }
     .topbar-figura.toro { right: 20px; }
     .topbar-figura.oso { left: 20px; }
     label, [data-testid="stWidgetLabel"] p { color: #FFD700 !important; font-weight: 700 !important;
@@ -822,7 +888,6 @@ panel_resultados()
 # El envío lo hace TU NAVEGADOR (no el servidor), así funciona con http://127.0.0.1 en tu PC.
 # No coloca órdenes: solo manda el símbolo.
 # ==========================================
-import streamlit.components.v1 as components
 
 PANEL_BROKER_ALTO_PX = 500
 PUENTE_LOCAL_POR_DEFECTO = "http://127.0.0.1:8765/enviar"
@@ -848,7 +913,8 @@ COLORES_LAYOUT = [
 
 CSS_PANEL_BROKER = (
     "body{margin:0;background:transparent;font-family:Calibri,'Segoe UI',Arial,sans-serif;}"
-    "table{width:100%;border-collapse:collapse;table-layout:fixed;}"
+    ".tbl-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}"
+    "table{width:100%;min-width:560px;border-collapse:collapse;table-layout:fixed;}"
     "th{background:#4472c4;color:#ffffff;font-weight:700;font-size:15px;padding:8px 6px;"
     "border:1px solid #ffffff;text-align:center;line-height:1.15;}"
     "th.cred{width:17%;text-align:left;font-size:13px;line-height:1.5;}"
@@ -865,6 +931,14 @@ CSS_PANEL_BROKER = (
     "tr.sel td:not(.col){box-shadow:inset 0 0 0 2px #1a3fa0;}"
     "#msg{margin-top:8px;padding:6px 10px;border-radius:6px;background:#1f2937;color:#ffffff;"
     "font-size:13px;display:none;}"
+    # --- Responsivo: celular. La tabla no se aprieta, se puede deslizar horizontal ---
+    "@media (max-width:640px){"
+    "  th{font-size:12px;padding:6px 4px;}"
+    "  th.cred{font-size:11px;}"
+    "  th.cred .m,th.cred .bk{font-size:10px;}"
+    "  td{font-size:12px;height:30px;}"
+    "  #msg{font-size:11px;}"
+    "}"
 )
 
 JS_PANEL_BROKER = r"""
@@ -1002,7 +1076,10 @@ def construir_html_panel_broker(filas10, cfg):
     datos_json = json.dumps(datos, ensure_ascii=False).replace("</", "<\\/")
 
     return (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'><style>" + CSS_PANEL_BROKER + "</style></head><body>"
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<style>" + CSS_PANEL_BROKER + "</style></head><body>"
+        "<div class='tbl-wrap'>"
         "<table><thead><tr>"
         f'<th class="cred">API Key: <span class="m">{key_txt}</span><br>'
         f'API Secret: <span class="m">{sec_txt}</span>'
@@ -1010,6 +1087,7 @@ def construir_html_panel_broker(filas10, cfg):
         "<th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>"
         "<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>"
         "</tr></thead><tbody>" + "".join(cuerpo) + "</tbody></table>"
+        "</div>"
         '<div id="msg"></div>'
         f'<script type="application/json" id="datos">{datos_json}</script>'
         "<script>" + JS_PANEL_BROKER + "</script>"
