@@ -385,6 +385,9 @@ class ServicioScanner:
         self.data = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
 
         self.encendido = True
+        # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
+        self.hora_inicio_auto_min = HORA_AUTO_INICIO_ET * 60
+        self.hora_fin_auto_min = HORA_AUTO_FIN_ET * 60
         self.resultados = []
         self.ultima_actualizacion = None
         self.duracion_ciclo = None
@@ -459,18 +462,32 @@ class ServicioScanner:
         ahora_et = datetime.now(ET)
         self._actualizar_calendario(ahora_et)
         es_dia_mercado = ahora_et.date() in self.dias_mercado_cache
-        hora = ahora_et.hour + ahora_et.minute / 60 + ahora_et.second / 3600
-        en_ventana = HORA_AUTO_INICIO_ET <= hora < HORA_AUTO_FIN_ET
+        minuto_actual = ahora_et.hour * 60 + ahora_et.minute + ahora_et.second / 60
+        inicio = self.hora_inicio_auto_min
+        fin = self.hora_fin_auto_min
+        if inicio == fin:
+            en_ventana = False
+        elif inicio < fin:
+            en_ventana = inicio <= minuto_actual < fin
+        else:
+            # Permite horarios que crucen medianoche, por ejemplo 22:00–04:00.
+            en_ventana = minuto_actual >= inicio or minuto_actual < fin
         self.auto_en_horario = bool(es_dia_mercado and en_ventana)
+        inicio_txt = f"{inicio // 60:02d}:{inicio % 60:02d}"
+        fin_txt = f"{fin // 60:02d}:{fin % 60:02d}"
         if self.auto_en_horario:
-            self.auto_motivo = "Horario automático activo · 04:00–16:00 ET"
+            self.auto_motivo = f"Horario automático activo · {inicio_txt}–{fin_txt} ET"
         elif not es_dia_mercado:
             self.auto_motivo = "Fuera de día de mercado según Alpaca"
-        elif hora < HORA_AUTO_INICIO_ET:
-            self.auto_motivo = "Esperando las 04:00 ET"
         else:
-            self.auto_motivo = "Horario automático cerrado · después de las 16:00 ET"
+            self.auto_motivo = f"Fuera del horario automático · {inicio_txt}–{fin_txt} ET"
         return self.auto_en_horario
+
+    def configurar_horario(self, inicio, fin):
+        """Actualiza el horario automático compartido por todo el scanner."""
+        self.hora_inicio_auto_min = inicio.hour * 60 + inicio.minute
+        self.hora_fin_auto_min = fin.hour * 60 + fin.minute
+        self.auto_motivo = "Horario automático actualizado; esperando el próximo ciclo"
 
     # ---------- universo ----------
     def _cargar_universo(self):
@@ -935,23 +952,50 @@ params = {
 }
 
 # ==========================================
-# 🟢🔴 ESTADO DEL MOTOR (solo el administrador puede encender/apagar)
+# 🟢🔴 ESTADO DEL MOTOR + CONTROLES DEL ADMINISTRADOR
 # ==========================================
-col_estado, col_bot = st.columns([3, 1])
+col_estado, col_bot1, col_bot2 = st.columns([3, 1, 1])
 with col_estado:
-    if servicio.encendido and servicio.auto_en_horario:
-        st.markdown("### 🟢 Scanner ENCENDIDO · horario automático")
-    elif servicio.encendido:
-        st.markdown("### 🟡 Scanner EN ESPERA · " + servicio.auto_motivo)
-    else:
+    if not servicio.encendido:
         st.markdown("### 🔴 Scanner APAGADO MANUALMENTE")
-with col_bot:
-    if ES_ADMIN or MOSTRAR_BOTON_ENCENDIDO_A_TODOS:
-        servicio.encendido = st.toggle(
-            "Permitir escaneo automático",
-            value=servicio.encendido,
-            key="toggle_motor"
+        st.caption("El horario automático no lo encenderá. Pulsa ENCENDER para reactivarlo.")
+    elif servicio.auto_en_horario:
+        st.markdown("### 🟢 Scanner ENCENDIDO · horario automático")
+    else:
+        st.markdown("### 🟡 Scanner EN ESPERA · " + servicio.auto_motivo)
+with col_bot1:
+    if ES_ADMIN:
+        if st.button("🛑 APAGAR SCANNER", key="btn_apagar_scanner", use_container_width=True):
+            servicio.encendido = False
+            st.rerun()
+with col_bot2:
+    if ES_ADMIN:
+        if st.button("🟢 ENCENDER SCANNER", key="btn_encender_scanner", use_container_width=True):
+            servicio.encendido = True
+            st.rerun()
+
+# Solo el administrador puede cambiar el horario compartido del scanner.
+if ES_ADMIN:
+    st.markdown("#### ⏰ Horario automático del scanner")
+    h1, h2, h3 = st.columns([1, 1, 1])
+    with h1:
+        hora_inicio_ui = st.time_input(
+            "Hora de inicio (ET)",
+            value=dt_time(servicio.hora_inicio_auto_min // 60, servicio.hora_inicio_auto_min % 60),
+            key="hora_inicio_scanner"
         )
+    with h2:
+        hora_fin_ui = st.time_input(
+            "Hora de cierre (ET)",
+            value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
+            key="hora_fin_scanner"
+        )
+    with h3:
+        st.write("")
+        st.write("")
+        if st.button("💾 GUARDAR HORARIO", key="btn_guardar_horario", use_container_width=True):
+            servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
+            st.success(f"Horario guardado: {hora_inicio_ui.strftime('%H:%M')}–{hora_fin_ui.strftime('%H:%M')} ET")
 
 if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
     partes_float = []
@@ -1070,18 +1114,41 @@ COLORES_LAYOUT = [
     ("Gris", "#9e9e9e", "#000000"),
 ]
 
+COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
+
+def _texto_contraste(hex_color):
+    """Elige texto negro/blanco según el brillo del color elegido."""
+    try:
+        h = str(hex_color).lstrip("#")
+        if len(h) != 6:
+            return "#000000"
+        r, g, b = (int(h[i:i+2], 16) for i in (0, 2, 4))
+        brillo = (r * 299 + g * 587 + b * 114) / 1000
+        return "#000000" if brillo >= 150 else "#ffffff"
+    except Exception:
+        return "#000000"
+
+def colores_layout_actuales():
+    personalizados = st.session_state.get("bk_colores", [])
+    resultado = []
+    for i, (nombre, bg_def, _fg_def) in enumerate(COLORES_LAYOUT_DEFECTO):
+        bg = personalizados[i] if i < len(personalizados) and personalizados[i] else bg_def
+        resultado.append((nombre, bg, _texto_contraste(bg)))
+    return resultado
+
 CSS_PANEL_BROKER = (
     "body{margin:0;background:transparent;font-family:Calibri,'Segoe UI',Arial,sans-serif;}"
     ".tbl-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}"
     "table{width:100%;min-width:560px;border-collapse:collapse;table-layout:fixed;}"
     "th{background:#4472c4;color:#ffffff;font-weight:700;font-size:15px;padding:8px 6px;"
     "border:1px solid #ffffff;text-align:center;line-height:1.15;}"
-    "th.cred{width:17%;text-align:left;font-size:13px;line-height:1.5;}"
+    "th.cred{width:24%;text-align:left;font-size:13px;line-height:1.5;}"
     "th.cred .m{font-weight:400;font-size:12px;opacity:.9;}"
     "th.cred .bk{font-weight:400;font-size:11px;opacity:.85;margin-top:2px;}"
     "td{height:34px;border:1px solid #808080;text-align:center;font-size:14px;color:#111111;"
     "background:#ffffff;padding:0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}"
-    "td.col{font-weight:700;font-size:13px;}"
+    "th.colhdr{width:6%;min-width:42px;}"
+    "td.col{width:6%;min-width:42px;max-width:62px;font-weight:700;font-size:11px;padding:0 2px;}"
     "td.sym{font-weight:700;}"
     "tr.fila.ok{cursor:pointer;}"
     "tr.fila.ok:hover td:not(.col){filter:brightness(.94);}"
@@ -1187,8 +1254,9 @@ JS_PANEL_BROKER = r"""
 """
 
 
-def construir_html_panel_broker(filas10, cfg):
-    """HTML del panel: encabezado azul, columna de colores a la izquierda y las 10 filas del scanner."""
+def construir_html_panel_broker(filas10, cfg, colores_layout=None):
+    """HTML del panel con columna compacta de colores configurables."""
+    colores_layout = colores_layout or COLORES_LAYOUT_DEFECTO
     key = cfg.get("api_key") or ""
     sec = cfg.get("api_secret") or ""
     key_txt = ("••••" + key[-4:]) if key else ""
@@ -1196,7 +1264,7 @@ def construir_html_panel_broker(filas10, cfg):
     broker_txt = html_escape(cfg.get("broker") or "") if (key or sec) else ""
 
     cuerpo = []
-    for i, (nombre, bg, fg) in enumerate(COLORES_LAYOUT):
+    for i, (nombre, bg, fg) in enumerate(colores_layout):
         d = filas10[i] if i < len(filas10) else None
         celda_color = f'<td class="col" style="background:{bg};color:{fg}">{nombre}</td>'
         if d is None:
@@ -1215,15 +1283,15 @@ def construir_html_panel_broker(filas10, cfg):
             f'</tr>'
         )
 
-    webhooks = list(cfg.get("webhooks") or [])[: len(COLORES_LAYOUT)]
-    webhooks += [""] * (len(COLORES_LAYOUT) - len(webhooks))
+    webhooks = list(cfg.get("webhooks") or [])[: len(colores_layout)]
+    webhooks += [""] * (len(colores_layout) - len(webhooks))
 
     datos = {
         "filas": [
             ({"ticker": d["ticker"]} if d else None)
-            for d in (list(filas10) + [None] * (len(COLORES_LAYOUT) - len(filas10)))[: len(COLORES_LAYOUT)]
+            for d in (list(filas10) + [None] * (len(colores_layout) - len(filas10)))[: len(colores_layout)]
         ],
-        "colores": [c[0] for c in COLORES_LAYOUT],
+        "colores": [c[1] for c in colores_layout],
         "webhooks": webhooks,
         "cfg": {
             "broker": cfg.get("broker") or "",
@@ -1240,10 +1308,9 @@ def construir_html_panel_broker(filas10, cfg):
         "<style>" + CSS_PANEL_BROKER + "</style></head><body>"
         "<div class='tbl-wrap'>"
         "<table><thead><tr>"
-        f'<th class="cred">API Key: <span class="m">{key_txt}</span><br>'
-        f'API Secret: <span class="m">{sec_txt}</span>'
+        f'<th class="cred">Para unir con layout del broker'
         f'<div class="bk">{broker_txt}</div></th>'
-        "<th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>"
+        '<th class="colhdr">Color</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>' 
         "<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>"
         "</tr></thead><tbody>" + "".join(cuerpo) + "</tbody></table>"
         "</div>"
@@ -1276,9 +1343,11 @@ def cargar_panel_broker():
     broker = d.get("broker", BROKERS_DISPONIBLES[0])
     if broker not in BROKERS_DISPONIBLES:
         broker = BROKERS_DISPONIBLES[0]
-    webhooks = [str(w) for w in list(d.get("webhooks", []))[: len(COLORES_LAYOUT)]]
-    webhooks += [""] * (len(COLORES_LAYOUT) - len(webhooks))
-    return {"broker": broker, "puente": d.get("puente", PUENTE_LOCAL_POR_DEFECTO), "webhooks": webhooks}
+    webhooks = [str(w) for w in list(d.get("webhooks", []))[: len(COLORES_LAYOUT_DEFECTO)]]
+    webhooks += [""] * (len(COLORES_LAYOUT_DEFECTO) - len(webhooks))
+    colores = [str(c) for c in list(d.get("colores", []))[: len(COLORES_LAYOUT_DEFECTO)]]
+    colores += [bg for _n, bg, _fg in COLORES_LAYOUT_DEFECTO[len(colores):]]
+    return {"broker": broker, "puente": d.get("puente", PUENTE_LOCAL_POR_DEFECTO), "webhooks": webhooks, "colores": colores}
 
 
 def guardar_panel_broker(cfg):
@@ -1303,26 +1372,36 @@ if "bk_cargado" not in st.session_state:
     st.session_state["bk_api_secret"] = ""
     for _i, _w in enumerate(_ini["webhooks"]):
         st.session_state[f"bk_wh_{_i}"] = _w
+    st.session_state["bk_colores"] = list(_ini.get("colores", [bg for _n, bg, _fg in COLORES_LAYOUT_DEFECTO]))
     st.session_state["_bk_guardado"] = _ini
     st.session_state["bk_cargado"] = True
 
 # --- Edición de API Key / Secret del broker ---
 col_cred, _col_libre = st.columns([2, 5])
 with col_cred:
-    with st.popover("✏️ Editar API Key / Secret del broker"):
+    with st.popover("✏️ Configurar broker y colores"):
         st.selectbox("Broker", BROKERS_DISPONIBLES, key="bk_nombre")
         st.text_input("API Key", key="bk_api_key")
         st.text_input("API Secret", type="password", key="bk_api_secret")
         st.text_input("Puente local general (URL)", key="bk_puente")
         st.caption("Webhook por color (opcional). Si un color tiene webhook, el clic va ahí; si no, va al puente general.")
-        for _i, (_nombre, _bg, _fg) in enumerate(COLORES_LAYOUT):
-            st.text_input(f"Webhook · {_nombre}", key=f"bk_wh_{_i}", placeholder="http://127.0.0.1:PUERTO/...")
-        st.caption("La API Key y el Secret se usan solo durante esta sesión. Broker, puente y webhooks se recuerdan para tu licencia.")
+        st.markdown("**Colores de los layouts**")
+        st.caption("Cada usuario puede elegir sus propios colores. Se guardan para su licencia.")
+        _colores_nuevos = []
+        for _i, (_nombre, _bg, _fg) in enumerate(COLORES_LAYOUT_DEFECTO):
+            _col_pick, _hook = st.columns([1, 3])
+            with _col_pick:
+                _colores_nuevos.append(st.color_picker(f"{_nombre}", value=st.session_state["bk_colores"][_i], key=f"bk_color_{_i}"))
+            with _hook:
+                st.text_input(f"Webhook · {_nombre}", key=f"bk_wh_{_i}", placeholder="http://127.0.0.1:PUERTO/...")
+        st.session_state["bk_colores"] = _colores_nuevos
+        st.caption("La API Key y el Secret se usan solo durante esta sesión. Broker, colores, puente y webhooks se recuerdan para tu licencia.")
 
 _cfg_guardable = {
     "broker": st.session_state["bk_nombre"],
     "puente": st.session_state["bk_puente"],
-    "webhooks": [st.session_state[f"bk_wh_{_i}"] for _i in range(len(COLORES_LAYOUT))],
+    "webhooks": [st.session_state[f"bk_wh_{_i}"] for _i in range(len(COLORES_LAYOUT_DEFECTO))],
+    "colores": list(st.session_state.get("bk_colores", [bg for _n, bg, _fg in COLORES_LAYOUT_DEFECTO])),
 }
 if st.session_state.get("_bk_guardado") != _cfg_guardable:
     guardar_panel_broker(_cfg_guardable)
@@ -1355,9 +1434,9 @@ def panel_broker():
         "api_key": st.session_state.get("bk_api_key", ""),
         "api_secret": st.session_state.get("bk_api_secret", ""),
         "puente": st.session_state.get("bk_puente", ""),
-        "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT))],
+        "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT_DEFECTO))],
     }
-    components.html(construir_html_panel_broker(filas10, cfg), height=PANEL_BROKER_ALTO_PX, scrolling=False)
+    components.html(construir_html_panel_broker(filas10, cfg, colores_layout_actuales()), height=PANEL_BROKER_ALTO_PX, scrolling=False)
 
 
 panel_broker()
