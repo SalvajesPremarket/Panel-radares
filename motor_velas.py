@@ -261,6 +261,11 @@ class MotorVelas:
         self.motores: dict = {}
         self._stream = None
         self._simbolos_suscritos: set = set()
+        self._iniciado = False
+
+        # Diagnóstico de la conexión (útil para validar que llegan datos)
+        self.total_trades: int = 0
+        self.ultimo_trade: datetime = None
 
     def _obtener_motor(self, simbolo: str) -> MotorVelasSimbolo:
         if simbolo not in self.motores:
@@ -273,17 +278,30 @@ class MotorVelas:
         if momento.tzinfo is None:
             momento = momento.replace(tzinfo=timezone.utc)
         motor.procesar_trade(precio=float(trade.price), tamano=float(trade.size), momento=momento)
+        self.total_trades += 1
+        self.ultimo_trade = momento
 
     def iniciar(self, simbolos: list):
         """Arranca la conexión websocket y se suscribe a los símbolos dados.
-        Debe correr en un hilo aparte (es bloqueante)."""
-        from alpaca.data.live import StockDataStream
+        Debe correr en un hilo aparte (es bloqueante). Si ya está iniciado,
+        no hace nada (evita conexiones duplicadas)."""
+        if self._iniciado:
+            return
+        self._iniciado = True
 
-        self._stream = StockDataStream(self.api_key, self.secret_key, feed="iex")
-        for simbolo in simbolos:
-            self._stream.subscribe_trades(self._al_recibir_trade, simbolo)
-            self._simbolos_suscritos.add(simbolo)
-        self._stream.run()
+        try:
+            from alpaca.data.live import StockDataStream
+            from alpaca.data.enums import DataFeed
+
+            self._stream = StockDataStream(self.api_key, self.secret_key, feed=DataFeed.IEX)
+            for simbolo in simbolos:
+                self._stream.subscribe_trades(self._al_recibir_trade, simbolo)
+                self._simbolos_suscritos.add(simbolo)
+            self._stream.run()
+        finally:
+            # Si la conexión se cae o falla al arrancar, permitir reintentar
+            self._iniciado = False
+            self._stream = None
 
     def agregar_simbolo_en_caliente(self, simbolo: str):
         """Para agregar un ticker nuevo sin reiniciar la conexión completa."""

@@ -13,10 +13,16 @@ Cómo usarla:
 3. Escribe un ticker (ej: AAPL, TSLA) y dale "Conectar"
 4. En horario de mercado (o pre-market), deberías ver los números moverse
    solos cada pocos segundos
+
+IMPORTANTE: el plan gratuito de Alpaca permite UNA sola conexión websocket
+por cuenta. Esta página usa un único motor compartido por todas las pestañas
+y sesiones, pero si otra app (por ejemplo tu scanner principal) usa las mismas
+llaves al mismo tiempo, una de las dos será rechazada.
 """
 
 import streamlit as st
 from threading import Thread
+from datetime import datetime, timezone
 import time
 from motor_velas import MotorVelas
 
@@ -33,38 +39,89 @@ st.caption(
 ALPACA_API_KEY = st.secrets["ALPACA_API_KEY"]
 ALPACA_SECRET_KEY = st.secrets["ALPACA_SECRET_KEY"]
 
-if "motor_prueba" not in st.session_state:
-    st.session_state.motor_prueba = MotorVelas(ALPACA_API_KEY, ALPACA_SECRET_KEY)
-    st.session_state.hilo_motor_prueba = None
+
+# ==========================================
+# 🔒 MOTOR ÚNICO Y COMPARTIDO (una sola conexión a Alpaca)
+# ==========================================
+# st.cache_resource crea el objeto UNA vez por proceso de la app y lo reutiliza
+# en todas las re-ejecuciones, pestañas y sesiones. Así nunca se abren
+# conexiones duplicadas al websocket.
+@st.cache_resource
+def obtener_motor():
+    return MotorVelas(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+
+
+@st.cache_resource
+def obtener_estado_conexion():
+    return {"hilo": None}
+
+
+motor = obtener_motor()
+estado = obtener_estado_conexion()
+
+if "ticker_conectado" not in st.session_state:
     st.session_state.ticker_conectado = None
 
-motor = st.session_state.motor_prueba
 
+def hilo_vivo() -> bool:
+    hilo = estado["hilo"]
+    return hilo is not None and hilo.is_alive()
+
+
+# ==========================================
+# 🎛️ CONTROLES
+# ==========================================
 col_input, col_boton = st.columns([3, 1])
 with col_input:
     ticker = st.text_input("Ticker a observar", value="AAPL").strip().upper()
 with col_boton:
     st.write("")
     st.write("")
-    conectar = st.button("🔌 Conectar", use_container_width=True)
+    conectar = st.button("🔌 Conectar")
 
 if conectar and ticker:
-    if st.session_state.hilo_motor_prueba is None:
-        def _arrancar():
-            motor.iniciar([ticker])
+    if not hilo_vivo():
+        # No hay conexión activa (primera vez, o el hilo anterior murió por
+        # un error): arrancar una nueva.
+        def _arrancar(simbolo=ticker):
+            motor.iniciar([simbolo])
 
         hilo = Thread(target=_arrancar, daemon=True)
         hilo.start()
-        st.session_state.hilo_motor_prueba = hilo
-        st.session_state.ticker_conectado = ticker
-        st.success(f"Conectando a {ticker}... espera unos segundos y refresca.")
+        estado["hilo"] = hilo
+        st.success(f"Conectando a {ticker}... espera unos segundos.")
     else:
+        # Ya hay una conexión viva: solo agregar el símbolo.
         motor.agregar_simbolo_en_caliente(ticker)
-        st.session_state.ticker_conectado = ticker
+    st.session_state.ticker_conectado = ticker
 
 st.divider()
 
+# ==========================================
+# 📡 DIAGNÓSTICO DE LA CONEXIÓN
+# ==========================================
 if st.session_state.ticker_conectado:
+    vivo = hilo_vivo()
+
+    d1, d2, d3 = st.columns(3)
+    d1.metric("Conexión", "🟢 Activa" if vivo else "🔴 Caída")
+    d2.metric("Trades recibidos", motor.total_trades)
+    if motor.ultimo_trade is not None:
+        segundos = max(0, int((datetime.now(timezone.utc) - motor.ultimo_trade).total_seconds()))
+        d3.metric("Último trade", f"hace {segundos} s")
+    else:
+        d3.metric("Último trade", "—")
+
+    if not vivo:
+        st.warning(
+            "La conexión con Alpaca no está activa. Pulsa 'Conectar' para reintentar. "
+            "Si vuelve a caerse, revisa los logs (Manage app): puede ser un límite de "
+            "conexiones de Alpaca (otra app usando las mismas llaves) o llaves inválidas."
+        )
+
+    # ==========================================
+    # 🕯️ ESTADO DE LA VELA
+    # ==========================================
     snap = motor.snapshot_simbolo(st.session_state.ticker_conectado)
 
     if snap.get("sin_datos"):
