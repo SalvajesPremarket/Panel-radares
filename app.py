@@ -81,7 +81,7 @@ FMP_API_URL = "https://financialmodelingprep.com/stable/shares-float"
 MAX_FUNDAMENTALES_POR_CICLO = 40       # máximo de tickers nuevos/reintentados de float por ciclo
 WORKERS_FUNDAMENTALES = 8
 VIGENCIA_FUNDAMENTALES = 7 * 86400
-REINTENTO_FUNDAMENTALES = 600
+REINTENTO_FUNDAMENTALES = 300
 
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
 HORA_AUTO_INICIO_ET = 4
@@ -506,26 +506,42 @@ class ServicioScanner:
     # ---------- float y volumen promedio (FMP + Alpaca; sin Yahoo Finance) ----------
     @staticmethod
     def _extraer_float_fmp(payload):
-        if isinstance(payload, dict):
-            filas = payload.get("data") or payload.get("results") or payload.get("result") or [payload]
-        elif isinstance(payload, list):
-            filas = payload
-        else:
-            filas = []
-        if not filas:
-            return None
-        fila = filas[0] if isinstance(filas[0], dict) else {}
-        for clave in ("floatShares", "float_shares", "freeFloatShares", "freeFloat"):
-            valor = fila.get(clave)
+        """Extrae el float de las distintas formas de respuesta de FMP."""
+        claves = ("floatShares", "float_shares", "freeFloatShares", "freeFloat")
+
+        def convertir(valor):
+            if valor is None or isinstance(valor, bool):
+                return None
             try:
-                if valor is not None and float(valor) > 0:
-                    return float(valor)
+                if isinstance(valor, str):
+                    valor = valor.replace(",", "").strip()
+                numero = float(valor)
+                return numero if numero > 0 else None
             except (TypeError, ValueError):
-                pass
-        return None
+                return None
+
+        def buscar(obj):
+            if isinstance(obj, dict):
+                for clave in claves:
+                    numero = convertir(obj.get(clave))
+                    if numero is not None:
+                        return numero
+                for valor in obj.values():
+                    numero = buscar(valor)
+                    if numero is not None:
+                        return numero
+            elif isinstance(obj, list):
+                for item in obj:
+                    numero = buscar(item)
+                    if numero is not None:
+                        return numero
+            return None
+
+        return buscar(payload)
 
     def _float_fmp(self, ticker):
         if not self.fmp_api_key:
+            self.ultimo_error = "FMP_API_KEY no está configurada en Streamlit Secrets; no se puede obtener el float."
             return None
         try:
             self._esperar_turno()
@@ -535,12 +551,26 @@ class ServicioScanner:
                 timeout=8,
             )
             if respuesta.status_code in (401, 403):
-                self.ultimo_error = f"FMP rechazó la API para {ticker} (HTTP {respuesta.status_code}). Revisa FMP_API_KEY."
+                self.ultimo_error = (
+                    f"FMP rechazó la API para {ticker} (HTTP {respuesta.status_code}). "
+                    "Revisa que FMP_API_KEY sea válida y tenga acceso a shares-float."
+                )
                 return None
             if respuesta.status_code != 200:
+                self.ultimo_error = f"FMP devolvió HTTP {respuesta.status_code} para {ticker}."
                 return None
-            return self._extraer_float_fmp(respuesta.json())
+            try:
+                payload = respuesta.json()
+            except ValueError:
+                self.ultimo_error = f"FMP devolvió una respuesta no JSON para {ticker}."
+                return None
+            valor = self._extraer_float_fmp(payload)
+            if valor is None:
+                # No convertimos una ausencia de dato en un float inventado.
+                print(f"⚠️ FMP sin float para {ticker}")
+            return valor
         except Exception as e:
+            self.ultimo_error = f"Error consultando FMP para {ticker}: {e}"
             print(f"⚠️ FMP float {ticker}: {e}")
             return None
 
@@ -1108,26 +1138,16 @@ with st.expander("🎨 Configurar colores y layouts del broker", expanded=False)
         unsafe_allow_html=True,
     )
 
-if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
-    partes_float=[]
-    if servicio.float_pendientes: partes_float.append(f"{servicio.float_pendientes} con float pendiente")
-    if servicio.float_sin_dato: partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
-    st.warning("⚠️ Float: " + " · ".join(partes_float))
-
-if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
-    partes_float=[]
-    if servicio.float_pendientes: partes_float.append(f"{servicio.float_pendientes} con float pendiente")
-    if servicio.float_sin_dato: partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
-    st.warning("⚠️ Float: " + " · ".join(partes_float))
-
 # ==========================================
 # 📊 ESTADO DEL MOTOR
 # ==========================================
-# Estado compacto del motor
+# Un único aviso de float; antes había tres bloques idénticos y se mostraba repetido.
 if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
-    partes_float=[]
-    if servicio.float_pendientes: partes_float.append(f"{servicio.float_pendientes} con float pendiente")
-    if servicio.float_sin_dato: partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
+    partes_float = []
+    if servicio.float_pendientes:
+        partes_float.append(f"{servicio.float_pendientes} con float pendiente")
+    if servicio.float_sin_dato:
+        partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
     st.warning("⚠️ Float: " + " · ".join(partes_float))
 
 # ==========================================
