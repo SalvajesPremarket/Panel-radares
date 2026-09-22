@@ -190,6 +190,12 @@ def obtener_tokens():
 
 
 def verificar_token(token_usuario):
+    # El token de administrador también puede ser el único token de acceso.
+    # Así el dueño no necesita duplicarlo dentro de [tokens_autorizados].
+    admin_token = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
+    if admin_token and token_usuario == admin_token:
+        return True, "2099-01-01"
+
     tokens = obtener_tokens()
     if token_usuario in tokens:
         try:
