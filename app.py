@@ -937,12 +937,35 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown(f"""<div class="dash-header"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-<div><div class="dash-title">📈 Scanner Pre Market</div><div class="dash-sub">Trading · Análisis · Oportunidades</div></div>
-<div style="text-align:right;white-space:nowrap;"><span class="simple-status">● {_estado_txt}</span><span class="simple-status">◷ {_hora_txt}</span><span class="simple-status">▣ {_dia_txt}</span><span class="simple-status">👑 {'Administrador' if ES_ADMIN else 'Usuario'}</span></div>
-</div></div>""", unsafe_allow_html=True)
+st.markdown(f"""
+<div class="dash-header">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;">
+    <div style="width:88px;text-align:center;flex:0 0 88px;">
+      <div style="font-size:48px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.45));">🐂</div>
+      <div style="font-size:9px;color:#d7a83a;font-weight:800;letter-spacing:1px;">TORO</div>
+    </div>
+    <div style="flex:1;text-align:center;min-width:220px;">
+      <div class="dash-title">📈 Scanner Pre Market</div>
+      <div class="dash-sub">Trading · Análisis · Oportunidades</div>
+    </div>
+    <div style="width:88px;text-align:center;flex:0 0 88px;">
+      <div style="font-size:48px;line-height:1;filter:drop-shadow(0 3px 6px rgba(0,0,0,.45));">🐻</div>
+      <div style="font-size:9px;color:#d7a83a;font-weight:800;letter-spacing:1px;">OSO</div>
+    </div>
+  </div>
+  <div style="text-align:center;margin-top:10px;white-space:nowrap;overflow:auto;">
+    <span class="simple-status">● {_estado_txt}</span>
+    <span class="simple-status">◷ {_hora_txt}</span>
+    <span class="simple-status">▣ {_dia_txt}</span>
+    <span class="simple-status">👑 {'Administrador' if ES_ADMIN else 'Usuario'}</span>
+  </div>
+</div>""", unsafe_allow_html=True)
 
-# 1) PREFERENCIAS DE BÚSQUEDA
+# =========================================================
+# 🧭 PANEL PRINCIPAL — diseño compacto tipo dashboard
+# =========================================================
+# 1) Preferencias + control + conexión en una sola fila.
+# Los colores ya NO ocupan una columna lateral grande.
 with st.container(border=True):
     st.markdown('<div class="simple-title">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
     cfg = cargar_config()
@@ -968,37 +991,47 @@ params = {
     "vol_premarket_min": VOL_PM_MIN, "orden": ORDEN, "top_n": TOP_N,
 }
 
-# 2) CONTROL DEL SCANNER + HORARIO
-control_col, broker_col = st.columns([1.0, 1.0], gap="small")
+# 2) Control del scanner + conexión API/broker
+control_col, broker_col, premium_col = st.columns([1.15, 1.55, 0.72], gap="small")
 with control_col:
     with st.container(border=True):
         st.markdown('<div class="simple-title">⚙️ Control del Scanner</div>', unsafe_allow_html=True)
         if ES_ADMIN:
             b1,b2 = st.columns(2, gap="small")
             with b1:
-                if st.button("🟢 ENCENDER", key="encender_scanner_nuevo", use_container_width=True):
+                if st.button("🟢 ENCENDER", key="encender_scanner_dashboard", use_container_width=True):
                     servicio.encendido = True
                     servicio.ultimo_error = None
                     st.rerun()
             with b2:
-                if st.button("🔴 APAGAR", key="apagar_scanner_nuevo", use_container_width=True):
+                if st.button("🔴 APAGAR", key="apagar_scanner_dashboard", use_container_width=True):
                     servicio.encendido = False
                     servicio.auto_en_horario = False
                     st.rerun()
             st.markdown("**Horario de funcionamiento (ET)**")
             h1,h2 = st.columns(2, gap="small")
             with h1:
-                hora_inicio_ui = st.time_input("Inicio", value=dt_time(servicio.hora_inicio_auto_min//60, servicio.hora_inicio_auto_min%60), key="hora_inicio_scanner_v4")
+                hora_inicio_ui = st.time_input(
+                    "Inicio",
+                    value=dt_time(servicio.hora_inicio_auto_min // 60, servicio.hora_inicio_auto_min % 60),
+                    key="hora_inicio_scanner_dashboard",
+                )
             with h2:
-                hora_fin_ui = st.time_input("Cierre", value=dt_time(servicio.hora_fin_auto_min//60, servicio.hora_fin_auto_min%60), key="hora_fin_scanner_v4")
-            if st.button("💾 GUARDAR HORARIO", key="guardar_horario_v4", use_container_width=True):
+                hora_fin_ui = st.time_input(
+                    "Cierre",
+                    value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
+                    key="hora_fin_scanner_dashboard",
+                )
+            if st.button("💾 GUARDAR HORARIO", key="guardar_horario_dashboard", use_container_width=True):
                 servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
                 st.rerun()
-            st.markdown(f'<div class="small-note">Estado actual: <b>{_estado_txt}</b><br>Horario: <b>{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET</b></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="small-note">Estado: <b>{_estado_txt}</b><br>Horario: <b>{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET</b></div>',
+                unsafe_allow_html=True,
+            )
         else:
             st.info("Modo usuario. El encendido/apagado y el horario solo los puede modificar el administrador.")
 
-# 3) API / BROKER / PUENTE
 with broker_col:
     with st.container(border=True):
         st.markdown('<div class="simple-title">🔗 Conexión API / Broker <span style="font-size:10px;background:#123d67;border-radius:12px;padding:4px 8px;">Opcional</span></div>', unsafe_allow_html=True)
@@ -1007,40 +1040,59 @@ with broker_col:
         with api1:
             st.session_state.setdefault("bk_nombre", brokers_ui[0])
             _idx_b = brokers_ui.index(st.session_state["bk_nombre"]) if st.session_state["bk_nombre"] in brokers_ui else 0
-            st.session_state["bk_nombre"] = st.selectbox("Broker", brokers_ui, index=_idx_b, key="bk_nombre_ui")
+            st.session_state["bk_nombre"] = st.selectbox("Broker", brokers_ui, index=_idx_b, key="bk_nombre_ui_dashboard")
         with api2:
             st.session_state.setdefault("bk_api_key", "")
-            st.session_state["bk_api_key"] = st.text_input("API Key", value=st.session_state.get("bk_api_key", ""), type="password", key="bk_api_key_ui")
+            st.session_state["bk_api_key"] = st.text_input("API Key", value=st.session_state.get("bk_api_key", ""), type="password", key="bk_api_key_ui_dashboard")
         with api3:
             st.session_state.setdefault("bk_api_secret", "")
-            st.session_state["bk_api_secret"] = st.text_input("Secret Key", value=st.session_state.get("bk_api_secret", ""), type="password", key="bk_api_secret_ui")
+            st.session_state["bk_api_secret"] = st.text_input("Secret Key", value=st.session_state.get("bk_api_secret", ""), type="password", key="bk_api_secret_ui_dashboard")
         st.session_state.setdefault("bk_puente", "http://127.0.0.1:8765/enviar")
-        st.session_state["bk_puente"] = st.text_input("Puente / URL para enviar el símbolo al layout del broker", value=st.session_state.get("bk_puente", "http://127.0.0.1:8765/enviar"), key="bk_puente_ui")
-        api_a, api_b, api_c = st.columns(3, gap="small")
-        with api_a: st.toggle("Usar API del broker", value=bool(st.session_state.get("bk_api_key")), key="usar_api_broker")
+        st.session_state["bk_puente"] = st.text_input(
+            "Puente / URL para enviar el símbolo al layout del broker",
+            value=st.session_state.get("bk_puente", "http://127.0.0.1:8765/enviar"),
+            key="bk_puente_ui_dashboard",
+        )
+        api_a, api_b = st.columns(2, gap="small")
+        with api_a:
+            st.toggle("Usar API del broker", value=bool(st.session_state.get("bk_api_key")), key="usar_api_broker_dashboard")
         with api_b:
-            if st.button("🔌 Probar conexión", key="probar_broker_nuevo", use_container_width=True): st.info("La conexión de envío se realizará mediante el puente/webhook configurado.")
-        with api_c: st.markdown('<div class="small-note">Sin API: usa el scanner desde la web. Con API/puente: integra el ticker con tu layout.</div>', unsafe_allow_html=True)
+            if st.button("🔌 Probar conexión", key="probar_broker_dashboard", use_container_width=True):
+                st.info("La conexión se realizará mediante el puente/webhook configurado.")
 
-# 4) COLORES / LAYOUT
-colors_col, info_col = st.columns([1.0, 1.0], gap="small")
-with colors_col:
+with premium_col:
     with st.container(border=True):
-        st.markdown('<div class="simple-title">🎨 Colores de resultados</div>', unsafe_allow_html=True)
-        _colores_nuevos = list(st.session_state.get("bk_colores", [bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
-        while len(_colores_nuevos) < len(COLORES_LAYOUT_DEFECTO): _colores_nuevos.append(COLORES_LAYOUT_DEFECTO[len(_colores_nuevos)][1])
-        for idx,(nombre,bg,_fg) in enumerate(COLORES_LAYOUT_DEFECTO):
-            cc1,cc2 = st.columns([1,5], gap="small")
-            with cc1: st.markdown(f'<div style="background:{_colores_nuevos[idx]};width:24px;height:24px;border-radius:5px;margin-top:8px;"></div>', unsafe_allow_html=True)
-            with cc2: _colores_nuevos[idx] = st.color_picker(f"Layout {idx+1} · {nombre}", _colores_nuevos[idx], key=f"bk_color_nuevo_{idx}")
-        st.session_state["bk_colores"] = _colores_nuevos
+        st.markdown('<div class="simple-title">🔐 Modalidades</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
 
-with info_col:
-    with st.container(border=True):
-        st.markdown('<div class="simple-title">🔧 Vincular activos con Layout del Broker</div>', unsafe_allow_html=True)
-        st.markdown('<div class="simple-sub">Cada color representa una ventana/layout. El engranaje de la tabla enviará el ticker al layout correspondiente mediante puente o webhook.</div>', unsafe_allow_html=True)
-        st.markdown('<div class="small-note">🟢 Web: scanner en la nube · 🔵 API/puente: integración con broker · 🟡 Suscripción: modalidad comercial que puedes conectar a tu sistema de pagos.</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="font-size:13px;color:#9fc7ef;margin-top:12px;">📊 Mercado: <b>{_dia_txt}</b><br>⏰ Horario: <b>{_hora_txt}</b><br>👤 Acceso: <b>{"Administrador" if ES_ADMIN else "Usuario"}</b></div>', unsafe_allow_html=True)
+# 3) Colores: accesibles, pero sin el bloque vertical gigante de la izquierda.
+with st.expander("🎨 Configurar colores y layouts del broker", expanded=False):
+    st.caption("Los colores representan los 10 layouts. Puedes cambiarlos sin ocupar espacio en la tabla principal.")
+    _colores_nuevos = list(st.session_state.get("bk_colores", [bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
+    while len(_colores_nuevos) < len(COLORES_LAYOUT_DEFECTO):
+        _colores_nuevos.append(COLORES_LAYOUT_DEFECTO[len(_colores_nuevos)][1])
+    color_cols = st.columns(5, gap="small")
+    for idx,(nombre,bg,_fg) in enumerate(COLORES_LAYOUT_DEFECTO):
+        with color_cols[idx % 5]:
+            _colores_nuevos[idx] = st.color_picker(
+                f"L{idx+1} · {nombre}",
+                _colores_nuevos[idx],
+                key=f"bk_color_dashboard_{idx}",
+            )
+    st.session_state["bk_colores"] = _colores_nuevos
+
+    st.markdown(
+        '<div class="small-note">⚙️ El engranaje del panel de layouts permite vincular un activo con su ventana correspondiente del broker mediante puente o webhook.</div>',
+        unsafe_allow_html=True,
+    )
+
+if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
+    partes_float=[]
+    if servicio.float_pendientes: partes_float.append(f"{servicio.float_pendientes} con float pendiente")
+    if servicio.float_sin_dato: partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
+    st.warning("⚠️ Float: " + " · ".join(partes_float))
 
 if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
     partes_float=[]
