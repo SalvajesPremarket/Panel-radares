@@ -1240,9 +1240,9 @@ ORDEN = st.session_state.get("f_orden", "Actualizado")
 TOP_N = st.session_state.get("f_top", 10)
 AUTO_ON = st.session_state.get("f_auto", True)
 
-main_col, log_col = st.columns([3.35, 1.15], gap="small")
-
-with main_col:
+# Panel principal a ancho completo. Se elimina el Log del Motor lateral para evitar
+# que la interfaz quede comprimida y que aparezca un cuadro superpuesto visualmente.
+with st.container():
     with st.container(border=True):
         st.markdown('<div class="dash-card-title">⚙️ Configuración del Scanner</div>', unsafe_allow_html=True)
         r1 = st.columns([1,1,1,.78], gap="small")
@@ -1297,13 +1297,6 @@ with main_col:
     st.markdown(f'<div class="scanner-status-row"><span>🟢 <b>{_estado_txt}</b></span><span>◷ {_hora_txt}</span><span>⏱ {"En horario" if servicio.auto_en_horario else "En espera"}</span></div>',unsafe_allow_html=True)
     panel_resultados()
 
-with log_col:
-    with st.container(border=True):
-        st.markdown('<div class="dash-card-title">🖥️ Log del Motor <span class="live-dot">● En vivo</span></div>',unsafe_allow_html=True)
-        _ultima=servicio.ultima_actualizacion.strftime('%H:%M:%S') if servicio.ultima_actualizacion else '--:--:--'
-        _lineas=[f"[{_ultima}] 🚀 Ciclo del scanner",f"[{_ultima}] 📡 {len(servicio.universo)} tickers vigilados",f"[{_ultima}] 🎯 {servicio.n_radar_base} en radar base",f"[{_ultima}] 📊 Float: {getattr(servicio,'float_pendientes',0)} pendientes",f"[{_ultima}] 📈 Volumen PM calculado",f"[{_ultima}] 🔎 {len(servicio.resultados)} resultados"]
-        if servicio.ultimo_error: _lineas.append(f"[{_ultima}] ⚠️ {servicio.ultimo_error}")
-        st.markdown('<div class="motor-log">'+'<br>'.join(_lineas)+'</div>',unsafe_allow_html=True)
 
 # ==========================================
 # ==========================================
