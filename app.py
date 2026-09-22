@@ -66,7 +66,7 @@ st.iframe(
     "  } catch(e) {}"
     "})();"
     "</script>",
-    height=0, width=0,
+    height=1, width=1,
 )
 
 # ==========================================
