@@ -887,9 +887,9 @@ st.markdown("""
     .stApp { background-color:#06101f; color:#e8f1ff; }
     [data-testid="stHeader"], [data-testid="stSidebar"] { background-color:#06101f; }
     .block-container { max-width:1500px; padding-top:.65rem; padding-bottom:1.5rem; }
-    .dash-header { background:linear-gradient(135deg,#07182d,#0b1d35); border:1px solid #164a7a; border-radius:12px; padding:13px 18px; margin-bottom:12px; }
-    .dash-title { font-size:25px; font-weight:800; color:#f5f8ff; margin:0; }
-    .dash-sub { color:#6fb6ff; font-size:12px; margin-top:1px; }
+    .dash-header { background:linear-gradient(135deg,#07182d,#0b1d35); border:1px solid #164a7a; border-radius:12px; padding:12px 14px; margin-bottom:12px; overflow:hidden; }
+    .dash-title { font-size:28px; font-weight:800; color:#f5f8ff; margin:0; line-height:1.05; }
+    .dash-sub { color:#6fb6ff; font-size:12px; margin-top:3px; }
     .dash-pill { display:inline-block; padding:7px 12px; border:1px solid #1b5f95; border-radius:20px; color:#cce8ff; background:#081a30; margin-left:8px; font-size:12px; }
     .dash-card { background:linear-gradient(180deg,#071a31,#061427); border:1px solid #12518b; border-radius:12px; padding:14px 16px; min-height:230px; }
     .dash-card-title { color:#f2f7ff; font-size:18px; font-weight:800; margin-bottom:8px; }
@@ -902,6 +902,14 @@ st.markdown("""
     label, [data-testid="stWidgetLabel"] p { color:#cfe6ff !important; font-weight:700 !important; text-transform:none; font-size:11px !important; }
     div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { background:#081a2d; color:#fff; border:1px solid #18548a !important; }
     .stButton button { border-radius:8px; font-weight:800; }
+    @media (max-width: 640px) {
+        .block-container { max-width:100% !important; padding-left:.45rem !important; padding-right:.45rem !important; }
+        .simple-card { padding:10px !important; }
+        .simple-title { font-size:14px !important; }
+        .small-note { font-size:10px !important; }
+        div[data-testid="stHorizontalBlock"] { gap:.35rem !important; }
+        div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { font-size:12px !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -938,7 +946,25 @@ st.markdown("""
 .header-animal img{width:100%;height:100%;object-fit:cover;display:block;}
 .header-bear{justify-content:flex-start;}
 .header-bull{justify-content:flex-end;}
-@media (max-width: 900px){.header-animal{width:105px;flex-basis:105px;height:72px;}}
+@media (min-width: 901px){
+  .dash-header > div:first-child{gap:24px !important;}
+  .header-animal{width:clamp(220px,24vw,330px);flex:0 1 clamp(220px,24vw,330px);height:120px;border-radius:16px;}
+  .header-animal img{object-fit:cover;}
+  .dash-title{font-size:30px;}
+}
+@media (min-width: 641px) and (max-width: 900px){
+  .header-animal{width:150px;flex:0 0 150px;height:88px;border-radius:14px;}
+  .dash-title{font-size:23px;}
+}
+@media (max-width: 640px){
+  .dash-header{padding:8px 8px 9px;border-radius:10px;}
+  .dash-header > div:first-child{gap:7px !important;align-items:center !important;}
+  .header-animal{width:68px;flex:0 0 68px;height:58px;border-radius:9px;}
+  .header-animal img{object-fit:cover;}
+  .dash-title{font-size:18px;line-height:1.05;}
+  .dash-sub{font-size:8px;margin-top:2px;}
+  .simple-status{font-size:9px;padding:4px 6px;margin-right:3px;}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1087,7 +1113,7 @@ with st.expander("🎨 Configurar colores y layouts del broker", expanded=False)
     st.session_state["bk_colores"] = _colores_nuevos
 
     st.markdown(
-        '<div class="small-note">⚙️ El engranaje del panel de layouts permite vincular un activo con su ventana correspondiente del broker mediante puente o webhook.</div>',
+        '<div class="small-note">⚙️ El enlace 🔗 del panel de layouts permite vincular un activo con su ventana correspondiente del broker mediante puente o webhook.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1238,7 +1264,7 @@ CSS_PANEL_BROKER = (
     "th.colhdr{width:32px;min-width:32px;max-width:32px;padding:4px 0;}"
     "td.col{width:32px;min-width:32px;max-width:32px;padding:0;text-align:center;}"
     "th.gearhdr,td.gear{width:30px;min-width:30px;max-width:30px;padding:0;text-align:center;}"
-    "td.gear{font-size:15px;color:#4472c4;cursor:pointer;}"
+    "td.gear{font-size:18px;color:#4472c4;cursor:pointer;}"
     ".swatch{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid rgba(255,255,255,.55);vertical-align:middle;}"
     "td.sym{font-weight:700;}"
     "tr.fila.ok{cursor:pointer;}"
@@ -1254,6 +1280,8 @@ CSS_PANEL_BROKER = (
     "  th.colhdr{width:28px;min-width:28px;max-width:28px;}"
     
     "  td{font-size:12px;height:30px;}"
+    "  td.gear{font-size:16px;}"
+    "  .swatch{width:12px;height:12px;}"
     "  #msg{font-size:11px;}"
     "}"
 )
@@ -1359,12 +1387,12 @@ def construir_html_panel_broker(filas10, cfg, colores_layout=None):
         d = filas10[i] if i < len(filas10) else None
         celda_color = f'<td class="col"><span class="swatch" style="background:{bg}"></span></td>'
         if d is None:
-            cuerpo.append(f'<tr class="fila" data-i="{i}"><td class="gear" title="Vincular este activo con el layout">⚙</td>{celda_color}' + "<td></td>" * 6 + "</tr>")
+            cuerpo.append(f'<tr class="fila" data-i="{i}"><td class="gear" title="Vincular este activo con el layout del broker">🔗</td>{celda_color}' + "<td></td>" * 6 + "</tr>")
             continue
         clase = "ok " + ("pos" if d["subiendo"] else "neg")
         cuerpo.append(
             f'<tr class="fila {clase}" data-i="{i}">'
-            f'<td class="gear" title="Vincular este activo con el layout">⚙</td>'
+            f'<td class="gear" title="Vincular este activo con el layout del broker">🔗</td>'
             f'{celda_color}'
             f'<td class="sym">{html_escape(str(d["ticker"]))}{" 🔥" if d["noticia"] else ""}</td>'
             f'<td>{d["precio"]:.2f}</td>'
@@ -1400,7 +1428,7 @@ def construir_html_panel_broker(filas10, cfg, colores_layout=None):
         "<style>" + CSS_PANEL_BROKER + "</style></head><body>"
         "<div class='tbl-wrap'>"
         "<table><thead><tr>"
-        '<th class="gearhdr">⚙</th><th class="colhdr">&nbsp;</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>' 
+        '<th class="gearhdr">🔗</th><th class="colhdr">&nbsp;</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>' 
         "<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>"
         "</tr></thead><tbody>" + "".join(cuerpo) + "</tbody></table>"
         "</div>"
