@@ -918,41 +918,7 @@ st.markdown(f'''<div class="dash-header"><div style="display:flex;justify-conten
 <div style="text-align:right;white-space:nowrap;"><span class="dash-pill">● {_estado_txt}</span><span class="dash-pill">◷ Horario: {_hora_txt}</span><span class="dash-pill">▣ Día de mercado: {_dia_txt}</span><span class="dash-pill">👑 {'Administrador' if ES_ADMIN else 'Usuario'}</span></div>
 </div></div>''', unsafe_allow_html=True)
 
-ctl, colors, market = st.columns([1.05, 1.55, 0.75], gap="small")
-with ctl:
-    st.markdown('<div class="dash-card"><div class="dash-card-title">⚙️ Control del Scanner <span style="color:#00d9a6">●</span></div>', unsafe_allow_html=True)
-    if not ES_ADMIN:
-        st.info("Modo usuario. Los controles de encendido y horario están reservados al administrador.")
-    else:
-        if not servicio.encendido:
-            st.markdown('<div class="admin-status admin-off">🔴 Scanner APAGADO MANUALMENTE</div>', unsafe_allow_html=True)
-        elif servicio.auto_en_horario:
-            st.markdown('<div class="admin-status admin-on">🟢 Scanner ACTIVO</div>', unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="admin-status admin-wait">🟡 Scanner EN ESPERA</div>', unsafe_allow_html=True)
-        b1,b2=st.columns(2)
-        with b1:
-            if st.button("🛑 APAGAR", key="admin_apagar_v2", use_container_width=True, type="primary"):
-                servicio.encendido=False
-                servicio.auto_motivo="Apagado manualmente por el administrador"
-                st.rerun()
-        with b2:
-            if st.button("🟢 ENCENDER", key="admin_encender_v2", use_container_width=True):
-                servicio.encendido=True
-                st.rerun()
-        st.markdown("**Horario de funcionamiento (ET)**")
-        h1,h2=st.columns(2)
-        with h1:
-            hora_inicio_ui=st.time_input("Inicio", value=dt_time(servicio.hora_inicio_auto_min//60, servicio.hora_inicio_auto_min%60), key="hora_inicio_scanner_v2")
-        with h2:
-            hora_fin_ui=st.time_input("Cierre", value=dt_time(servicio.hora_fin_auto_min//60, servicio.hora_fin_auto_min%60), key="hora_fin_scanner_v2")
-        if st.button("💾 GUARDAR HORARIO", key="guardar_horario_v2", use_container_width=True):
-            servicio.configurar_horario(hora_inicio_ui,hora_fin_ui)
-            st.rerun()
-        st.markdown('<div class="dash-note">ℹ️ Si apagas manualmente, el horario automático no volverá a encenderlo hasta que pulses ENCENDER.</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# 10 colores, uno por cada layout del broker. Deben existir antes de construir la UI de colores.
+# Colores por defecto: cada usuario puede personalizarlos sin afectar a los demás.
 COLORES_LAYOUT = [
     ("Rojo", "#e53935", "#ffffff"),
     ("Naranja", "#fb8c00", "#000000"),
@@ -967,28 +933,91 @@ COLORES_LAYOUT = [
 ]
 COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
 
-with colors:
-    st.markdown('<div class="dash-card"><div class="dash-card-title">🛠️ Configurar broker y colores <span style="font-size:11px;background:#123d67;border-radius:12px;padding:4px 8px;">Admin</span></div><div class="dash-card-sub">🔗 Para unir con layout del broker</div>', unsafe_allow_html=True)
-    _colores_nuevos=list(st.session_state.get("bk_colores",[bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
-    for row in range(5):
-        a,b=st.columns(2)
-        for idx,cc in ((row,a),(row+5,b)):
-            with cc:
-                nombre=COLORES_LAYOUT_DEFECTO[idx][0]
-                _colores_nuevos[idx]=st.color_picker(f"Layout {idx+1} · {nombre}",value=_colores_nuevos[idx],key=f"bk_color_direct_{idx}")
-    st.session_state["bk_colores"]=_colores_nuevos
-    if st.button("💾 GUARDAR COLORES",key="guardar_colores_v2",use_container_width=True):
-        st.session_state["_bk_guardado"]=None
-        st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
+ctl, colors, market = st.columns([1.05, 1.55, 0.75], gap="small")
 
+# --- Control del scanner: solo el administrador puede encender/apagar y cambiar horario ---
+with ctl:
+    with st.container(border=True):
+        st.markdown('<div class="dash-card-title">⚙️ Control del Scanner <span style="color:#00d9a6">●</span></div>', unsafe_allow_html=True)
+        if not ES_ADMIN:
+            st.info("Modo usuario. Los controles de encendido y horario están reservados al administrador.")
+        else:
+            if not servicio.encendido:
+                st.markdown('<div class="admin-status admin-off">🔴 Scanner APAGADO MANUALMENTE</div>', unsafe_allow_html=True)
+            elif servicio.auto_en_horario:
+                st.markdown('<div class="admin-status admin-on">🟢 Scanner ACTIVO</div>', unsafe_allow_html=True)
+            else:
+                st.markdown('<div class="admin-status admin-wait">🟡 Scanner EN ESPERA</div>', unsafe_allow_html=True)
+
+            b1, b2 = st.columns(2, gap="small")
+            with b1:
+                if st.button("🛑 APAGAR", key="admin_apagar_v3", use_container_width=True, type="primary"):
+                    servicio.encendido = False
+                    servicio.auto_motivo = "Apagado manualmente por el administrador"
+                    st.rerun()
+            with b2:
+                if st.button("🟢 ENCENDER", key="admin_encender_v3", use_container_width=True):
+                    servicio.encendido = True
+                    servicio.auto_motivo = "Encendido manualmente por el administrador"
+                    st.rerun()
+
+            st.markdown("**Horario de funcionamiento (ET)**")
+            h1, h2 = st.columns(2, gap="small")
+            with h1:
+                hora_inicio_ui = st.time_input(
+                    "Inicio",
+                    value=dt_time(servicio.hora_inicio_auto_min // 60, servicio.hora_inicio_auto_min % 60),
+                    key="hora_inicio_scanner_v3",
+                )
+            with h2:
+                hora_fin_ui = st.time_input(
+                    "Cierre",
+                    value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
+                    key="hora_fin_scanner_v3",
+                )
+            if st.button("💾 GUARDAR HORARIO", key="guardar_horario_v3", use_container_width=True):
+                servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
+                st.rerun()
+            st.markdown('<div class="dash-note">ℹ️ Si apagas manualmente, el horario automático no volverá a encenderlo hasta que pulses ENCENDER.</div>', unsafe_allow_html=True)
+
+# --- Colores: disponibles para cada usuario, no solo para el administrador ---
+with colors:
+    with st.container(border=True):
+        st.markdown('<div class="dash-card-title">🛠️ Configurar broker y colores <span style="font-size:11px;background:#123d67;border-radius:12px;padding:4px 8px;">Usuario</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="dash-card-sub">🔗 Para unir con layout del broker</div>', unsafe_allow_html=True)
+        _colores_nuevos = list(st.session_state.get("bk_colores", [bg for _n, bg, _fg in COLORES_LAYOUT_DEFECTO]))
+        _colores_nuevos += [bg for _n, bg, _fg in COLORES_LAYOUT_DEFECTO[len(_colores_nuevos):]]
+        for row in range(5):
+            a, b = st.columns(2, gap="small")
+            for idx, cc in ((row, a), (row + 5, b)):
+                with cc:
+                    nombre = COLORES_LAYOUT_DEFECTO[idx][0]
+                    _colores_nuevos[idx] = st.color_picker(
+                        f"Layout {idx + 1} · {nombre}",
+                        value=_colores_nuevos[idx],
+                        key=f"bk_color_direct_v3_{idx}",
+                    )
+        st.session_state["bk_colores"] = _colores_nuevos[:len(COLORES_LAYOUT_DEFECTO)]
+        if st.button("💾 GUARDAR COLORES", key="guardar_colores_v3", use_container_width=True):
+            _cfg_color_guardar = {
+                "broker": st.session_state.get("bk_nombre", BROKERS_DISPONIBLES[0]),
+                "puente": st.session_state.get("bk_puente", PUENTE_LOCAL_POR_DEFECTO),
+                "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT_DEFECTO))],
+                "colores": list(st.session_state["bk_colores"]),
+            }
+            guardar_panel_broker(_cfg_color_guardar)
+            st.session_state["_bk_guardado"] = _cfg_color_guardar
+            st.success("Colores guardados para este usuario.")
+
+# --- Estado del mercado ---
 with market:
-    st.markdown('<div class="dash-card"><div class="dash-card-title">📊 Estado del Mercado</div>', unsafe_allow_html=True)
-    _market_cls="admin-on" if _dia_txt.startswith("Sí") else "admin-wait"
-    st.markdown(f'<div class="admin-status {_market_cls}">📅 Día de mercado: {_dia_txt}</div>', unsafe_allow_html=True)
-    st.markdown(f'<div style="font-size:13px;color:#9fc7ef;margin:12px 0 4px;">⏰ Horario del scanner</div><div style="font-size:22px;font-weight:800;color:#fff;">{_hora_txt}</div>', unsafe_allow_html=True)
-    st.markdown('<div class="dash-note">🔗 Para unir con layout del broker<br><span style="opacity:.8">Las credenciales no se muestran en pantalla.</span></div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    with st.container(border=True):
+        st.markdown('<div class="dash-card-title">📊 Estado del Mercado</div>', unsafe_allow_html=True)
+        _market_cls = "admin-on" if _dia_txt.startswith("Sí") else "admin-wait"
+        st.markdown(f'<div class="admin-status {_market_cls}">📅 Día de mercado: {_dia_txt}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="font-size:13px;color:#9fc7ef;margin:12px 0 4px;">⏰ Horario del scanner</div><div style="font-size:22px;font-weight:800;color:#fff;">{_hora_txt}</div>', unsafe_allow_html=True)
+        st.markdown('<div class="dash-note">🔗 Para unir con layout del broker<br><span style="opacity:.8">Las credenciales no se muestran en pantalla.</span></div>', unsafe_allow_html=True)
+
 
 # ==========================================
 # 📊 FILTROS (cada usuario ajusta su propia vista)
@@ -1159,13 +1188,13 @@ CSS_PANEL_BROKER = (
     "table{width:100%;min-width:560px;border-collapse:collapse;table-layout:fixed;}"
     "th{background:#4472c4;color:#ffffff;font-weight:700;font-size:15px;padding:8px 6px;"
     "border:1px solid #ffffff;text-align:center;line-height:1.15;}"
-    "th.cred{width:24%;text-align:left;font-size:13px;line-height:1.5;}"
+    "th.cred{display:none;}"
     "th.cred .m{font-weight:400;font-size:12px;opacity:.9;}"
     "th.cred .bk{font-weight:400;font-size:11px;opacity:.85;margin-top:2px;}"
     "td{height:34px;border:1px solid #808080;text-align:center;font-size:14px;color:#111111;"
     "background:#ffffff;padding:0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}"
-    "th.colhdr{width:28px;min-width:28px;}"
-    "td.col{width:28px;min-width:28px;max-width:28px;padding:0;text-align:center;}"
+    "th.colhdr{width:32px;min-width:32px;max-width:32px;padding:4px 0;}"
+    "td.col{width:32px;min-width:32px;max-width:32px;padding:0;text-align:center;}"
     ".swatch{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid rgba(255,255,255,.55);vertical-align:middle;}"
     "td.sym{font-weight:700;}"
     "tr.fila.ok{cursor:pointer;}"
@@ -1178,8 +1207,8 @@ CSS_PANEL_BROKER = (
     # --- Responsivo: celular. La tabla no se aprieta, se puede deslizar horizontal ---
     "@media (max-width:640px){"
     "  th{font-size:12px;padding:6px 4px;}"
-    "  th.cred{font-size:11px;}"
-    "  th.cred .m,th.cred .bk{font-size:10px;}"
+    "  th.colhdr{width:28px;min-width:28px;max-width:28px;}"
+    
     "  td{font-size:12px;height:30px;}"
     "  #msg{font-size:11px;}"
     "}"
@@ -1326,7 +1355,6 @@ def construir_html_panel_broker(filas10, cfg, colores_layout=None):
         "<style>" + CSS_PANEL_BROKER + "</style></head><body>"
         "<div class='tbl-wrap'>"
         "<table><thead><tr>"
-        f'<th class="cred">Para unir con layout del broker</th>'
         '<th class="colhdr">&nbsp;</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>' 
         "<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>"
         "</tr></thead><tbody>" + "".join(cuerpo) + "</tbody></table>"
