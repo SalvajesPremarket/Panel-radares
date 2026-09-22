@@ -78,10 +78,11 @@ MAX_ENRIQUECER = 120                   # máx. de tickers a los que se les calcu
 
 # Float: FMP es la fuente principal; volumen y velas técnicas se obtienen con Alpaca.
 FMP_API_URL = "https://financialmodelingprep.com/stable/shares-float"
-MAX_FUNDAMENTALES_POR_CICLO = 40       # máximo de tickers nuevos/reintentados de float por ciclo
-WORKERS_FUNDAMENTALES = 8
+MAX_FUNDAMENTALES_POR_CICLO = 1        # FMP: una consulta de float por ciclo para evitar HTTP 429
+WORKERS_FUNDAMENTALES = 1               # FMP no se consulta en paralelo
 VIGENCIA_FUNDAMENTALES = 7 * 86400
 REINTENTO_FUNDAMENTALES = 300
+PAUSA_FMP_429_SEGUNDOS = 900            # tras HTTP 429, pausa FMP durante 15 min
 
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
 HORA_AUTO_INICIO_ET = 4
@@ -389,6 +390,8 @@ class ServicioScanner:
 
         self.cache_tecnico = {}
         self.cache_fund = self._leer_cache_fundamentales()
+        # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
+        self.fmp_pausado_hasta = 0.0
 
         self._lock_ritmo = threading.Lock()
         self._ultima_peticion = 0.0
@@ -543,6 +546,17 @@ class ServicioScanner:
         if not self.fmp_api_key:
             self.ultimo_error = "FMP_API_KEY no está configurada en Streamlit Secrets; no se puede obtener el float."
             return None
+
+        ahora = time.time()
+        if ahora < self.fmp_pausado_hasta:
+            restante = max(1, int(self.fmp_pausado_hasta - ahora))
+            minutos = restante // 60 + (1 if restante % 60 else 0)
+            self.ultimo_error = (
+                "FMP está en pausa por límite de solicitudes (HTTP 429). "
+                f"Se reintentará en aproximadamente {minutos} min."
+            )
+            return None
+
         try:
             self._esperar_turno()
             respuesta = requests.get(
@@ -550,6 +564,14 @@ class ServicioScanner:
                 params={"symbol": ticker, "apikey": self.fmp_api_key},
                 timeout=8,
             )
+            if respuesta.status_code == 429:
+                self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
+                self.ultimo_error = (
+                    f"FMP devolvió HTTP 429 para {ticker}. "
+                    "Se pausaron las consultas de float durante 15 minutos para evitar más bloqueos."
+                )
+                print(f"⚠️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s")
+                return None
             if respuesta.status_code in (401, 403):
                 self.ultimo_error = (
                     f"FMP rechazó la API para {ticker} (HTTP {respuesta.status_code}). "
@@ -566,8 +588,9 @@ class ServicioScanner:
                 return None
             valor = self._extraer_float_fmp(payload)
             if valor is None:
-                # No convertimos una ausencia de dato en un float inventado.
                 print(f"⚠️ FMP sin float para {ticker}")
+            else:
+                self.ultimo_error = None
             return valor
         except Exception as e:
             self.ultimo_error = f"Error consultando FMP para {ticker}: {e}"
