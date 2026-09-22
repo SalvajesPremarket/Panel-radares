@@ -11,7 +11,7 @@ expone el estado de cada vela para que otra pieza (la máquina de estados
 del algoritmo) decida qué hacer.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from threading import Lock
 import statistics
@@ -166,6 +166,37 @@ class MotorVelasSimbolo:
         self._lock = Lock()
         self._tramo_actual = None
 
+    def cargar_historial(self, barras):
+        """
+        Carga barras históricas de 1 minuto como velas CERRADAS.
+        No crea una vela_actual: esa se crea únicamente cuando llegue
+        el primer trade nuevo por websocket.
+        """
+        with self._lock:
+            nuevas = []
+
+            for barra in barras:
+                momento = barra.timestamp
+                if momento.tzinfo is None:
+                    momento = momento.replace(tzinfo=timezone.utc)
+
+                vela = Vela(
+                    simbolo=self.simbolo,
+                    inicio_minuto=truncar_al_minuto(momento),
+                    apertura=float(barra.open),
+                    maximo=float(barra.high),
+                    minimo=float(barra.low),
+                    cierre=float(barra.close),
+                    volumen=float(barra.volume),
+                    num_operaciones=int(barra.trade_count or 0),
+                    cerrada=True,
+                )
+                nuevas.append(vela)
+
+            # Orden cronológico y solo las últimas N
+            nuevas.sort(key=lambda v: v.inicio_minuto)
+            self.historial = nuevas[-self.historial_maximo:]
+
     def procesar_trade(self, precio: float, tamano: float, momento: datetime):
         with self._lock:
             minuto = truncar_al_minuto(momento)
@@ -185,29 +216,29 @@ class MotorVelasSimbolo:
             self._tramo_actual = calcular_tramo(momento)
 
     def snapshot(self) -> dict:
-        """Devuelve un resumen legible del estado actual (para mostrar en
-        pantalla o para que la máquina de estados decida)."""
+        """Devuelve el estado actual, incluso si todavía no llegó un trade en vivo."""
         with self._lock:
-            if self.vela_actual is None:
-                return {"simbolo": self.simbolo, "sin_datos": True}
-
             cierres = [v.cierre for v in self.historial if v.cierre is not None]
-            cierres_con_actual = cierres + [self.vela_actual.cierre]
 
-            ema9 = calcular_ema(cierres_con_actual, 9)
-            ema20 = calcular_ema(cierres_con_actual, 20)
-            ema50 = calcular_ema(cierres_con_actual, 50)
-            ema200 = calcular_ema(cierres_con_actual, 200)
-            macd, señal, histograma = calcular_macd(cierres_con_actual)
-            banda_sup, banda_media, banda_inf = calcular_bandas_bollinger(cierres_con_actual)
+            # Si existe vela en curso, sus precios participan en los indicadores.
+            precios = cierres + (
+                [self.vela_actual.cierre]
+                if self.vela_actual is not None and self.vela_actual.cierre is not None
+                else []
+            )
+
+            ema9 = calcular_ema(precios, 9)
+            ema20 = calcular_ema(precios, 20)
+            ema50 = calcular_ema(precios, 50)
+            ema200 = calcular_ema(precios, 200)
+            macd, señal, histograma = calcular_macd(precios)
+            banda_sup, banda_media, banda_inf = calcular_bandas_bollinger(precios)
 
             vela_anterior = self.historial[-1] if self.historial else None
 
-            return {
-                "simbolo": self.simbolo,
-                "sin_datos": False,
-                "tramo_actual": self._tramo_actual,
-                "vela_actual": {
+            vela_actual_data = None
+            if self.vela_actual is not None:
+                vela_actual_data = {
                     "apertura": self.vela_actual.apertura,
                     "maximo": self.vela_actual.maximo,
                     "minimo": self.vela_actual.minimo,
@@ -216,7 +247,24 @@ class MotorVelasSimbolo:
                     "es_lapida_en_curso": self.vela_actual.es_lapida_en_curso(),
                     "es_positiva": self.vela_actual.es_positiva(),
                     "regreso_a_apertura": self.vela_actual.regreso_a_apertura(),
-                },
+                }
+
+            minimo_actual = (
+                self.vela_actual.minimo
+                if self.vela_actual is not None
+                else None
+            )
+            maximo_actual = (
+                self.vela_actual.maximo
+                if self.vela_actual is not None
+                else None
+            )
+
+            return {
+                "simbolo": self.simbolo,
+                "sin_datos": len(self.historial) == 0 and self.vela_actual is None,
+                "tramo_actual": self._tramo_actual,
+                "vela_actual": vela_actual_data,
                 "vela_anterior": None if vela_anterior is None else {
                     "apertura": vela_anterior.apertura,
                     "maximo": vela_anterior.maximo,
@@ -224,12 +272,14 @@ class MotorVelasSimbolo:
                     "cierre": vela_anterior.cierre,
                 },
                 "minimo_supera_anterior": (
-                    vela_anterior is not None and self.vela_actual.minimo is not None
-                    and self.vela_actual.minimo > vela_anterior.minimo
+                    vela_anterior is not None
+                    and minimo_actual is not None
+                    and minimo_actual > vela_anterior.minimo
                 ),
                 "maximo_supera_anterior": (
-                    vela_anterior is not None and self.vela_actual.maximo is not None
-                    and self.vela_actual.maximo > vela_anterior.maximo
+                    vela_anterior is not None
+                    and maximo_actual is not None
+                    and maximo_actual > vela_anterior.maximo
                 ),
                 "ema9": ema9,
                 "ema20": ema20,
@@ -243,6 +293,7 @@ class MotorVelasSimbolo:
                 "banda_bollinger_inferior": banda_inf,
                 "num_velas_historial": len(self.historial),
             }
+
 
 
 # ==========================================
@@ -262,6 +313,7 @@ class MotorVelas:
         self._stream = None
         self._simbolos_suscritos: set = set()
         self._iniciado = False
+        self._historial_precargado: set = set()
 
         # Diagnóstico de la conexión (útil para validar que llegan datos)
         self.total_trades: int = 0
@@ -271,6 +323,46 @@ class MotorVelas:
         if simbolo not in self.motores:
             self.motores[simbolo] = MotorVelasSimbolo(simbolo)
         return self.motores[simbolo]
+
+    def precargar_historial(self, simbolos: list, cantidad: int = 300):
+        """
+        Descarga barras históricas de 1 minuto y las coloca como velas cerradas.
+
+        Se deja un margen de 15 minutos para no incorporar una barra que pueda
+        seguir abierta/delayed en el feed. La API puede devolver menos barras
+        dependiendo del plan, del feed y de la disponibilidad histórica.
+        """
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
+        from alpaca.data.enums import DataFeed
+
+        cliente = StockHistoricalDataClient(self.api_key, self.secret_key)
+
+        ahora = datetime.now(timezone.utc)
+        fin = ahora - timedelta(minutes=15)
+        inicio = fin - timedelta(days=7)
+
+        for simbolo in simbolos:
+            if simbolo in self._historial_precargado:
+                continue
+
+            request = StockBarsRequest(
+                symbol_or_symbols=simbolo,
+                timeframe=TimeFrame.Minute,
+                start=inicio,
+                end=fin,
+                limit=cantidad,
+                feed=DataFeed.IEX,
+            )
+
+            respuesta = cliente.get_stock_bars(request)
+            barras = respuesta.data.get(simbolo, [])
+
+            motor = self._obtener_motor(simbolo)
+            motor.cargar_historial(barras)
+
+            self._historial_precargado.add(simbolo)
 
     async def _al_recibir_trade(self, trade):
         motor = self._obtener_motor(trade.symbol)
@@ -290,6 +382,10 @@ class MotorVelas:
         self._iniciado = True
 
         try:
+            # Primero cargamos memoria histórica para que los indicadores
+            # estén disponibles antes de recibir el primer trade en vivo.
+            self.precargar_historial(simbolos, cantidad=300)
+
             from alpaca.data.live import StockDataStream
             from alpaca.data.enums import DataFeed
 
