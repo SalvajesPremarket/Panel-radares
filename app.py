@@ -1104,24 +1104,46 @@ st.markdown("""
 .motor-log{font-family:Consolas,Monaco,monospace;font-size:9px;line-height:1.5;color:#c8d9ec;background:#040b16;border:1px solid #123b60;border-radius:6px;padding:7px;min-height:610px;overflow:hidden;}
 @media(max-width:900px){.motor-log{min-height:0}.scanner-status-row{font-size:9px;gap:5px}.dash-card-title{font-size:13px;}}
 
-.header-animal{width:34%;height:112px;flex:0 0 30%;overflow:hidden;border:0!important;border-radius:0!important;display:flex;align-items:center;justify-content:center;background:transparent;position:relative;}
-.header-animal img{width:100%;height:100%;object-fit:contain;object-position:center;display:block;border:0!important;box-shadow:none!important;mix-blend-mode:screen;mask-image:linear-gradient(90deg,transparent 0%,#000 14%,#000 86%,transparent 100%);-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 14%,#000 86%,transparent 100%);}
-.header-bear,.header-bull{justify-content:center;}
-@media (min-width:901px){.dash-header > div:first-child{gap:0!important;align-items:center!important;}.header-animal{width:34%;flex-basis:34%;height:112px;}.dash-title{font-size:32px;line-height:1.05;text-align:center;}.dash-sub{font-size:11px;text-align:center;}}
-@media (min-width:641px) and (max-width:900px){.dash-header > div:first-child{gap:0!important;align-items:center!important;}.header-animal{width:30%;flex-basis:30%;height:72px;}.dash-title{font-size:23px;line-height:1.0;text-align:center;}.dash-sub{font-size:9px;text-align:center;}}
-@media (max-width:640px){.dash-header{padding:2px 2px 3px;border-radius:6px;}.dash-header > div:first-child{gap:0!important;align-items:center!important;}.header-animal{width:28%;flex-basis:28%;height:58px;}.dash-title{font-size:17px;line-height:1.0;text-align:center;}.dash-sub{font-size:7px;margin-top:1px;text-align:center;}.simple-status{font-size:8px;padding:2px 4px;margin-right:1px;}}
+/* Encabezado compacto: toro/oso y TradeScan quedan dentro del mismo cuadro */
+.dash-header{padding:0!important;margin:0 0 3px!important;border:1px solid rgba(22,74,122,.55)!important;border-radius:6px!important;overflow:hidden!important;background:linear-gradient(135deg,#07182d,#0b1d35)!important;height:104px!important;}
+.dash-header > div:first-child{display:flex!important;width:100%!important;height:100%!important;gap:0!important;align-items:center!important;justify-content:space-between!important;}
+.header-animal{height:100px!important;width:30%!important;flex:0 0 30%!important;overflow:hidden!important;border:0!important;border-radius:0!important;display:flex!important;align-items:center!important;justify-content:center!important;background:transparent!important;position:relative!important;}
+.header-animal img{width:100%!important;height:100%!important;object-fit:contain!important;object-position:center!important;display:block!important;border:0!important;box-shadow:none!important;mix-blend-mode:screen!important;mask-image:linear-gradient(90deg,transparent 0%,#000 10%,#000 90%,transparent 100%)!important;-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 10%,#000 90%,transparent 100%)!important;}
+.dash-header .header-center{flex:1 1 40%!important;min-width:0!important;height:100%!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;overflow:visible!important;}
+.dash-header .dash-title{font-size:30px!important;line-height:1!important;font-weight:900!important;color:#f5f8ff!important;margin:0!important;white-space:nowrap!important;text-align:center!important;}
+.dash-header .dash-sub{font-size:10px!important;line-height:1.1!important;margin:3px 0 0!important;color:#6fb6ff!important;text-align:center!important;white-space:nowrap!important;}
+/* Separadores y tarjetas más finos/compactos */
+div[data-testid="stVerticalBlock"]{gap:.12rem!important;}
+div[data-testid="stHorizontalBlock"]{gap:.18rem!important;}
+div[data-testid="stElementContainer"]{margin-bottom:0!important;padding-bottom:0!important;}
+div[data-testid="stVerticalBlockBorderWrapper"]{padding:.10rem .25rem!important;border-width:1px!important;border-radius:6px!important;}
+.dash-card{padding:4px 6px!important;border-width:1px!important;border-radius:6px!important;}
+.dash-card-title{font-size:12px!important;margin-bottom:2px!important;}
+label,[data-testid="stWidgetLabel"] p{font-size:9px!important;line-height:1!important;margin-bottom:1px!important;}
+div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{height:27px!important;min-height:27px!important;padding:2px 7px!important;font-size:11px!important;}
+div[data-testid="stSelectbox"] div[data-baseweb="select"]{min-height:27px!important;height:27px!important;font-size:11px!important;}
+div[data-testid="stSelectbox"] div[data-baseweb="select"] > div{min-height:27px!important;height:27px!important;padding-top:2px!important;padding-bottom:2px!important;}
+.stButton button{min-height:27px!important;height:27px!important;padding:2px 8px!important;font-size:10px!important;border-radius:5px!important;}
+[data-testid="stCheckbox"] label,[data-testid="stToggle"] label{font-size:9px!important;}
+.scanner-status-row{display:none!important;}
+.compact-alert{padding:2px 5px!important;margin:1px 0 2px!important;font-size:8px!important;line-height:1.1!important;border-width:1px!important;}
+.simple-card{padding:4px 6px!important;margin-bottom:2px!important;border-width:1px!important;}
+.simple-title{font-size:11px!important;margin-bottom:1px!important;}
+.small-note{padding:3px 5px!important;font-size:9px!important;}
+@media(max-width:900px){.dash-header{height:82px!important;}.header-animal{height:78px!important;width:29%!important;flex-basis:29%!important;}.dash-header .dash-title{font-size:23px!important;}.dash-header .dash-sub{font-size:8px!important;}.dash-card-title{font-size:11px!important;}}
+@media(max-width:640px){.dash-header{height:62px!important;border-radius:5px!important;}.header-animal{height:58px!important;width:28%!important;flex-basis:28%!important;}.dash-header .dash-title{font-size:16px!important;}.dash-header .dash-sub{font-size:6px!important;margin-top:2px!important;}.block-container{padding-left:.3rem!important;padding-right:.3rem!important;}.dash-card-title{font-size:10px!important;}label,[data-testid="stWidgetLabel"] p{font-size:8px!important;}div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{font-size:10px!important;height:25px!important;min-height:25px!important;}div[data-testid="stSelectbox"] div[data-baseweb="select"]{height:25px!important;min-height:25px!important;font-size:10px!important;}}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown(f"""
 <div class="dash-header">
-  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-    <div class="header-animal header-bear"><img src="data:image/png;base64,{IMG_OSO_B64}" alt="Oso" /></div>
-    <div style="flex:1;min-width:0;text-align:center;overflow:hidden;">
+  <div>
+    <div class="header-animal header-bull"><img src="data:image/png;base64,{IMG_TORO_B64}" alt="Toro" /></div>
+    <div class="header-center">
       <div class="dash-title">📈 TradeScan</div>
       <div class="dash-sub">Trading · Análisis · Oportunidades</div>
     </div>
-    <div class="header-animal header-bull"><img src="data:image/png;base64,{IMG_TORO_B64}" alt="Toro" /></div>
+    <div class="header-animal header-bear"><img src="data:image/png;base64,{IMG_OSO_B64}" alt="Oso" /></div>
   </div>
 </div>""", unsafe_allow_html=True)
 
@@ -1282,9 +1304,6 @@ with st.container():
             with color_cols[idx%5]: _colores_nuevos[idx]=st.color_picker(f"L{idx+1} · {nombre}",_colores_nuevos[idx],key=f"bk_color_dashboard_{idx}")
         st.session_state["bk_colores"]=_colores_nuevos
 
-    _estado_txt="Scanner Activo" if servicio.encendido and servicio.auto_en_horario else ("Scanner Apagado" if not servicio.encendido else "Scanner En espera")
-    _hora_txt=f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
-    st.markdown(f'<div class="scanner-status-row"><span>🟢 <b>{_estado_txt}</b></span><span>◷ {_hora_txt}</span><span>⏱ {"En horario" if servicio.auto_en_horario else "En espera"}</span></div>',unsafe_allow_html=True)
     panel_resultados()
 
 
