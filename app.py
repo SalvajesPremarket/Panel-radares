@@ -11,10 +11,9 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
-import yfinance as yf
 from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockSnapshotRequest
+from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
@@ -47,7 +46,7 @@ _PWA_ICON_URI = (
     "%3Cpath d='M30 130 L70 90 L100 115 L162 45' stroke='%2300ffcc' stroke-width='12' "
     "fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
 )
-components.html(
+st.iframe(
     "<script>"
     "(function(){"
     "  try{"
@@ -126,7 +125,7 @@ BASE_GAP_MAX = 1000.0
 BASE_FLOTACION_MAX = 50_000_000
 MAX_ENRIQUECER = 120                   # máx. de tickers a los que se les calcula float / EMA / noticia por ciclo
 
-# Float: FMP es la fuente principal; yfinance solo se usa como respaldo.
+# Float: FMP es la fuente principal; volumen y velas técnicas se obtienen con Alpaca.
 FMP_API_URL = "https://financialmodelingprep.com/stable/shares-float"
 MAX_FUNDAMENTALES_POR_CICLO = 40       # máximo de tickers nuevos/reintentados de float por ciclo
 WORKERS_FUNDAMENTALES = 8
@@ -299,34 +298,49 @@ def evaluar_tecnico(cierres):
     return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo
 
 
-def descargar_cierres(tickers):
-    """Velas de 1 minuto INCLUYENDO pre-market (prepost=True), en descargas por lotes."""
+def descargar_cierres(data_client, tickers):
+    """Velas de 1 minuto de Alpaca para EMA20/MACD, sin depender de Yahoo Finance."""
     salida = {}
-    for i in range(0, len(tickers), 60):
-        lote = tickers[i:i + 60]
+    if not tickers:
+        return salida
+
+    for i in range(0, len(tickers), 120):
+        lote = tickers[i:i + 120]
         try:
-            datos = yf.download(
-                lote, period="2d", interval="1m", prepost=True,
-                group_by="ticker", auto_adjust=False, progress=False, threads=True,
+            inicio = datetime.now(timezone.utc) - timedelta(days=2)
+            fin = datetime.now(timezone.utc)
+            solicitud = StockBarsRequest(
+                symbol_or_symbols=lote,
+                timeframe=TimeFrame.Minute,
+                start=inicio,
+                end=fin,
             )
+            barras = data_client.get_stock_bars(solicitud)
+            datos = getattr(barras, "df", None)
         except Exception as e:
-            print(f"⚠️ Error descargando velas: {e}")
+            print(f"⚠️ Error descargando velas de Alpaca: {e}")
             continue
-        if datos is None or len(datos) == 0:
+
+        if datos is None or datos.empty:
             continue
-        for t in lote:
-            try:
-                if isinstance(datos.columns, pd.MultiIndex):
-                    if t not in datos.columns.get_level_values(0):
+
+        try:
+            if isinstance(datos.index, pd.MultiIndex):
+                for ticker in lote:
+                    try:
+                        serie = datos.xs(ticker, level=0)["close"].dropna()
+                    except Exception:
                         continue
-                    serie = datos[t]["Close"]
-                else:
-                    serie = datos["Close"]
-                serie = serie.dropna()
-                if len(serie) >= 40:
-                    salida[t] = serie
-            except Exception:
-                continue
+                    if len(serie) >= 40:
+                        salida[ticker] = serie
+            else:
+                # Caso excepcional de un solo ticker.
+                if "close" in datos.columns and len(lote) == 1:
+                    serie = datos["close"].dropna()
+                    if len(serie) >= 40:
+                        salida[lote[0]] = serie
+        except Exception:
+            continue
     return salida
 
 
@@ -538,7 +552,7 @@ class ServicioScanner:
                 snapshots.update(parcial)
         return snapshots
 
-    # ---------- float y volumen promedio (FMP primero, yfinance de respaldo) ----------
+    # ---------- float y volumen promedio (FMP + Alpaca; sin Yahoo Finance) ----------
     @staticmethod
     def _extraer_float_fmp(payload):
         if isinstance(payload, dict):
@@ -550,7 +564,7 @@ class ServicioScanner:
         if not filas:
             return None
         fila = filas[0] if isinstance(filas[0], dict) else {}
-        for clave in ("floatShares", "float_shares", "freeFloat", "freeFloatShares"):
+        for clave in ("floatShares", "float_shares", "freeFloatShares", "freeFloat"):
             valor = fila.get(clave)
             try:
                 if valor is not None and float(valor) > 0:
@@ -569,12 +583,47 @@ class ServicioScanner:
                 params={"symbol": ticker, "apikey": self.fmp_api_key},
                 timeout=8,
             )
+            if respuesta.status_code in (401, 403):
+                self.ultimo_error = f"FMP rechazó la API para {ticker} (HTTP {respuesta.status_code}). Revisa FMP_API_KEY."
+                return None
             if respuesta.status_code != 200:
                 return None
             return self._extraer_float_fmp(respuesta.json())
         except Exception as e:
             print(f"⚠️ FMP float {ticker}: {e}")
             return None
+
+    def _promedios_volumen_alpaca(self, tickers):
+        """Calcula volumen diario medio reciente con barras diarias de Alpaca."""
+        salida = {}
+        if not tickers:
+            return salida
+        try:
+            inicio = datetime.now(timezone.utc) - timedelta(days=45)
+            fin = datetime.now(timezone.utc)
+            solicitud = StockBarsRequest(
+                symbol_or_symbols=tickers,
+                timeframe=TimeFrame.Day,
+                start=inicio,
+                end=fin,
+            )
+            barras = self.data.get_stock_bars(solicitud)
+            datos = getattr(barras, "df", None)
+            if datos is None or datos.empty or "volume" not in datos.columns:
+                return salida
+
+            if isinstance(datos.index, pd.MultiIndex):
+                for ticker, grupo in datos.groupby(level=0):
+                    vols = pd.to_numeric(grupo["volume"], errors="coerce").dropna()
+                    if not vols.empty:
+                        salida[str(ticker)] = float(vols.tail(20).mean())
+            elif len(tickers) == 1:
+                vols = pd.to_numeric(datos["volume"], errors="coerce").dropna()
+                if not vols.empty:
+                    salida[str(tickers[0])] = float(vols.tail(20).mean())
+        except Exception as e:
+            print(f"⚠️ Error calculando volumen promedio con Alpaca: {e}")
+        return salida
 
     def _asegurar_fundamentales(self, tickers):
         ahora = time.time()
@@ -595,22 +644,15 @@ class ServicioScanner:
         if not faltan:
             return
 
+        # El volumen relativo también deja de depender de Yahoo Finance.
+        promedios_volumen = self._promedios_volumen_alpaca(faltan)
+
         def pedir(t):
-            # 1) FMP primero para el float.
+            # FMP es la única fuente de FLOAT.
             float_fmp = self._float_fmp(t)
+            avgvol = promedios_volumen.get(t)
 
-            # 2) yfinance solo como respaldo del float y para averageVolume.
-            float_yf = None
-            avgvol = None
-            try:
-                info = yf.Ticker(t).info
-                avgvol = info.get("averageVolume") or info.get("averageDailyVolume10Day")
-                if float_fmp is None:
-                    float_yf = info.get("floatShares")
-            except Exception:
-                pass
-
-            float_final = float_fmp if float_fmp is not None else float_yf
+            float_final = float_fmp
             try:
                 if float_final is not None:
                     float_final = float(float_final)
@@ -619,10 +661,8 @@ class ServicioScanner:
 
             if float_fmp is not None:
                 estado, fuente = "ok", "FMP"
-            elif float_yf is not None:
-                estado, fuente = "ok", "yfinance"
             else:
-                estado, fuente = "no_data", "ninguna"
+                estado, fuente = "no_data", "FMP"
 
             return t, {
                 "float": float_final,
@@ -646,7 +686,7 @@ class ServicioScanner:
         ]
         if not pendientes:
             return
-        series = descargar_cierres(pendientes)
+        series = descargar_cierres(self.data, pendientes)
         for t in pendientes:
             cruz_arriba, cruz_abajo, macd_pos, macd_neg = evaluar_tecnico(series.get(t))
             self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg)
@@ -1534,7 +1574,7 @@ def panel_broker():
         "puente": st.session_state.get("bk_puente", ""),
         "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT_DEFECTO))],
     }
-    components.html(construir_html_panel_broker(filas10, cfg, colores_layout_actuales()), height=PANEL_BROKER_ALTO_PX, scrolling=False)
+    st.iframe(construir_html_panel_broker(filas10, cfg, colores_layout_actuales()), height=PANEL_BROKER_ALTO_PX)
 
 
 panel_broker()
