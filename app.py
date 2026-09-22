@@ -952,6 +952,21 @@ with ctl:
         st.markdown('<div class="dash-note">ℹ️ Si apagas manualmente, el horario automático no volverá a encenderlo hasta que pulses ENCENDER.</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
+# 10 colores, uno por cada layout del broker. Deben existir antes de construir la UI de colores.
+COLORES_LAYOUT = [
+    ("Rojo", "#e53935", "#ffffff"),
+    ("Naranja", "#fb8c00", "#000000"),
+    ("Amarillo", "#fdd835", "#000000"),
+    ("Verde", "#43a047", "#ffffff"),
+    ("Turquesa", "#00acc1", "#ffffff"),
+    ("Azul", "#1e88e5", "#ffffff"),
+    ("Morado", "#8e24aa", "#ffffff"),
+    ("Rosa", "#ec407a", "#ffffff"),
+    ("Marrón", "#8d6e63", "#ffffff"),
+    ("Gris", "#9e9e9e", "#000000"),
+]
+COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
+
 with colors:
     st.markdown('<div class="dash-card"><div class="dash-card-title">🛠️ Configurar broker y colores <span style="font-size:11px;background:#123d67;border-radius:12px;padding:4px 8px;">Admin</span></div><div class="dash-card-sub">🔗 Para unir con layout del broker</div>', unsafe_allow_html=True)
     _colores_nuevos=list(st.session_state.get("bk_colores",[bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
@@ -1117,22 +1132,6 @@ BROKERS_DISPONIBLES = [
     "Quantfury (portapapeles)", "Otro (webhook)",
 ]
 RUTA_PANEL_BROKER = os.path.join(os.getcwd(), "config_panel_broker.json")
-
-# 10 colores, uno por cada layout distinto de tu broker (fila 1 = color 1, fila 2 = color 2, ...)
-COLORES_LAYOUT = [
-    ("Rojo", "#e53935", "#ffffff"),
-    ("Naranja", "#fb8c00", "#000000"),
-    ("Amarillo", "#fdd835", "#000000"),
-    ("Verde", "#43a047", "#ffffff"),
-    ("Turquesa", "#00acc1", "#ffffff"),
-    ("Azul", "#1e88e5", "#ffffff"),
-    ("Morado", "#8e24aa", "#ffffff"),
-    ("Rosa", "#ec407a", "#ffffff"),
-    ("Marrón", "#8d6e63", "#ffffff"),
-    ("Gris", "#9e9e9e", "#000000"),
-]
-
-COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
 
 def _texto_contraste(hex_color):
     """Elige texto negro/blanco según el brillo del color elegido."""
