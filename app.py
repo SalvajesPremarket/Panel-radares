@@ -232,12 +232,15 @@ def registrar_usuario(email, password):
         return None, "La contraseña debe tener al menos 8 caracteres."
 
     data, error = supabase_auth_request(
-        "signup",
-        {
-            "email": email,
-            "password": password,
+    "signup",
+    {
+        "email": email,
+        "password": password,
+        "options": {
+            "email_redirect_to": "https://jd6gih.streamlit.app"
         },
-    )
+    },
+)
 
     if error:
         return None, error
