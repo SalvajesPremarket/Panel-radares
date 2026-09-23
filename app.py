@@ -128,9 +128,24 @@ def cargar_config():
 
 
 # ==========================================
-# 🔒 CONTROL DE ACCESO POR TOKEN
+# 🔐 AUTENTICACIÓN — ADMIN + USUARIOS
 # ==========================================
+# ADMIN:
+#   - Mantiene el acceso actual mediante ADMIN_TOKEN.
+# USUARIOS:
+#   - Se registran con email + contraseña.
+#   - Inician/cerran sesión desde la propia aplicación.
+#   - Sus credenciales son gestionadas por Supabase Auth.
+#
+# Secrets necesarios para el registro/login de usuarios:
+#   SUPABASE_URL
+#   SUPABASE_ANON_KEY
+#
+# El scanner, las API keys y los secrets del servidor NO se entregan
+# al usuario desde este módulo.
+
 def obtener_tokens():
+    """Tokens/licencias antiguas del sistema. Se conservan para compatibilidad."""
     for clave in ("tokens_autorizados", "TOKENS_AUTORIZADOS"):
         try:
             if clave in st.secrets:
@@ -141,8 +156,7 @@ def obtener_tokens():
 
 
 def verificar_token(token_usuario):
-    # El token de administrador también puede ser el único token de acceso.
-    # Así el dueño no necesita duplicarlo dentro de [tokens_autorizados].
+    """Valida el acceso administrativo/legacy por token."""
     admin_token = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
     if admin_token and token_usuario == admin_token:
         return True, "2099-01-01"
@@ -159,50 +173,363 @@ def verificar_token(token_usuario):
     return False, "INVALIDO"
 
 
+def _supabase_config():
+    """Obtiene la URL y la anon key de Supabase desde Streamlit Secrets."""
+    url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
+    key = str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
+    return url, key
+
+
+def supabase_auth_request(endpoint, payload):
+    """
+    Llama directamente a Supabase Auth REST API usando requests.
+    No requiere instalar el paquete supabase.
+    """
+    url, key = _supabase_config()
+    if not url or not key:
+        return None, "Faltan SUPABASE_URL y/o SUPABASE_ANON_KEY en Streamlit Secrets."
+
+    try:
+        respuesta = requests.post(
+            f"{url}/auth/v1/{endpoint}",
+            headers={
+                "apikey": key,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=20,
+        )
+
+        try:
+            data = respuesta.json()
+        except Exception:
+            data = {}
+
+        if respuesta.ok:
+            return data, None
+
+        mensaje = (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error_description")
+            or data.get("error")
+            or "No se pudo completar la operación."
+        )
+        return None, str(mensaje)
+
+    except Exception as e:
+        return None, f"Error de conexión con el servicio de autenticación: {e}"
+
+
+def registrar_usuario(email, password):
+    """Crea una cuenta de usuario mediante Supabase Auth."""
+    email = str(email).strip().lower()
+
+    if not email or "@" not in email:
+        return None, "Introduce un correo electrónico válido."
+
+    if len(password) < 8:
+        return None, "La contraseña debe tener al menos 8 caracteres."
+
+    data, error = supabase_auth_request(
+        "signup",
+        {
+            "email": email,
+            "password": password,
+        },
+    )
+
+    if error:
+        return None, error
+
+    return data, None
+
+
+def iniciar_sesion_usuario(email, password):
+    """Inicia sesión con email y contraseña mediante Supabase Auth."""
+    email = str(email).strip().lower()
+
+    if not email or not password:
+        return None, "Introduce tu correo y contraseña."
+
+    data, error = supabase_auth_request(
+        "token?grant_type=password",
+        {
+            "email": email,
+            "password": password,
+        },
+    )
+
+    if error:
+        return None, error
+
+    return data, None
+
+
+def cerrar_sesion():
+    """Limpia la sesión local de Streamlit."""
+    for clave in (
+        "usuario_auth",
+        "token_verificado",
+        "fecha_vencimiento",
+        "tipo_acceso",
+    ):
+        st.session_state.pop(clave, None)
+
+
+def _guardar_usuario_auth(data, tipo="usuario"):
+    """Guarda únicamente los datos necesarios para la sesión actual."""
+    usuario = data.get("user") or {}
+
+    # En algunos flujos de Supabase el user puede no venir completo,
+    # pero sí viene el access_token.
+    st.session_state["usuario_auth"] = {
+        "user_id": usuario.get("id", ""),
+        "email": usuario.get("email", ""),
+        "access_token": data.get("access_token", ""),
+        "refresh_token": data.get("refresh_token", ""),
+    }
+    st.session_state["tipo_acceso"] = tipo
+
+
 def pantalla_autenticacion():
-    st.markdown("<style>.stApp { background:radial-gradient(circle at 50% 0%,rgba(212,175,55,.10),transparent 35%),#030303 !important; }</style>", unsafe_allow_html=True)
-    st.markdown("""
-    <div style="max-width: 460px; margin: 60px auto; background: #11151f;
-                border: 1px solid #2a3348; border-radius: 12px; padding: 40px; text-align: center;">
-        <h2 style="color:#d4af37; font-family:sans-serif; margin-bottom:5px;">SISTEMA PROTEGIDO</h2>
-        <p style="color:#9a9a9a; font-size:11px; letter-spacing:2px; margin-bottom:20px;">SCANNER PRE MARKET</p>
-    </div>
-    """, unsafe_allow_html=True)
+    """
+    Pantalla inicial:
+      1) Iniciar sesión
+      2) Registrarse
+      3) Acceso administrador
+    """
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background:
+                radial-gradient(circle at 50% 0%, rgba(212,175,55,.10), transparent 35%),
+                #030303 !important;
+        }
+        .auth-card {
+            max-width: 520px;
+            margin: 45px auto 20px auto;
+            background: #0d1118;
+            border: 1px solid #2a3348;
+            border-radius: 16px;
+            padding: 30px;
+            box-shadow: 0 18px 50px rgba(0,0,0,.35);
+        }
+        .auth-title {
+            color: #d4af37;
+            font-family: sans-serif;
+            font-weight: 800;
+            text-align: center;
+            margin-bottom: 4px;
+        }
+        .auth-subtitle {
+            color: #8e96a3;
+            text-align: center;
+            font-size: 11px;
+            letter-spacing: 2px;
+            margin-bottom: 20px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with st.form("modulo_seguridad"):
-        token_ingresado = st.text_input("Introduce tu Token de Acceso", type="password")
-        boton_entrar = st.form_submit_button("Validar licencia")
+    st.markdown(
+        """
+        <div class="auth-card">
+            <div class="auth-title">TRADE SCANNER INSTITUTIONAL</div>
+            <div class="auth-subtitle">SCANNER PRE MARKET</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    if boton_entrar:
-        token_limpio = token_ingresado.strip()
-        es_valido, estado = verificar_token(token_limpio)
-        if es_valido:
-            st.session_state["token_verificado"] = token_limpio
-            st.session_state["fecha_vencimiento"] = estado
-            st.rerun()
-        elif estado == "EXPIRADO":
-            st.error("🔒 Token expirado. Renueva tu suscripción.")
-        elif estado == "FORMATO":
-            st.error("Error de configuración del token (la fecha debe ser AAAA-MM-DD).")
-        else:
-            st.error("❌ Token no válido. Acceso denegado.")
+    tab_login, tab_registro, tab_admin = st.tabs(
+        ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
+    )
+
+    with tab_login:
+        st.markdown("### Acceso de usuario")
+        with st.form("form_login_usuario"):
+            email = st.text_input(
+                "Correo electrónico",
+                placeholder="tu@email.com",
+                key="login_email",
+            )
+            password = st.text_input(
+                "Contraseña",
+                type="password",
+                key="login_password",
+            )
+            entrar = st.form_submit_button(
+                "🚀 INICIAR SESIÓN",
+                use_container_width=True,
+            )
+
+        if entrar:
+            data, error = iniciar_sesion_usuario(email, password)
+            if error:
+                st.error(f"❌ {error}")
+            else:
+                _guardar_usuario_auth(data, tipo="usuario")
+                st.rerun()
+
+    with tab_registro:
+        st.markdown("### Crear cuenta")
+        st.caption("Crea tu acceso personal al scanner.")
+
+        with st.form("form_registro_usuario"):
+            nuevo_email = st.text_input(
+                "Correo electrónico",
+                placeholder="tu@email.com",
+                key="registro_email",
+            )
+            nueva_password = st.text_input(
+                "Contraseña",
+                type="password",
+                key="registro_password",
+            )
+            repetir_password = st.text_input(
+                "Repetir contraseña",
+                type="password",
+                key="registro_password_2",
+            )
+            registrar = st.form_submit_button(
+                "📝 CREAR CUENTA",
+                use_container_width=True,
+            )
+
+        if registrar:
+            if nueva_password != repetir_password:
+                st.error("❌ Las contraseñas no coinciden.")
+            else:
+                data, error = registrar_usuario(nuevo_email, nueva_password)
+
+                if error:
+                    st.error(f"❌ {error}")
+                else:
+                    # Si Supabase devuelve access_token, la sesión puede
+                    # iniciarse inmediatamente. Si no, normalmente significa
+                    # que está activada la confirmación por correo.
+                    if data and data.get("access_token"):
+                        _guardar_usuario_auth(data, tipo="usuario")
+                        st.success("Cuenta creada correctamente.")
+                        st.rerun()
+                    else:
+                        st.success(
+                            "✅ Cuenta creada. Revisa tu correo para confirmar "
+                            "la cuenta y después inicia sesión."
+                        )
+
+    with tab_admin:
+        st.markdown("### Acceso del administrador")
+        st.caption("Este acceso conserva el sistema de token del propietario.")
+
+        with st.form("form_admin_token"):
+            token_ingresado = st.text_input(
+                "Token de administrador",
+                type="password",
+                key="admin_token_login",
+            )
+            entrar_admin = st.form_submit_button(
+                "👑 VALIDAR ACCESO",
+                use_container_width=True,
+            )
+
+        if entrar_admin:
+            token_limpio = token_ingresado.strip()
+            es_valido, estado = verificar_token(token_limpio)
+
+            if es_valido:
+                st.session_state["token_verificado"] = token_limpio
+                st.session_state["fecha_vencimiento"] = estado
+                st.session_state["tipo_acceso"] = "admin"
+                st.rerun()
+            elif estado == "EXPIRADO":
+                st.error("🔒 Token expirado.")
+            elif estado == "FORMATO":
+                st.error("❌ Error de configuración del token.")
+            else:
+                st.error("❌ Token no válido. Acceso denegado.")
+
     st.stop()
 
 
-if "token_verificado" not in st.session_state:
+# Si no existe ninguna sesión, mostramos login/registro.
+if (
+    "token_verificado" not in st.session_state
+    and "usuario_auth" not in st.session_state
+):
     pantalla_autenticacion()
 
-TOKEN_ACTIVO = st.session_state["token_verificado"]
-FECHA_VENCIMIENTO_LICENCIA = st.session_state["fecha_vencimiento"]
+
+# =========================================================
+# IDENTIDAD ACTIVA
+# =========================================================
+if "token_verificado" in st.session_state:
+    TOKEN_ACTIVO = st.session_state["token_verificado"]
+    FECHA_VENCIMIENTO_LICENCIA = st.session_state.get(
+        "fecha_vencimiento", "2099-01-01"
+    )
+    TIPO_ACCESO = "admin"
+else:
+    _usuario_actual = st.session_state.get("usuario_auth", {})
+    TOKEN_ACTIVO = (
+        _usuario_actual.get("user_id")
+        or _usuario_actual.get("email")
+        or "usuario"
+    )
+    FECHA_VENCIMIENTO_LICENCIA = "2099-01-01"
+    TIPO_ACCESO = "usuario"
+
+
+# Solo los tokens configurados como ADMIN pueden ser administradores.
 ADMIN_TOKEN = st.secrets.get("ADMIN_TOKEN", None)
 _ADMIN_TOKENS_RAW = st.secrets.get("ADMIN_TOKENS", "")
+
 if isinstance(_ADMIN_TOKENS_RAW, (list, tuple, set)):
-    ADMIN_TOKENS = {str(x).strip() for x in _ADMIN_TOKENS_RAW if str(x).strip()}
+    ADMIN_TOKENS = {
+        str(x).strip()
+        for x in _ADMIN_TOKENS_RAW
+        if str(x).strip()
+    }
 else:
-    ADMIN_TOKENS = {x.strip() for x in str(_ADMIN_TOKENS_RAW).split(",") if x.strip()}
+    ADMIN_TOKENS = {
+        x.strip()
+        for x in str(_ADMIN_TOKENS_RAW).split(",")
+        if x.strip()
+    }
+
 if ADMIN_TOKEN:
     ADMIN_TOKENS.add(str(ADMIN_TOKEN).strip())
-ES_ADMIN = bool(TOKEN_ACTIVO) and TOKEN_ACTIVO in ADMIN_TOKENS
+
+ES_ADMIN = (
+    TIPO_ACCESO == "admin"
+    and bool(TOKEN_ACTIVO)
+    and TOKEN_ACTIVO in ADMIN_TOKENS
+)
+
+
+# Barra discreta de sesión.
+with st.sidebar:
+    st.markdown("### 👤 Sesión")
+
+    if ES_ADMIN:
+        st.success("Administrador")
+    else:
+        _email_ui = st.session_state.get("usuario_auth", {}).get(
+            "email", "Usuario"
+        )
+        st.info(_email_ui)
+
+    if st.button(
+        "🚪 CERRAR SESIÓN",
+        key="cerrar_sesion_global",
+        use_container_width=True,
+    ):
+        cerrar_sesion()
+        st.rerun()
 
 
 # ==========================================
