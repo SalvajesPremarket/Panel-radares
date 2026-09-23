@@ -2,6 +2,7 @@ import os
 import json
 import time
 import hashlib
+from urllib.parse import quote
 from html import escape as html_escape
 import threading
 from datetime import date, datetime, timedelta, timezone, time as dt_time
@@ -231,16 +232,17 @@ def registrar_usuario(email, password):
     if len(password) < 8:
         return None, "La contraseña debe tener al menos 8 caracteres."
 
+    # Supabase debe enviar el enlace de confirmación de vuelta a la
+    # aplicación pública del scanner, no a share.streamlit.io.
+    redirect_url = "https://jd6gih.streamlit.app"
+
     data, error = supabase_auth_request(
-    "signup",
-    {
-        "email": email,
-        "password": password,
-        "options": {
-            "email_redirect_to": "https://jd6gih.streamlit.app"
+        f"signup?redirect_to={quote(redirect_url, safe='')}",
+        {
+            "email": email,
+            "password": password,
         },
-    },
-)
+    )
 
     if error:
         return None, error
