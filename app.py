@@ -70,8 +70,8 @@ WORKERS_SNAPSHOT = 4                   # peticiones de snapshot en paralelo
 PAUSA_MIN_ENTRE_PETICIONES = 0.33      # ~180 peticiones/min a Alpaca (límite: 200/min)
 
 # Radar base: rango AMPLIO que el motor enriquece. Cada usuario filtra su vista dentro de este rango.
-BASE_PRECIO_MIN = 1.0
-BASE_PRECIO_MAX = 50.0
+BASE_PRECIO_MIN = 0.5
+BASE_PRECIO_MAX = 20.0
 BASE_GAP_MIN = 3.0
 BASE_GAP_MAX = 1000.0
 BASE_FLOTACION_MAX = 50_000_000
@@ -107,18 +107,17 @@ MOSTRAR_BOTON_ENCENDIDO_A_TODOS = True  # True: lo ve cualquier usuario con lice
 OPCIONES_CRUCE_EMA = ["Hacia arriba", "Hacia abajo", "Neutro"]
 OPCIONES_MACD = ["Positivo", "Negativo", "No exigir"]
 
-NOMBRE_ARCHIVO_HTML = "radar_premarket.html"
+NOMBRE_ARCHIVO_HTML = "radar.html"
 RUTA_CACHE_FUNDAMENTALES = os.path.join(os.getcwd(), "cache_fundamentales.json")
 RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
 
 VALORES_POR_DEFECTO = {
-    "precio_min": 2.0,
+    "precio_min": 0.5,
     "precio_max": 20.0,
     "gap_min": 5.0,
     "gap_max": 500.0,
     "flotacion_max": 15_000_000,
     "vol_rel_min": 1.5,
-    "vol_premarket_min": 0,
     "intervalo_refresco": 5,
     # Valores técnicos usados por el motor compartido/diagnóstico.
     # Antes faltaban aquí y filtrar_resultados() podía lanzar KeyError
@@ -363,7 +362,7 @@ def pantalla_autenticacion():
         """
         <div class="auth-card">
             <div class="auth-title">TRADE SCANNER INSTITUTIONAL</div>
-            <div class="auth-subtitle">SCANNER PRE MARKET</div>
+            <div class="auth-subtitle">SCANNER</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -668,8 +667,6 @@ def filtrar_resultados(filas, p):
             continue
         if macd == "Negativo" and not c["macd_negativo"]:
             continue
-        if c["volumen_dia"] < p.get("vol_premarket_min", 0):
-            continue
         resultado.append(c)
 
     claves = {
@@ -698,8 +695,6 @@ def filtrar_eventos(eventos, p):
         if e["float_shares"] is not None and e["float_shares"] >= p["flotacion_max"]:
             continue
         if e["volumen_relativo"] < p["vol_rel_min"]:
-            continue
-        if e["volumen_dia"] < p.get("vol_premarket_min", 0):
             continue
         salida.append(e)
     return salida
@@ -1170,7 +1165,7 @@ class ServicioScanner:
         try:
             payload = {
                 "chat_id": self.tg_chat,
-                "text": f"⚡️ <b>SCANNER PRE MARKET</b>\n<pre>{texto_tabla}</pre>",
+                "text": f"⚡️ <b>SCANNER</b>\n<pre>{texto_tabla}</pre>",
                 "parse_mode": "HTML",
             }
             cabeceras = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -1197,11 +1192,11 @@ class ServicioScanner:
 
     def _escribir_html(self, texto_tabla):
         contenido = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>SCANNER PRE MARKET</title>
+<html><head><meta charset="utf-8"><title>SCANNER</title>
 <meta http-equiv="refresh" content="30">
 <style>body {{ background:#121212; color:#00ffcc; font-family:'Courier New',monospace; padding:20px; }}
 pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #333; color:#fff; }}</style>
-</head><body><h2>SCANNER PRE MARKET</h2><pre>{texto_tabla}</pre></body></html>"""
+</head><body><h2>SCANNER</h2><pre>{texto_tabla}</pre></body></html>"""
         try:
             with open(os.path.join(os.getcwd(), NOMBRE_ARCHIVO_HTML), "w", encoding="utf-8") as f:
                 f.write(contenido)
@@ -1614,15 +1609,14 @@ with st.container(border=True):
     q1,q2,q3,q4,q5,q6 = st.columns(6, gap="small")
     with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
     with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
-    with q3: VOL_PM_MIN = st.number_input("Volumen pre market mín.", value=int(cfg["vol_premarket_min"]), min_value=0, step=10_000, key="f_vpm")
-    with q4: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Vol. relativo"], key="f_orden")
-    with q5: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
-    with q6: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
+    with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Vol. relativo"], key="f_orden")
+    with q4: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+    with q5: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
 
 params = {
     "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
     "flotacion_max": FLOT_MAX, "vol_rel_min": VOLREL_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
-    "vol_premarket_min": VOL_PM_MIN, "orden": ORDEN, "top_n": TOP_N,
+    "orden": ORDEN, "top_n": TOP_N,
 }
 
 # 2) Control del scanner + conexión API/broker
