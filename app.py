@@ -234,7 +234,7 @@ def registrar_usuario(email, password):
 
     # Supabase debe enviar el enlace de confirmación de vuelta a la
     # aplicación pública del scanner, no a share.streamlit.io.
-    redirect_url = "https://jd6gih.streamlit.app"
+    redirect_url = "https://panel-radares-ovnooclctxhthqpcjd6gih.streamlit.app"
 
     data, error = supabase_auth_request(
         f"signup?redirect_to={quote(redirect_url, safe='')}",
