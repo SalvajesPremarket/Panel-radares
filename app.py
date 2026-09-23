@@ -1019,35 +1019,57 @@ class ServicioScanner:
             return None
 
     def _promedios_volumen_alpaca(self, tickers):
-        """Calcula volumen diario medio reciente con barras diarias de Alpaca."""
+        """Calcula volumen diario medio reciente con Alpaca en lotes pequeños."""
         salida = {}
         if not tickers:
             return salida
-        try:
-            inicio = datetime.now(timezone.utc) - timedelta(days=45)
-            fin = datetime.now(timezone.utc)
-            solicitud = StockBarsRequest(
-                symbol_or_symbols=tickers,
-                timeframe=TimeFrame.Day,
-                start=inicio,
-                end=fin,
-            )
-            barras = self.data.get_stock_bars(solicitud)
-            datos = getattr(barras, "df", None)
-            if datos is None or datos.empty or "volume" not in datos.columns:
-                return salida
 
-            if isinstance(datos.index, pd.MultiIndex):
-                for ticker, grupo in datos.groupby(level=0):
-                    vols = pd.to_numeric(grupo["volume"], errors="coerce").dropna()
-                    if not vols.empty:
-                        salida[str(ticker)] = float(vols.tail(20).mean())
-            elif len(tickers) == 1:
-                vols = pd.to_numeric(datos["volume"], errors="coerce").dropna()
-                if not vols.empty:
-                    salida[str(tickers[0])] = float(vols.tail(20).mean())
-        except Exception as e:
-            print(f"⚠️ Error calculando volumen promedio con Alpaca: {e}")
+        inicio = datetime.now(timezone.utc) - timedelta(days=45)
+        fin = datetime.now(timezone.utc)
+
+        # Evita enviar una petición enorme a Alpaca. Procesamos lotes pequeños
+        # y dejamos una pausa mínima entre ellos para reducir errores/transitorios.
+        TAMANO_LOTE_VOL = 20
+        for pos in range(0, len(tickers), TAMANO_LOTE_VOL):
+            lote = list(tickers[pos:pos + TAMANO_LOTE_VOL])
+            try:
+                self._esperar_turno()
+
+                solicitud = StockBarsRequest(
+                    symbol_or_symbols=lote,
+                    timeframe=TimeFrame.Day,
+                    start=inicio,
+                    end=fin,
+                )
+                barras = self.data.get_stock_bars(solicitud)
+                datos = getattr(barras, "df", None)
+
+                if datos is None or datos.empty or "volume" not in datos.columns:
+                    print(f"⚠️ Alpaca sin barras de volumen para lote de {len(lote)} símbolos.")
+                    continue
+
+                if isinstance(datos.index, pd.MultiIndex):
+                    for ticker, grupo in datos.groupby(level=0):
+                        vols = pd.to_numeric(
+                            grupo["volume"], errors="coerce"
+                        ).dropna()
+                        if not vols.empty:
+                            salida[str(ticker)] = float(vols.tail(20).mean())
+                else:
+                    # Caso de un único símbolo.
+                    if len(lote) == 1:
+                        vols = pd.to_numeric(
+                            datos["volume"], errors="coerce"
+                        ).dropna()
+                        if not vols.empty:
+                            salida[str(lote[0])] = float(vols.tail(20).mean())
+
+            except Exception as e:
+                print(
+                    f"⚠️ Error calculando volumen promedio con Alpaca "
+                    f"(lote {pos + 1}-{pos + len(lote)}): {e}"
+                )
+
         return salida
 
     def _asegurar_fundamentales(self, tickers):
@@ -1727,19 +1749,23 @@ if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato
         partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
     st.warning("⚠️ Float: " + " · ".join(partes_float))
 
-if ES_ADMIN and getattr(servicio, "diagnostico_filtros", None):
-    d = servicio.diagnostico_filtros
-    with st.expander("🔎 Diagnóstico de filtros (prueba)", expanded=True):
-        st.caption("Este panel es temporal y solo informa dónde se reducen los candidatos. No modifica el scanner.")
-        st.markdown(
-            f"**Radar base:** {d.get('radar_base', 0)} → "
-            f"**tras float:** {d.get('tras_float', 0)} → "
-            f"**vol. relativo ≥ {servicio.filtros_dueno.get('vol_rel_min', 1.5):.2f}:** {d.get('tras_vol_rel', 0)} → "
-            f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
-            f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
-            f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
-            f"**resultado final:** {d.get('resultados', 0)}"
-        )
+@st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
+def panel_diagnostico_filtros():
+    if ES_ADMIN and getattr(servicio, "diagnostico_filtros", None):
+        d = servicio.diagnostico_filtros
+        with st.expander("🔎 Diagnóstico de filtros (prueba)", expanded=True):
+            st.caption("Este panel es temporal y solo informa dónde se reducen los candidatos. No modifica el scanner.")
+            st.markdown(
+                f"**Radar base:** {d.get('radar_base', 0)} → "
+                f"**tras float:** {d.get('tras_float', 0)} → "
+                f"**vol. relativo ≥ {servicio.filtros_dueno.get('vol_rel_min', 1.5):.2f}:** {d.get('tras_vol_rel', 0)} → "
+                f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
+                f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
+                f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
+                f"**resultado final:** {d.get('resultados', 0)}"
+            )
+
+panel_diagnostico_filtros()
 
 # ==========================================
 # 🖥️ TABLA DE RESULTADOS (se refresca sola sin recargar la página)
