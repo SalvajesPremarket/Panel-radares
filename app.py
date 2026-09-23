@@ -726,6 +726,17 @@ class ServicioScanner:
         self.float_pendientes = 0
         self.float_sin_dato = 0
 
+        # Diagnóstico temporal del embudo de filtros (visible solo al administrador).
+        self.diagnostico_filtros = {
+            "radar_base": 0,
+            "tras_float": 0,
+            "tras_vol_rel": 0,
+            "ema_arriba": 0,
+            "macd_positivo": 0,
+            "ema_y_macd": 0,
+            "resultados": 0,
+        }
+
         self.tg_msg_id = None
         self.tg_ultimo_hash = None
 
@@ -845,6 +856,15 @@ class ServicioScanner:
             self.auto_motivo = "Scanner reiniciado; esperando el próximo ciclo"
             self.float_pendientes = 0
             self.float_sin_dato = 0
+            self.diagnostico_filtros = {
+                "radar_base": 0,
+                "tras_float": 0,
+                "tras_vol_rel": 0,
+                "ema_arriba": 0,
+                "macd_positivo": 0,
+                "ema_y_macd": 0,
+                "resultados": 0,
+            }
             self.tg_msg_id = None
             self.tg_ultimo_hash = None
             self.eventos = []
@@ -1258,6 +1278,27 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["macd_negativo"] = macd_neg
             c["tiene_noticia"] = c["ticker"] in con_noticia
 
+        # Diagnóstico del embudo: no cambia ningún filtro ni el resultado del scanner.
+        ema_arriba_count = sum(1 for c in enriquecidos if c.get("cruzando_ema20"))
+        macd_positivo_count = sum(1 for c in enriquecidos if c.get("macd_positivo"))
+        ema_y_macd_count = sum(
+            1 for c in enriquecidos
+            if c.get("cruzando_ema20") and c.get("macd_positivo")
+        )
+        tras_vol_rel_count = sum(
+            1 for c in enriquecidos
+            if c.get("volumen_relativo", 0) >= self.filtros_dueno.get("vol_rel_min", 1.5)
+        )
+        self.diagnostico_filtros = {
+            "radar_base": len(base),
+            "tras_float": len(enriquecidos),
+            "tras_vol_rel": tras_vol_rel_count,
+            "ema_arriba": ema_arriba_count,
+            "macd_positivo": macd_positivo_count,
+            "ema_y_macd": ema_y_macd_count,
+            "resultados": len(filtrar_resultados(enriquecidos, self.filtros_dueno)),
+        }
+
         self.resultados = enriquecidos
         self.float_pendientes = sum(
             1 for c in enriquecidos
@@ -1668,6 +1709,20 @@ if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato
     if servicio.float_sin_dato:
         partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
     st.warning("⚠️ Float: " + " · ".join(partes_float))
+
+if ES_ADMIN and getattr(servicio, "diagnostico_filtros", None):
+    d = servicio.diagnostico_filtros
+    with st.expander("🔎 Diagnóstico de filtros (prueba)", expanded=True):
+        st.caption("Este panel es temporal y solo informa dónde se reducen los candidatos. No modifica el scanner.")
+        st.markdown(
+            f"**Radar base:** {d.get('radar_base', 0)} → "
+            f"**tras float:** {d.get('tras_float', 0)} → "
+            f"**vol. relativo ≥ {servicio.filtros_dueno.get('vol_rel_min', 1.5):.2f}:** {d.get('tras_vol_rel', 0)} → "
+            f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
+            f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
+            f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
+            f"**resultado final:** {d.get('resultados', 0)}"
+        )
 
 # ==========================================
 # 🖥️ TABLA DE RESULTADOS (se refresca sola sin recargar la página)
