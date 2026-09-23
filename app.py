@@ -13,12 +13,12 @@ import requests
 import streamlit as st
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+from alpaca.data.timeframe import TimeFrame
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 
-st.set_page_config(page_title="TradeScan", layout="wide")
+st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 # ==========================================
 # 🙈 OCULTAR BARRA SUPERIOR DE STREAMLIT (Share, GitHub, editar, menú, badges)
@@ -72,7 +72,7 @@ PAUSA_MIN_ENTRE_PETICIONES = 0.33      # ~180 peticiones/min a Alpaca (límite: 
 BASE_PRECIO_MIN = 1.0
 BASE_PRECIO_MAX = 50.0
 BASE_GAP_MIN = 3.0
-BASE_GAP_MAX = 5000.0                 # techo técnico amplio; el usuario decide el CHG máx. desde la interfaz
+BASE_GAP_MAX = 1000.0
 BASE_FLOTACION_MAX = 50_000_000
 MAX_ENRIQUECER = 120                   # máx. de tickers a los que se les calcula float / EMA / noticia por ciclo
 
@@ -93,7 +93,6 @@ TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker má
 VENTANA_CRUCE_EMA_MINUTOS = 15
 MARGEN_PROXIMIDAD_EMA = 0.05
 MINUTOS_NOTICIA_RECIENTE = 60
-TTL_PREMARKET_SEGUNDOS = 30          # recalcular volumen PM como máximo cada 30 s durante pre-market
 
 # --- Cuadro "Eventos en vivo" (parte de abajo de la interfaz) ---
 MAX_EVENTOS = 500                      # eventos que guarda el motor en memoria
@@ -115,7 +114,7 @@ VALORES_POR_DEFECTO = {
     "precio_min": 2.0,
     "precio_max": 20.0,
     "gap_min": 5.0,
-    "gap_max": 100.0,
+    "gap_max": 500.0,
     "flotacion_max": 15_000_000,
     "vol_rel_min": 1.5,
     "vol_premarket_min": 0,
@@ -166,7 +165,7 @@ def pantalla_autenticacion():
     <div style="max-width: 460px; margin: 60px auto; background: #11151f;
                 border: 1px solid #2a3348; border-radius: 12px; padding: 40px; text-align: center;">
         <h2 style="color:#FFD700; font-family:sans-serif; margin-bottom:5px;">SISTEMA PROTEGIDO</h2>
-        <p style="color:#8b93a7; font-size:11px; letter-spacing:2px; margin-bottom:20px;">TradeScan</p>
+        <p style="color:#8b93a7; font-size:11px; letter-spacing:2px; margin-bottom:20px;">SCANNER PRE MARKET</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -318,7 +317,7 @@ def filtrar_resultados(filas, p):
             continue
         if macd == "Negativo" and not c["macd_negativo"]:
             continue
-        if c.get("volumen_premarket", 0) < p.get("vol_premarket_min", 0):
+        if c["volumen_dia"] < p.get("vol_premarket_min", 0):
             continue
         resultado.append(c)
 
@@ -343,7 +342,7 @@ def filtrar_eventos(eventos, p):
             continue
         if e["volumen_relativo"] < p["vol_rel_min"]:
             continue
-        if e.get("volumen_premarket", 0) < p.get("vol_premarket_min", 0):
+        if e["volumen_dia"] < p.get("vol_premarket_min", 0):
             continue
         salida.append(e)
     return salida
@@ -390,9 +389,6 @@ class ServicioScanner:
         self._ultimo_precio_evento = {}
 
         self.cache_tecnico = {}
-        self.cache_premarket = {}
-        self.cache_premarket_fecha = None
-        self.cache_premarket_ts = 0.0
         self.cache_fund = self._leer_cache_fundamentales()
         # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
         self.fmp_pausado_hasta = 0.0
@@ -509,92 +505,6 @@ class ServicioScanner:
             for parcial in ex.map(pedir, lotes):
                 snapshots.update(parcial)
         return snapshots
-
-    # ---------- volumen PRE-MARKET real (04:00–09:30 ET) ----------
-    def _volumen_premarket_alpaca(self, tickers):
-        """Suma únicamente las velas de 5 minutos entre 04:00 y 09:30 ET.
-
-        No usa daily_bar.volume, porque ese volumen puede incluir operaciones
-        extendidas y la sesión regular. El resultado se cachea para no pedir
-        cientos de barras cada 10 segundos.
-        """
-        if not tickers:
-            return {}
-
-        ahora_et = datetime.now(ET)
-        fecha = ahora_et.date()
-        inicio_et = datetime.combine(fecha, dt_time(4, 0), tzinfo=ET)
-        apertura_et = datetime.combine(fecha, dt_time(9, 30), tzinfo=ET)
-        if ahora_et < inicio_et:
-            return {t: 0.0 for t in tickers}
-
-        fin_et = min(ahora_et, apertura_et)
-        fecha_cache_nueva = self.cache_premarket_fecha != fecha
-        premarket_terminado = ahora_et >= apertura_et
-        cache_vigente = (
-            not fecha_cache_nueva
-            and time.time() - self.cache_premarket_ts < TTL_PREMARKET_SEGUNDOS
-        )
-
-        faltan = [t for t in tickers if t not in self.cache_premarket]
-        if not fecha_cache_nueva and cache_vigente and not faltan:
-            return {t: self.cache_premarket.get(t, 0.0) for t in tickers}
-
-        if fecha_cache_nueva:
-            self.cache_premarket = {}
-            self.cache_premarket_fecha = fecha
-            faltan = list(tickers)
-        elif not premarket_terminado and cache_vigente and not faltan:
-            return {t: self.cache_premarket.get(t, 0.0) for t in tickers}
-        elif not premarket_terminado and cache_vigente:
-            # Hay símbolos nuevos que aún no están en caché; solo pedimos esos.
-            faltan = list(faltan)
-        elif premarket_terminado:
-            # Después de las 09:30 el volumen PM ya no cambia. Solo completamos
-            # símbolos que no estén en caché.
-            faltan = [t for t in tickers if t not in self.cache_premarket]
-        else:
-            faltan = list(tickers)
-
-        if not faltan:
-            return {t: self.cache_premarket.get(t, 0.0) for t in tickers}
-
-        inicio_utc = inicio_et.astimezone(timezone.utc)
-        fin_utc = fin_et.astimezone(timezone.utc)
-        if fin_utc <= inicio_utc:
-            return {t: 0.0 for t in tickers}
-
-        # 100 símbolos × ~66 velas de 5 min ≈ 6.600 puntos, por debajo
-        # del límite de 10.000 puntos por respuesta de barras.
-        for i in range(0, len(faltan), 100):
-            lote = faltan[i:i + 100]
-            self._esperar_turno()
-            try:
-                solicitud = StockBarsRequest(
-                    symbol_or_symbols=lote,
-                    timeframe=TimeFrame(5, TimeFrameUnit.Minute),
-                    start=inicio_utc,
-                    end=fin_utc,
-                    limit=10000,
-                )
-                barras = self.data.get_stock_bars(solicitud)
-                datos = getattr(barras, "df", None)
-                if datos is None or datos.empty or "volume" not in datos.columns:
-                    continue
-
-                if isinstance(datos.index, pd.MultiIndex):
-                    for ticker, grupo in datos.groupby(level=0):
-                        volumen = pd.to_numeric(grupo["volume"], errors="coerce").fillna(0).sum()
-                        self.cache_premarket[str(ticker)] = float(volumen)
-                elif len(lote) == 1:
-                    volumen = pd.to_numeric(datos["volume"], errors="coerce").fillna(0).sum()
-                    self.cache_premarket[lote[0]] = float(volumen)
-            except Exception as e:
-                self.ultimo_error = f"Volumen pre-market Alpaca: {e}"
-                print(f"⚠️ Error calculando volumen pre-market: {e}")
-
-        self.cache_premarket_ts = time.time()
-        return {t: self.cache_premarket.get(t, 0.0) for t in tickers}
 
     # ---------- float y volumen promedio (FMP + Alpaca; sin Yahoo Finance) ----------
     @staticmethod
@@ -817,7 +727,7 @@ class ServicioScanner:
         try:
             payload = {
                 "chat_id": self.tg_chat,
-                "text": f"⚡️ <b>TradeScan</b>\n<pre>{texto_tabla}</pre>",
+                "text": f"⚡️ <b>SCANNER PRE MARKET</b>\n<pre>{texto_tabla}</pre>",
                 "parse_mode": "HTML",
             }
             cabeceras = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
@@ -844,11 +754,11 @@ class ServicioScanner:
 
     def _escribir_html(self, texto_tabla):
         contenido = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>TradeScan</title>
+<html><head><meta charset="utf-8"><title>SCANNER PRE MARKET</title>
 <meta http-equiv="refresh" content="30">
 <style>body {{ background:#121212; color:#00ffcc; font-family:'Courier New',monospace; padding:20px; }}
 pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #333; color:#fff; }}</style>
-</head><body><h2>TradeScan</h2><pre>{texto_tabla}</pre></body></html>"""
+</head><body><h2>SCANNER PRE MARKET</h2><pre>{texto_tabla}</pre></body></html>"""
         try:
             with open(os.path.join(os.getcwd(), NOMBRE_ARCHIVO_HTML), "w", encoding="utf-8") as f:
                 f.write(contenido)
@@ -873,7 +783,6 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                     "precio": c["precio"],
                     "cambio_pct": c["cambio_pct"],
                     "volumen_dia": c["volumen_dia"],
-                    "volumen_premarket": c.get("volumen_premarket", 0.0),
                     "float_shares": c["float_shares"],
                     "volumen_relativo": c["volumen_relativo"],
                     "tiene_noticia": c["tiene_noticia"],
@@ -922,16 +831,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "actualizado": snap.latest_trade.timestamp,
             })
 
-        # Volumen PM real: se calcula antes de seleccionar los 120 para que
-        # el filtro de pre-market no dependa del volumen total del día.
-        pm = self._volumen_premarket_alpaca([c["ticker"] for c in base])
-        for c in base:
-            c["volumen_premarket"] = pm.get(c["ticker"], 0.0)
-
-        # El radar base admite un rango amplio de CHG y puede priorizar por volumen PM.
-        base = [c for c in base if c["cambio_pct"] <= BASE_GAP_MAX]
         self.n_radar_base = len(base)
-        base.sort(key=lambda c: c["volumen_premarket"], reverse=True)
+        base.sort(key=lambda c: c["volumen_dia"], reverse=True)
         base = base[:MAX_ENRIQUECER]
 
         self._asegurar_fundamentales([c["ticker"] for c in base])
@@ -987,11 +888,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         p.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 10, "orden": "Actualizado"})
         top = filtrar_resultados(enriquecidos, p)
         if top:
-            tabla = f"{'TICK':<5}|{'PRE':>5}|{'CHG%':>4}|{'VOLPM':>6}|{'FLT':>5}\n" + "-" * 28 + "\n"
+            tabla = f"{'TICK':<5}|{'PRE':>5}|{'CHG%':>4}|{'VOL':>5}|{'FLT':>5}\n" + "-" * 28 + "\n"
             for c in top:
                 nombre = f"🔥{c['ticker']}" if c["tiene_noticia"] else c["ticker"]
                 tabla += (f"{nombre:<5}|{c['precio']:>5.2f}|{c['cambio_pct']:>3.0f}%|"
-                          f"{formatear_numero_grande(c.get('volumen_premarket', 0)):>6}|{formatear_numero_grande(c['float_shares']):>5}\n")
+                          f"{formatear_numero_grande(c['volumen_dia']):>5}|{formatear_numero_grande(c['float_shares']):>5}\n")
             self._enviar_telegram(tabla)
             self._escribir_html(tabla)
 
@@ -1027,41 +928,32 @@ servicio = obtener_servicio(
 # ==========================================
 st.markdown("""
 <style>
-/* TradeScan — base visual Finviz */
-:root{
-  --fv-bg:#2f3440;
-  --fv-panel:#343a46;
-  --fv-panel-2:#3a404d;
-  --fv-input:#303641;
-  --fv-border:#4a5260;
-  --fv-border-soft:#3f4652;
-  --fv-text:#d9dde5;
-  --fv-muted:#a6adba;
-  --fv-blue:#4f86c5;
-  --fv-green:#38b878;
-  --fv-red:#df5c65;
-}
-html,body,.stApp,[data-testid="stAppViewContainer"]{
-  background:var(--fv-bg)!important;
-  color:var(--fv-text)!important;
-  font-family:Arial,"Segoe UI",sans-serif!important;
-}
-[data-testid="stHeader"],[data-testid="stSidebar"]{background:var(--fv-bg)!important;}
-[data-testid="stToolbar"],[data-testid="stDecoration"],[data-testid="stStatusWidget"],[data-testid="stMainMenu"],footer,.stAppDeployButton{display:none!important;}
-.block-container{max-width:1600px!important;padding:.22rem .42rem .55rem!important;}
-div[data-testid="stVerticalBlock"]{gap:.10rem!important;}
-div[data-testid="stHorizontalBlock"]{gap:.18rem!important;align-items:stretch!important;}
-div[data-testid="stElementContainer"]{margin:0!important;padding:0!important;}
-div[data-testid="stVerticalBlockBorderWrapper"]{background:var(--fv-panel)!important;border:1px solid var(--fv-border)!important;border-radius:3px!important;padding:.22rem .30rem!important;box-shadow:none!important;}
-label,[data-testid="stWidgetLabel"] p{color:#b8bfca!important;font-size:9px!important;font-weight:600!important;line-height:1!important;margin:0 0 1px!important;}
-div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{background:var(--fv-input)!important;color:#edf0f4!important;border:1px solid #505866!important;border-radius:2px!important;height:25px!important;min-height:25px!important;padding:1px 6px!important;font-size:10px!important;}
-div[data-testid="stSelectbox"] div[data-baseweb="select"]{background:var(--fv-input)!important;border:1px solid #505866!important;border-radius:2px!important;min-height:25px!important;height:25px!important;font-size:10px!important;}
-div[data-testid="stSelectbox"] div[data-baseweb="select"]>div{min-height:23px!important;height:23px!important;padding:1px 6px!important;color:#e8ebef!important;}
-div[data-baseweb="popover"],div[data-baseweb="menu"]{background:#343a46!important;color:#e5e8ed!important;}
-.stButton button{min-height:25px!important;height:25px!important;padding:1px 8px!important;border-radius:2px!important;border:1px solid #505866!important;background:#3b424e!important;color:#e7ebef!important;font-size:9px!important;font-weight:700!important;box-shadow:none!important;}
-.stButton button:hover{background:#48515f!important;border-color:#687384!important;}
-[data-testid="stToggle"] label,[data-testid="stCheckbox"] label{font-size:9px!important;}
-.stCaption,.stCaption p{color:#969eab!important;font-size:9px!important;}
+    .stApp { background-color:#06101f; color:#e8f1ff; }
+    [data-testid="stHeader"], [data-testid="stSidebar"] { background-color:#06101f; }
+    .block-container { max-width:1500px; padding-top:.65rem; padding-bottom:1.5rem; }
+    .dash-header { background:linear-gradient(135deg,#07182d,#0b1d35); border:1px solid #164a7a; border-radius:12px; padding:12px 14px; margin-bottom:12px; overflow:hidden; }
+    .dash-title { font-size:28px; font-weight:800; color:#f5f8ff; margin:0; line-height:1.05; }
+    .dash-sub { color:#6fb6ff; font-size:12px; margin-top:3px; }
+    .dash-pill { display:inline-block; padding:7px 12px; border:1px solid #1b5f95; border-radius:20px; color:#cce8ff; background:#081a30; margin-left:8px; font-size:12px; }
+    .dash-card { background:linear-gradient(180deg,#071a31,#061427); border:1px solid #12518b; border-radius:12px; padding:14px 16px; min-height:230px; }
+    .dash-card-title { color:#f2f7ff; font-size:18px; font-weight:800; margin-bottom:8px; }
+    .dash-card-sub { color:#8db7df; font-size:12px; margin-bottom:10px; }
+    .dash-note { background:#082347; border:1px solid #1a77bd; border-radius:8px; padding:8px 10px; color:#b9dcff; font-size:11px; margin-top:8px; }
+    .admin-status { border-radius:8px; padding:7px 10px; font-weight:700; text-align:center; margin-bottom:7px; }
+    .admin-on { background:#063c2f; color:#42f0b0; border:1px solid #00b894; }
+    .admin-off { background:#43121a; color:#ff7280; border:1px solid #ff3b4d; }
+    .admin-wait { background:#3d3004; color:#ffd84a; border:1px solid #c9a227; }
+    label, [data-testid="stWidgetLabel"] p { color:#cfe6ff !important; font-weight:700 !important; text-transform:none; font-size:11px !important; }
+    div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { background:#081a2d; color:#fff; border:1px solid #18548a !important; }
+    .stButton button { border-radius:8px; font-weight:800; }
+    @media (max-width: 640px) {
+        .block-container { max-width:100% !important; padding-left:.45rem !important; padding-right:.45rem !important; }
+        .simple-card { padding:10px !important; }
+        .simple-title { font-size:14px !important; }
+        .small-note { font-size:10px !important; }
+        div[data-testid="stHorizontalBlock"] { gap:.35rem !important; }
+        div[data-testid="stNumberInput"] input, div[data-testid="stTextInput"] input { font-size:12px !important; }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1090,86 +982,29 @@ COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
 
 st.markdown("""
 <style>
-/* =========================================================
-   TradeScan dashboard — Finviz-like compact layout
-   Solo presentación: no cambia la lógica del scanner.
-   ========================================================= */
-.dash-header{
-  width:100%!important;height:56px!important;box-sizing:border-box!important;
-  padding:0!important;margin:0 0 3px!important;overflow:hidden!important;
-  border:1px solid #4a5260!important;border-radius:3px!important;
-  background:#343a46!important;box-shadow:none!important;
-}
-.dash-header>div:first-child{
-  display:grid!important;grid-template-columns:150px minmax(220px,1fr) 150px!important;
-  width:100%!important;height:100%!important;gap:0!important;
-  align-items:center!important;justify-items:center!important;
-}
-.header-animal{
-  width:100%!important;height:100%!important;display:flex!important;
-  align-items:center!important;justify-content:center!important;overflow:hidden!important;
-  background:transparent!important;border:0!important;
-}
-.header-animal img{
-  display:block!important;width:auto!important;height:auto!important;
-  max-width:100%!important;max-height:100%!important;object-fit:contain!important;
-  object-position:center!important;margin:0 auto!important;border:0!important;box-shadow:none!important;
-  mix-blend-mode:screen!important;
-}
-.dash-header .header-center{
-  width:100%!important;height:100%!important;display:flex!important;
-  flex-direction:column!important;align-items:center!important;justify-content:center!important;
-  text-align:center!important;overflow:visible!important;
-}
-.dash-header .dash-title{
-  color:#eef1f5!important;font-family:Arial,"Segoe UI",sans-serif!important;
-  font-size:18px!important;font-weight:700!important;line-height:1!important;
-  margin:0!important;padding:0!important;white-space:nowrap!important;
-}
-.dash-header .dash-sub{
-  color:#9ca5b2!important;font-size:8px!important;line-height:1.1!important;
-  margin:3px 0 0!important;white-space:nowrap!important;
-}
-.dash-card,.simple-card{
-  background:#343a46!important;border:1px solid #4a5260!important;
-  border-radius:3px!important;box-shadow:none!important;padding:4px 6px!important;
-}
-.dash-card-title,.simple-title{
-  color:#e4e8ee!important;font-size:11px!important;font-weight:700!important;
-  line-height:1.1!important;margin:0 0 2px!important;
-}
-.small-note,.compact-alert{
-  background:#3a404b!important;border:1px solid #4a5260!important;color:#b9c0cb!important;
-  border-radius:2px!important;padding:3px 6px!important;font-size:9px!important;
-  line-height:1.15!important;margin:1px 0 2px!important;
-}
-.compact-alert.info{background:#37424f!important;border-color:#50647a!important;color:#c0d0df!important;}
-.compact-alert.engine{background:#463e35!important;border-color:#6b5b48!important;color:#d8c9b7!important;}
-.scanner-status-row{background:#343a46!important;border:1px solid #4a5260!important;color:#c3cad4!important;border-radius:2px!important;}
-/* tabla de resultados */
-[data-testid="stDataFrame"]{border:1px solid #4a5260!important;border-radius:2px!important;overflow:hidden!important;}
-[data-testid="stDataFrame"] [role="columnheader"]{background:#3b414d!important;color:#e3e7ed!important;font-weight:700!important;font-size:10px!important;}
-[data-testid="stDataFrame"] [role="gridcell"]{font-size:10px!important;}
-/* expander */
-details[data-testid="stExpander"]{background:#343a46!important;border:1px solid #4a5260!important;border-radius:2px!important;}
-details[data-testid="stExpander"] summary{color:#cbd1da!important;font-size:9px!important;font-weight:700!important;}
-/* panel broker */
-iframe{border:1px solid #4a5260!important;border-radius:2px!important;background:#343a46!important;}
+.simple-card{background:linear-gradient(180deg,#071a31,#061427);border:1px solid #12518b;border-radius:9px;padding:8px 10px;margin-bottom:5px;}
+.simple-title{color:#f2f7ff;font-size:14px;font-weight:800;margin-bottom:4px;}
+.simple-status{display:inline-block;padding:3px 7px;border:1px solid #1b5f95;border-radius:18px;color:#cce8ff;background:#081a30;font-size:11px;margin-right:6px;}
+.small-note{background:#082347;border:1px solid #1a77bd;border-radius:8px;padding:8px 10px;color:#b9dcff;font-size:11px;}
+.header-animal{width:100%;height:100%;min-width:0;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;background:transparent;border:0;}
+.header-animal img{display:block;width:auto;height:auto;max-width:96%;max-height:96%;object-fit:contain;object-position:center;border:0;box-shadow:none;mix-blend-mode:screen;margin:0 auto;mask-image:linear-gradient(90deg,transparent 0%,#000 12%,#000 88%,transparent 100%);-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 12%,#000 88%,transparent 100%);}
+.dash-header{width:100%!important;height:82px!important;box-sizing:border-box!important;padding:0!important;margin:0 0 3px!important;border:1px solid rgba(22,74,122,.55)!important;border-radius:6px!important;overflow:hidden!important;background:linear-gradient(135deg,#07182d,#0b1d35)!important;}
+.dash-header > div:first-child{display:grid!important;grid-template-columns:1fr 1.15fr 1fr!important;width:100%!important;height:100%!important;min-height:0!important;gap:0!important;align-items:center!important;justify-items:center!important;}
+.dash-header .header-center{width:100%!important;height:100%!important;min-width:0!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;overflow:visible!important;}
+.dash-header .dash-title{font-size:25px!important;line-height:1!important;font-weight:900!important;color:#f5f8ff!important;margin:0!important;padding:0!important;white-space:nowrap!important;text-align:center!important;}
+.dash-header .dash-sub{font-size:8px!important;line-height:1.1!important;margin:3px 0 0!important;color:#6fb6ff!important;text-align:center!important;white-space:nowrap!important;}
 @media(max-width:900px){
-  .dash-header{height:50px!important;}
-  .dash-header>div:first-child{grid-template-columns:110px minmax(150px,1fr) 110px!important;}
-  .dash-header .dash-title{font-size:16px!important;}
+  .dash-header{height:72px!important;}
+  .header-animal{height:70px!important;}
+  .dash-header .dash-title{font-size:22px!important;}
   .dash-header .dash-sub{font-size:7px!important;}
 }
 @media(max-width:640px){
-  .block-container{padding:.18rem .18rem .4rem!important;}
-  .dash-header{height:44px!important;}
-  .dash-header>div:first-child{grid-template-columns:78px minmax(100px,1fr) 78px!important;}
-  .dash-header .dash-title{font-size:13px!important;}
+  .dash-header{height:58px!important;border-radius:5px!important;}
+  .header-animal{height:56px!important;}
+  .dash-header .dash-title{font-size:16px!important;}
   .dash-header .dash-sub{font-size:6px!important;margin-top:2px!important;}
-  label,[data-testid="stWidgetLabel"] p{font-size:7px!important;}
-  div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{height:22px!important;min-height:22px!important;font-size:9px!important;}
-  div[data-testid="stSelectbox"] div[data-baseweb="select"]{height:22px!important;min-height:22px!important;font-size:9px!important;}
+  .block-container{padding-left:.25rem!important;padding-right:.25rem!important;}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -1179,20 +1014,155 @@ st.markdown(f"""
   <div>
     <div class="header-animal header-bull"><img src="data:image/png;base64,{IMG_TORO_B64}" alt="Toro" /></div>
     <div class="header-center">
-      <div class="dash-title">📈 TradeScan</div>
+      <div class="dash-title">📈 Scanner Pre Market</div>
       <div class="dash-sub">Trading · Análisis · Oportunidades</div>
     </div>
     <div class="header-animal header-bear"><img src="data:image/png;base64,{IMG_OSO_B64}" alt="Oso" /></div>
   </div>
 </div>""", unsafe_allow_html=True)
 
-# Valores iniciales necesarios para el fragmento de resultados.
-REFRESCO = st.session_state.get("f_ref", int(cargar_config()["intervalo_refresco"]))
-AUTO_ON = st.session_state.get("f_auto", True)
+# =========================================================
+# 🧭 PANEL PRINCIPAL — diseño compacto tipo dashboard
+# =========================================================
+# 1) Preferencias + control + conexión en una sola fila.
+# Los colores ya NO ocupan una columna lateral grande.
+with st.container(border=True):
+    st.markdown('<div class="simple-title">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
+    cfg = cargar_config()
+    f1,f2,f3,f4,f5,f6,f7 = st.columns(7, gap="small")
+    with f1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+    with f2: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+    with f3: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
+    with f4: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
+    with f5: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
+    with f6: VOLREL_MIN = st.number_input("Vol. relativo mín.", value=float(cfg["vol_rel_min"]), step=0.1, key="f_vr")
+    with f7: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+    q1,q2,q3,q4,q5,q6 = st.columns(6, gap="small")
+    with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
+    with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
+    with q3: VOL_PM_MIN = st.number_input("Volumen pre market mín.", value=int(cfg["vol_premarket_min"]), min_value=0, step=10_000, key="f_vpm")
+    with q4: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Vol. relativo"], key="f_orden")
+    with q5: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+    with q6: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
 
+params = {
+    "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
+    "flotacion_max": FLOT_MAX, "vol_rel_min": VOLREL_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
+    "vol_premarket_min": VOL_PM_MIN, "orden": ORDEN, "top_n": TOP_N,
+}
+
+# 2) Control del scanner + conexión API/broker
+control_col, broker_col, premium_col = st.columns([1.15, 1.55, 0.72], gap="small")
+with control_col:
+    with st.container(border=True):
+        st.markdown('<div class="simple-title">⚙️ Control del Scanner</div>', unsafe_allow_html=True)
+        if ES_ADMIN:
+            b1,b2 = st.columns(2, gap="small")
+            with b1:
+                if st.button("🟢 ENCENDER", key="encender_scanner_dashboard", use_container_width=True):
+                    servicio.encendido = True
+                    servicio.ultimo_error = None
+                    st.rerun()
+            with b2:
+                if st.button("🔴 APAGAR", key="apagar_scanner_dashboard", use_container_width=True):
+                    servicio.encendido = False
+                    servicio.auto_en_horario = False
+                    st.rerun()
+            st.markdown("**Horario de funcionamiento (ET)**")
+            h1,h2 = st.columns(2, gap="small")
+            with h1:
+                hora_inicio_ui = st.time_input(
+                    "Inicio",
+                    value=dt_time(servicio.hora_inicio_auto_min // 60, servicio.hora_inicio_auto_min % 60),
+                    key="hora_inicio_scanner_dashboard",
+                )
+            with h2:
+                hora_fin_ui = st.time_input(
+                    "Cierre",
+                    value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
+                    key="hora_fin_scanner_dashboard",
+                )
+            if st.button("💾 GUARDAR HORARIO", key="guardar_horario_dashboard", use_container_width=True):
+                servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
+                st.rerun()
+            st.markdown(
+                f'<div class="small-note">Estado: <b>{_estado_txt}</b><br>Horario: <b>{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET</b></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.info("Modo usuario. El encendido/apagado y el horario solo los puede modificar el administrador.")
+
+with broker_col:
+    with st.container(border=True):
+        st.markdown('<div class="simple-title">🔗 Conexión API / Broker <span style="font-size:10px;background:#123d67;border-radius:12px;padding:4px 8px;">Opcional</span></div>', unsafe_allow_html=True)
+        api1,api2,api3 = st.columns(3, gap="small")
+        brokers_ui = ["Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
+        with api1:
+            st.session_state.setdefault("bk_nombre", brokers_ui[0])
+            _idx_b = brokers_ui.index(st.session_state["bk_nombre"]) if st.session_state["bk_nombre"] in brokers_ui else 0
+            st.session_state["bk_nombre"] = st.selectbox("Broker", brokers_ui, index=_idx_b, key="bk_nombre_ui_dashboard")
+        with api2:
+            st.session_state.setdefault("bk_api_key", "")
+            st.session_state["bk_api_key"] = st.text_input("API Key", value=st.session_state.get("bk_api_key", ""), type="password", key="bk_api_key_ui_dashboard")
+        with api3:
+            st.session_state.setdefault("bk_api_secret", "")
+            st.session_state["bk_api_secret"] = st.text_input("Secret Key", value=st.session_state.get("bk_api_secret", ""), type="password", key="bk_api_secret_ui_dashboard")
+        st.session_state.setdefault("bk_puente", "http://127.0.0.1:8765/enviar")
+        st.session_state["bk_puente"] = st.text_input(
+            "Puente / URL para enviar el símbolo al layout del broker",
+            value=st.session_state.get("bk_puente", "http://127.0.0.1:8765/enviar"),
+            key="bk_puente_ui_dashboard",
+        )
+        api_a, api_b = st.columns(2, gap="small")
+        with api_a:
+            st.toggle("Usar API del broker", value=bool(st.session_state.get("bk_api_key")), key="usar_api_broker_dashboard")
+        with api_b:
+            if st.button("🔌 Probar conexión", key="probar_broker_dashboard", use_container_width=True):
+                st.info("La conexión se realizará mediante el puente/webhook configurado.")
+
+with premium_col:
+    with st.container(border=True):
+        st.markdown('<div class="simple-title">🔐 Modalidades</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
+        st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
+
+# 3) Colores: accesibles, pero sin el bloque vertical gigante de la izquierda.
+with st.expander("🎨 Configurar colores y layouts del broker", expanded=False):
+    st.caption("Los colores representan los 10 layouts. Puedes cambiarlos sin ocupar espacio en la tabla principal.")
+    _colores_nuevos = list(st.session_state.get("bk_colores", [bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
+    while len(_colores_nuevos) < len(COLORES_LAYOUT_DEFECTO):
+        _colores_nuevos.append(COLORES_LAYOUT_DEFECTO[len(_colores_nuevos)][1])
+    color_cols = st.columns(5, gap="small")
+    for idx,(nombre,bg,_fg) in enumerate(COLORES_LAYOUT_DEFECTO):
+        with color_cols[idx % 5]:
+            _colores_nuevos[idx] = st.color_picker(
+                f"L{idx+1} · {nombre}",
+                _colores_nuevos[idx],
+                key=f"bk_color_dashboard_{idx}",
+            )
+    st.session_state["bk_colores"] = _colores_nuevos
+
+    st.markdown(
+        '<div class="small-note">⚙️ El enlace 🔗 del panel de layouts permite vincular un activo con su ventana correspondiente del broker mediante puente o webhook.</div>',
+        unsafe_allow_html=True,
+    )
+
+# ==========================================
+# 📊 ESTADO DEL MOTOR
+# ==========================================
+# Un único aviso de float; antes había tres bloques idénticos y se mostraba repetido.
+if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
+    partes_float = []
+    if servicio.float_pendientes:
+        partes_float.append(f"{servicio.float_pendientes} con float pendiente")
+    if servicio.float_sin_dato:
+        partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
+    st.warning("⚠️ Float: " + " · ".join(partes_float))
+
+# ==========================================
 # 🖥️ TABLA DE RESULTADOS (se refresca sola sin recargar la página)
 # ==========================================
-
 def color_cambio(val):
     try:
         v = float(val)
@@ -1200,17 +1170,6 @@ def color_cambio(val):
         return ""
     return f"color: {'#2ecc71' if v >= 0 else '#e74c3c'}; font-weight: 700"
 
-
-def render_alertas_estado():
-    if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
-        partes_float = []
-        if servicio.float_pendientes:
-            partes_float.append(f"{servicio.float_pendientes} pendientes")
-        if servicio.float_sin_dato:
-            partes_float.append(f"{servicio.float_sin_dato} sin dato")
-        st.markdown(f'<div class="compact-alert">⚠️ <b>Float:</b> {" · ".join(partes_float)}</div>', unsafe_allow_html=True)
-    if servicio.ultimo_error:
-        st.markdown(f'<div class="compact-alert engine">⚙️ <b>Motor:</b> {servicio.ultimo_error}</div>', unsafe_allow_html=True)
 
 @st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
 def panel_resultados():
@@ -1226,11 +1185,13 @@ def panel_resultados():
     else:
         st.caption("Esperando el primer escaneo (la primera vez puede tardar un minuto)...")
 
+    if servicio.ultimo_error:
+        st.warning(f"Aviso del motor: {servicio.ultimo_error}")
+
     st.markdown(f"**{len(filas)} resultados** · el motor escanea cada {INTERVALO_ESCANEO_SEGUNDOS}s")
 
     if not filas:
-        st.markdown('<div class="compact-alert info">ℹ️ Sin candidatos que cumplan los filtros en este momento.</div>', unsafe_allow_html=True)
-        render_alertas_estado()
+        st.info("Sin candidatos que cumplan los filtros en este momento.")
         return
 
     df = pd.DataFrame([
@@ -1239,7 +1200,7 @@ def panel_resultados():
             "Ticker": c["ticker"],
             "Precio": round(c["precio"], 2),
             "Cambio %": round(c["cambio_pct"], 1),
-            "Vol. PM": formatear_numero_grande(c.get("volumen_premarket", 0)),
+            "Volumen": formatear_numero_grande(c["volumen_dia"]),
             "Flotación": (
                 formatear_numero_grande(c["float_shares"])
                 if c["float_shares"] is not None
@@ -1257,18 +1218,8 @@ def panel_resultados():
     styled = (
         df.style
         .map(color_cambio, subset=["Cambio %"])
-        .set_properties(**{
-            "background-color": "#343a46",
-            "color": "#d9dde5",
-            "border-color": "#454d59",
-            "font-size": "10px",
-            "font-family": "Arial, Segoe UI, sans-serif",
-        })
-        .set_table_styles([
-            {"selector": "th", "props": [("background-color", "#3b414d"), ("color", "#e4e8ee"), ("font-weight", "700"), ("font-size", "10px"), ("border-color", "#4a5260")]},
-            {"selector": "tbody tr:nth-child(even)", "props": [("background-color", "#303640")]},
-            {"selector": "tbody tr:hover", "props": [("background-color", "#414957")]},
-        ])
+        .set_properties(**{"background-color": "#12151c", "color": "#e6e6e6", "border-color": "#2a2e39"})
+        .set_table_styles([{"selector": "th", "props": [("background-color", "#0e1117"), ("color", "#00ffcc"), ("font-weight", "bold")]}])
     )
     seleccion = st.dataframe(
         styled, use_container_width=True, hide_index=True,
@@ -1278,85 +1229,10 @@ def panel_resultados():
     if filas_sel:
         st.session_state["ticker_activo"] = df.iloc[filas_sel[0]]["Ticker"]
 
-    # Avisos compactos al puro final del cuadro de resultados.
-    render_alertas_estado()
+
+panel_resultados()
 
 
-
-
-
-
-
-# =========================================================
-# 🧭 PANEL PRINCIPAL — dashboard compacto TradeScan
-# =========================================================
-cfg = cargar_config()
-PRECIO_MIN = st.session_state.get("f_pmin", float(cfg["precio_min"]))
-PRECIO_MAX = st.session_state.get("f_pmax", float(cfg["precio_max"]))
-GAP_MIN = st.session_state.get("f_gmin", float(cfg["gap_min"]))
-GAP_MAX = st.session_state.get("f_gmax_v3", float(cfg["gap_max"]))
-FLOT_MAX = st.session_state.get("f_flt", int(cfg["flotacion_max"]))
-VOLREL_MIN = st.session_state.get("f_vr", float(cfg["vol_rel_min"]))
-REFRESCO = st.session_state.get("f_ref", int(cfg["intervalo_refresco"]))
-CRUCE_EMA = st.session_state.get("f_cruce_ema", OPCIONES_CRUCE_EMA[0])
-MACD_MODO = st.session_state.get("f_macd_modo", OPCIONES_MACD[0])
-VOL_PM_MIN = st.session_state.get("f_vpm_v3", int(cfg["vol_premarket_min"]))
-ORDEN = st.session_state.get("f_orden", "Actualizado")
-TOP_N = st.session_state.get("f_top", 10)
-AUTO_ON = st.session_state.get("f_auto", True)
-
-# Panel principal a ancho completo. Se elimina el Log del Motor lateral para evitar
-# que la interfaz quede comprimida y que aparezca un cuadro superpuesto visualmente.
-with st.container():
-    with st.container(border=True):
-        st.markdown('<div class="dash-card-title">⚙️ Configuración del Scanner</div>', unsafe_allow_html=True)
-        r1 = st.columns([1,1,1,1], gap="small")
-        with r1[0]: hora_inicio_ui = st.time_input("Inicio ET", value=dt_time(servicio.hora_inicio_auto_min//60, servicio.hora_inicio_auto_min%60), key="hora_inicio_scanner_dashboard", disabled=not ES_ADMIN)
-        with r1[1]: hora_fin_ui = st.time_input("Cierre ET", value=dt_time(servicio.hora_fin_auto_min//60, servicio.hora_fin_auto_min%60), key="hora_fin_scanner_dashboard", disabled=not ES_ADMIN)
-        with r1[2]: TOP_N = st.number_input("Máx. resultados", value=int(TOP_N), min_value=1, max_value=100, step=1, key="f_top")
-        with r1[3]:
-            if st.button("▶ Iniciar Scanner", key="encender_scanner_dashboard", use_container_width=True, disabled=not ES_ADMIN):
-                servicio.encendido=True; servicio.ultimo_error=None; st.rerun()
-        r2 = st.columns([1,1,1,1], gap="small")
-        with r2[0]: VOL_PM_MIN = st.number_input("Volumen PM mín.", value=int(VOL_PM_MIN), min_value=0, step=100_000, key="f_vpm_v3", help="0 = sin límite")
-        with r2[1]: VOLREL_MIN = st.number_input("Vol. relativo mín.", value=float(VOLREL_MIN), min_value=0.0, step=0.1, key="f_vr")
-        with r2[2]: GAP_MAX = st.number_input("CHG máx. (%)", value=float(GAP_MAX), min_value=0.0, max_value=BASE_GAP_MAX, step=5.0, key="f_gmax_v3")
-        with r2[3]: GAP_MIN = st.number_input("Gap mín. (%)", value=float(GAP_MIN), min_value=0.0, max_value=BASE_GAP_MAX, step=1.0, key="f_gmin")
-        r3 = st.columns([1,1,1,1], gap="small")
-        with r3[0]: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(PRECIO_MIN), step=0.5, key="f_pmin")
-        with r3[1]: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(PRECIO_MAX), step=0.5, key="f_pmax")
-        with r3[2]: FLOT_MAX = st.number_input("Flotación máx.", value=int(FLOT_MAX), step=1_000_000, key="f_flt")
-        with r3[3]: REFRESCO = st.number_input("Refresco (seg)", value=int(REFRESCO), min_value=1, step=1, key="f_ref")
-        r4 = st.columns([1,1,1,1], gap="small")
-        with r4[0]: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=OPCIONES_CRUCE_EMA.index(CRUCE_EMA) if CRUCE_EMA in OPCIONES_CRUCE_EMA else 0, key="f_cruce_ema")
-        with r4[1]: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=OPCIONES_MACD.index(MACD_MODO) if MACD_MODO in OPCIONES_MACD else 0, key="f_macd_modo")
-        with r4[2]: ORDEN = st.selectbox("Ordenar por", ["Actualizado","Cambio %","Vol. relativo"], index=["Actualizado","Cambio %","Vol. relativo"].index(ORDEN) if ORDEN in ["Actualizado","Cambio %","Vol. relativo"] else 0, key="f_orden")
-        with r4[3]: AUTO_ON = st.toggle("Actualización automática", value=bool(AUTO_ON), key="f_auto")
-        if ES_ADMIN:
-            a1,a2,a3=st.columns([1,1,1],gap="small")
-            with a1:
-                if st.button("💾 Guardar horario",key="guardar_horario_compact",use_container_width=True):
-                    servicio.configurar_horario(hora_inicio_ui,hora_fin_ui); st.rerun()
-            with a2:
-                if st.button("🟢 ON",key="admin_on_compact",use_container_width=True): servicio.encendido=True; servicio.ultimo_error=None; st.rerun()
-            with a3:
-                if st.button("🔴 OFF",key="admin_off_compact",use_container_width=True): servicio.encendido=False; servicio.auto_en_horario=False; st.rerun()
-
-    params={"precio_min":PRECIO_MIN,"precio_max":PRECIO_MAX,"gap_min":GAP_MIN,"gap_max":GAP_MAX,"flotacion_max":FLOT_MAX,"vol_rel_min":VOLREL_MIN,"cruce_ema":CRUCE_EMA,"macd":MACD_MODO,"vol_premarket_min":VOL_PM_MIN,"orden":ORDEN,"top_n":TOP_N}
-
-    with st.expander("🔗 Configurar colores y layouts del broker", expanded=False):
-        st.caption("Los colores representan los 10 layouts.")
-        _colores_nuevos=list(st.session_state.get("bk_colores",[bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
-        while len(_colores_nuevos)<len(COLORES_LAYOUT_DEFECTO): _colores_nuevos.append(COLORES_LAYOUT_DEFECTO[len(_colores_nuevos)][1])
-        color_cols=st.columns(5,gap="small")
-        for idx,(nombre,bg,_fg) in enumerate(COLORES_LAYOUT_DEFECTO):
-            with color_cols[idx%5]: _colores_nuevos[idx]=st.color_picker(f"L{idx+1} · {nombre}",_colores_nuevos[idx],key=f"bk_color_dashboard_{idx}")
-        st.session_state["bk_colores"]=_colores_nuevos
-
-    panel_resultados()
-
-
-# ==========================================
 # ==========================================
 # 🔗 PANEL BROKER: 10 activos del scanner ↔ 10 colores ↔ 10 layouts del broker
 # Clic en una fila = envía ese símbolo al layout del color de esa fila.
