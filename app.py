@@ -1104,34 +1104,82 @@ st.markdown("""
 .motor-log{font-family:Consolas,Monaco,monospace;font-size:9px;line-height:1.5;color:#c8d9ec;background:#040b16;border:1px solid #123b60;border-radius:6px;padding:7px;min-height:610px;overflow:hidden;}
 @media(max-width:900px){.motor-log{min-height:0}.scanner-status-row{font-size:9px;gap:5px}.dash-card-title{font-size:13px;}}
 
-/* Encabezado compacto: toro/oso y TradeScan quedan dentro del mismo cuadro */
-.dash-header{padding:0!important;margin:0 0 3px!important;border:1px solid rgba(22,74,122,.55)!important;border-radius:6px!important;overflow:hidden!important;background:linear-gradient(135deg,#07182d,#0b1d35)!important;height:104px!important;}
-.dash-header > div:first-child{display:flex!important;width:100%!important;height:100%!important;gap:0!important;align-items:center!important;justify-content:space-between!important;}
-.header-animal{height:100px!important;width:30%!important;flex:0 0 30%!important;overflow:hidden!important;border:0!important;border-radius:0!important;display:flex!important;align-items:center!important;justify-content:center!important;background:transparent!important;position:relative!important;}
-.header-animal img{width:100%!important;height:100%!important;object-fit:contain!important;object-position:center!important;display:block!important;border:0!important;box-shadow:none!important;mix-blend-mode:screen!important;mask-image:linear-gradient(90deg,transparent 0%,#000 10%,#000 90%,transparent 100%)!important;-webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 10%,#000 90%,transparent 100%)!important;}
-.dash-header .header-center{flex:1 1 40%!important;min-width:0!important;height:100%!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;text-align:center!important;overflow:visible!important;}
-.dash-header .dash-title{font-size:30px!important;line-height:1!important;font-weight:900!important;color:#f5f8ff!important;margin:0!important;white-space:nowrap!important;text-align:center!important;}
-.dash-header .dash-sub{font-size:10px!important;line-height:1.1!important;margin:3px 0 0!important;color:#6fb6ff!important;text-align:center!important;white-space:nowrap!important;}
-/* Separadores y tarjetas más finos/compactos */
-div[data-testid="stVerticalBlock"]{gap:.12rem!important;}
-div[data-testid="stHorizontalBlock"]{gap:.18rem!important;}
+/* Encabezado estable y perfectamente alineado */
+.dash-header{
+  width:100%!important;height:82px!important;box-sizing:border-box!important;
+  padding:0!important;margin:0 0 3px!important;
+  border:1px solid rgba(22,74,122,.55)!important;border-radius:6px!important;
+  overflow:hidden!important;background:linear-gradient(135deg,#07182d,#0b1d35)!important;
+}
+.dash-header > div:first-child{
+  display:grid!important;grid-template-columns:1fr 1.15fr 1fr!important;
+  width:100%!important;height:100%!important;min-height:0!important;
+  gap:0!important;align-items:center!important;justify-items:center!important;
+}
+.header-animal{
+  width:100%!important;height:100%!important;min-width:0!important;min-height:0!important;
+  display:flex!important;align-items:center!important;justify-content:center!important;
+  overflow:hidden!important;background:transparent!important;border:0!important;
+}
+.header-animal img{
+  display:block!important;width:auto!important;height:auto!important;
+  max-width:96%!important;max-height:96%!important;
+  object-fit:contain!important;object-position:center!important;
+  border:0!important;box-shadow:none!important;mix-blend-mode:screen!important;
+  margin:0 auto!important;
+  mask-image:linear-gradient(90deg,transparent 0%,#000 12%,#000 88%,transparent 100%)!important;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 12%,#000 88%,transparent 100%)!important;
+}
+.dash-header .header-center{
+  width:100%!important;height:100%!important;min-width:0!important;
+  display:flex!important;flex-direction:column!important;align-items:center!important;
+  justify-content:center!important;text-align:center!important;overflow:visible!important;
+}
+.dash-header .dash-title{
+  font-size:25px!important;line-height:1!important;font-weight:900!important;
+  color:#f5f8ff!important;margin:0!important;padding:0!important;
+  white-space:nowrap!important;text-align:center!important;
+}
+.dash-header .dash-sub{
+  font-size:8px!important;line-height:1.1!important;margin:3px 0 0!important;
+  color:#6fb6ff!important;text-align:center!important;white-space:nowrap!important;
+}
+/* Cuadros horizontales finos, uniformes y sin espacios sobrantes */
+div[data-testid="stVerticalBlock"]{gap:.08rem!important;}
+div[data-testid="stHorizontalBlock"]{gap:.14rem!important;align-items:stretch!important;}
 div[data-testid="stElementContainer"]{margin-bottom:0!important;padding-bottom:0!important;}
-div[data-testid="stVerticalBlockBorderWrapper"]{padding:.10rem .25rem!important;border-width:1px!important;border-radius:6px!important;}
-.dash-card{padding:4px 6px!important;border-width:1px!important;border-radius:6px!important;}
-.dash-card-title{font-size:12px!important;margin-bottom:2px!important;}
-label,[data-testid="stWidgetLabel"] p{font-size:9px!important;line-height:1!important;margin-bottom:1px!important;}
-div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{height:27px!important;min-height:27px!important;padding:2px 7px!important;font-size:11px!important;}
-div[data-testid="stSelectbox"] div[data-baseweb="select"]{min-height:27px!important;height:27px!important;font-size:11px!important;}
-div[data-testid="stSelectbox"] div[data-baseweb="select"] > div{min-height:27px!important;height:27px!important;padding-top:2px!important;padding-bottom:2px!important;}
-.stButton button{min-height:27px!important;height:27px!important;padding:2px 8px!important;font-size:10px!important;border-radius:5px!important;}
-[data-testid="stCheckbox"] label,[data-testid="stToggle"] label{font-size:9px!important;}
+div[data-testid="stVerticalBlockBorderWrapper"]{padding:.08rem .22rem!important;border-width:1px!important;border-radius:5px!important;}
+.dash-card{padding:3px 5px!important;border-width:1px!important;border-radius:5px!important;}
+.dash-card-title{font-size:11px!important;margin:0 0 1px!important;line-height:1.1!important;}
+label,[data-testid="stWidgetLabel"] p{font-size:8px!important;line-height:1!important;margin:0 0 1px!important;}
+div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{height:25px!important;min-height:25px!important;padding:1px 6px!important;font-size:10px!important;}
+div[data-testid="stSelectbox"] div[data-baseweb="select"]{min-height:25px!important;height:25px!important;font-size:10px!important;}
+div[data-testid="stSelectbox"] div[data-baseweb="select"] > div{min-height:25px!important;height:25px!important;padding-top:1px!important;padding-bottom:1px!important;}
+.stButton button{min-height:25px!important;height:25px!important;padding:1px 7px!important;font-size:9px!important;border-radius:4px!important;}
+[data-testid="stCheckbox"] label,[data-testid="stToggle"] label{font-size:8px!important;}
 .scanner-status-row{display:none!important;}
-.compact-alert{padding:2px 5px!important;margin:1px 0 2px!important;font-size:8px!important;line-height:1.1!important;border-width:1px!important;}
-.simple-card{padding:4px 6px!important;margin-bottom:2px!important;border-width:1px!important;}
-.simple-title{font-size:11px!important;margin-bottom:1px!important;}
-.small-note{padding:3px 5px!important;font-size:9px!important;}
-@media(max-width:900px){.dash-header{height:82px!important;}.header-animal{height:78px!important;width:29%!important;flex-basis:29%!important;}.dash-header .dash-title{font-size:23px!important;}.dash-header .dash-sub{font-size:8px!important;}.dash-card-title{font-size:11px!important;}}
-@media(max-width:640px){.dash-header{height:62px!important;border-radius:5px!important;}.header-animal{height:58px!important;width:28%!important;flex-basis:28%!important;}.dash-header .dash-title{font-size:16px!important;}.dash-header .dash-sub{font-size:6px!important;margin-top:2px!important;}.block-container{padding-left:.3rem!important;padding-right:.3rem!important;}.dash-card-title{font-size:10px!important;}label,[data-testid="stWidgetLabel"] p{font-size:8px!important;}div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{font-size:10px!important;height:25px!important;min-height:25px!important;}div[data-testid="stSelectbox"] div[data-baseweb="select"]{height:25px!important;min-height:25px!important;font-size:10px!important;}}
+.compact-alert{padding:2px 5px!important;margin:1px 0 2px!important;font-size:8px!important;line-height:1.05!important;border-width:1px!important;}
+.simple-card{padding:3px 5px!important;margin-bottom:1px!important;border-width:1px!important;}
+.simple-title{font-size:10px!important;margin-bottom:1px!important;}
+.small-note{padding:2px 4px!important;font-size:8px!important;}
+@media(max-width:900px){
+  .dash-header{height:72px!important;}
+  .header-animal{height:70px!important;}
+  .dash-header .dash-title{font-size:22px!important;}
+  .dash-header .dash-sub{font-size:7px!important;}
+  .dash-card-title{font-size:10px!important;}
+}
+@media(max-width:640px){
+  .dash-header{height:58px!important;border-radius:5px!important;}
+  .header-animal{height:56px!important;}
+  .dash-header .dash-title{font-size:16px!important;}
+  .dash-header .dash-sub{font-size:6px!important;margin-top:2px!important;}
+  .block-container{padding-left:.25rem!important;padding-right:.25rem!important;}
+  .dash-card-title{font-size:9px!important;}
+  label,[data-testid="stWidgetLabel"] p{font-size:7px!important;}
+  div[data-testid="stNumberInput"] input,div[data-testid="stTextInput"] input{font-size:9px!important;height:23px!important;min-height:23px!important;}
+  div[data-testid="stSelectbox"] div[data-baseweb="select"]{height:23px!important;min-height:23px!important;font-size:9px!important;}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -1261,7 +1309,7 @@ AUTO_ON = st.session_state.get("f_auto", True)
 with st.container():
     with st.container(border=True):
         st.markdown('<div class="dash-card-title">⚙️ Configuración del Scanner</div>', unsafe_allow_html=True)
-        r1 = st.columns([1,1,1,.78], gap="small")
+        r1 = st.columns([1,1,1,1], gap="small")
         with r1[0]: hora_inicio_ui = st.time_input("Inicio ET", value=dt_time(servicio.hora_inicio_auto_min//60, servicio.hora_inicio_auto_min%60), key="hora_inicio_scanner_dashboard", disabled=not ES_ADMIN)
         with r1[1]: hora_fin_ui = st.time_input("Cierre ET", value=dt_time(servicio.hora_fin_auto_min//60, servicio.hora_fin_auto_min%60), key="hora_fin_scanner_dashboard", disabled=not ES_ADMIN)
         with r1[2]: TOP_N = st.number_input("Máx. resultados", value=int(TOP_N), min_value=1, max_value=100, step=1, key="f_top")
@@ -1284,7 +1332,7 @@ with st.container():
         with r4[2]: ORDEN = st.selectbox("Ordenar por", ["Actualizado","Cambio %","Vol. relativo"], index=["Actualizado","Cambio %","Vol. relativo"].index(ORDEN) if ORDEN in ["Actualizado","Cambio %","Vol. relativo"] else 0, key="f_orden")
         with r4[3]: AUTO_ON = st.toggle("Actualización automática", value=bool(AUTO_ON), key="f_auto")
         if ES_ADMIN:
-            a1,a2,a3=st.columns([1,.5,.5],gap="small")
+            a1,a2,a3=st.columns([1,1,1],gap="small")
             with a1:
                 if st.button("💾 Guardar horario",key="guardar_horario_compact",use_container_width=True):
                     servicio.configurar_horario(hora_inicio_ui,hora_fin_ui); st.rerun()
