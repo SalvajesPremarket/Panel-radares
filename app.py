@@ -91,7 +91,7 @@ HORA_AUTO_FIN_ET = 16
 TTL_CALENDARIO_MERCADO = 12 * 3600
 
 TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker más seguido que esto
-VENTANA_CRUCE_EMA_MINUTOS = 15
+VENTANA_CRUCE_EMA_MINUTOS = 1
 MARGEN_PROXIMIDAD_EMA = 0.05
 MINUTOS_NOTICIA_RECIENTE = 60
 
@@ -582,7 +582,7 @@ def evaluar_tecnico(cierres):
 
     cruzo_arriba = False
     cruzo_abajo = False
-    for i in range(-VENTANA_CRUCE_EMA_MINUTOS, -1):
+    for i in range(-VENTANA_CRUCE_EMA_MINUTOS, 0):
         if cierres.iloc[i - 1] <= ema20.iloc[i - 1] and cierres.iloc[i] > ema20.iloc[i]:
             cruzo_arriba = True
         if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
