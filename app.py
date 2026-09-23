@@ -120,6 +120,13 @@ VALORES_POR_DEFECTO = {
     "vol_rel_min": 1.5,
     "vol_premarket_min": 0,
     "intervalo_refresco": 5,
+    # Valores técnicos usados por el motor compartido/diagnóstico.
+    # Antes faltaban aquí y filtrar_resultados() podía lanzar KeyError
+    # con self.filtros_dueno, abortando el ciclo antes de publicar el diagnóstico.
+    "cruce_ema": "Hacia arriba",
+    "macd": "Positivo",
+    "orden": "Actualizado",
+    "top_n": 10,
 }
 
 
@@ -671,7 +678,13 @@ def filtrar_resultados(filas, p):
         "Vol. relativo": lambda x: x["volumen_relativo"],
     }
     resultado.sort(key=claves.get(p.get("orden", "Actualizado"), claves["Actualizado"]), reverse=True)
-    return resultado[: int(p["top_n"])]
+    # Tolerante a configuraciones antiguas sin top_n. Esto evita que una
+    # ausencia de esa clave aborte el ciclo completo del scanner.
+    try:
+        limite = max(1, int(p.get("top_n", 10)))
+    except (TypeError, ValueError):
+        limite = 10
+    return resultado[:limite]
 
 
 def filtrar_eventos(eventos, p):
@@ -1239,7 +1252,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "actualizado": snap.latest_trade.timestamp,
             })
 
-        self.n_radar_base = len(base)
+        # Conservar el total real del radar para la interfaz/diagnóstico.
+        # Después se limita el enriquecimiento a MAX_ENRIQUECER para no saturar
+        # las APIs, pero eso no debe convertir 532 candidatos en "0" ni en 120.
+        radar_base_total = len(base)
+        self.n_radar_base = radar_base_total
         base.sort(key=lambda c: c["volumen_dia"], reverse=True)
         base = base[:MAX_ENRIQUECER]
 
@@ -1290,7 +1307,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if c.get("volumen_relativo", 0) >= self.filtros_dueno.get("vol_rel_min", 1.5)
         )
         self.diagnostico_filtros = {
-            "radar_base": len(base),
+            "radar_base": radar_base_total,
             "tras_float": len(enriquecidos),
             "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
