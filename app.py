@@ -814,6 +814,31 @@ class ServicioScanner:
         self.hora_fin_auto_min = fin.hour * 60 + fin.minute
         self.auto_motivo = "Horario automático actualizado; esperando el próximo ciclo"
 
+    def reiniciar_scanner(self):
+        """Reinicia el estado operativo del scanner sin recrear el hilo compartido.
+
+        No modifica credenciales ni filtros administrativos. Limpia resultados y
+        caches transitorios para que el siguiente ciclo vuelva a construir el radar.
+        """
+        self.encendido = True
+        self.auto_en_horario = False
+        self.auto_motivo = "Scanner reiniciado; esperando el próximo ciclo"
+        self.resultados = []
+        self.ultima_actualizacion = None
+        self.duracion_ciclo = None
+        self.ultimo_error = None
+        self.n_radar_base = 0
+        self.eventos = []
+        self._ultimo_precio_evento = {}
+        self.cache_tecnico = {}
+        self.fmp_pausado_hasta = 0.0
+        self.universo = []
+        self.universo_ts = 0.0
+        self.float_pendientes = 0
+        self.float_sin_dato = 0
+        self.tg_msg_id = None
+        self.tg_ultimo_hash = None
+
     # ---------- universo ----------
     def _cargar_universo(self):
         try:
@@ -1525,6 +1550,10 @@ with control_col:
                     servicio.encendido = False
                     servicio.auto_en_horario = False
                     st.rerun()
+            if st.button("🔄 REINICIAR SCANNER", key="reiniciar_scanner_dashboard", use_container_width=True):
+                servicio.reiniciar_scanner()
+                st.success("Scanner reiniciado. El motor reconstruirá el radar en el próximo ciclo.")
+                st.rerun()
             st.markdown("**Horario de funcionamiento (ET)**")
             h1,h2 = st.columns(2, gap="small")
             with h1:
