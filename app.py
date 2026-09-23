@@ -740,6 +740,9 @@ class ServicioScanner:
         self._lock_ritmo = threading.Lock()
         self._ultima_peticion = 0.0
 
+        # Control del hilo para permitir un reinicio limpio desde el panel de administrador.
+        self._detener_hilo = threading.Event()
+        self._lock_reinicio = threading.Lock()
         self._hilo = threading.Thread(target=self._bucle, daemon=True)
         self._hilo.start()
 
@@ -815,29 +818,45 @@ class ServicioScanner:
         self.auto_motivo = "Horario automático actualizado; esperando el próximo ciclo"
 
     def reiniciar_scanner(self):
-        """Reinicia el estado operativo del scanner sin recrear el hilo compartido.
+        """Reinicia de forma segura el motor compartido del scanner.
 
-        No modifica credenciales ni filtros administrativos. Limpia resultados y
-        caches transitorios para que el siguiente ciclo vuelva a construir el radar.
+        Detiene el hilo anterior, limpia el estado de resultados/cachés de trabajo
+        y crea un único hilo nuevo. No modifica las credenciales ni el horario.
         """
-        self.encendido = True
-        self.auto_en_horario = False
-        self.auto_motivo = "Scanner reiniciado; esperando el próximo ciclo"
-        self.resultados = []
-        self.ultima_actualizacion = None
-        self.duracion_ciclo = None
-        self.ultimo_error = None
-        self.n_radar_base = 0
-        self.eventos = []
-        self._ultimo_precio_evento = {}
-        self.cache_tecnico = {}
-        self.fmp_pausado_hasta = 0.0
-        self.universo = []
-        self.universo_ts = 0.0
-        self.float_pendientes = 0
-        self.float_sin_dato = 0
-        self.tg_msg_id = None
-        self.tg_ultimo_hash = None
+        with self._lock_reinicio:
+            hilo_anterior = self._hilo
+            self._detener_hilo.set()
+
+            # Espera brevemente a que el hilo anterior termine su ciclo actual.
+            if hilo_anterior is not None and hilo_anterior.is_alive() and hilo_anterior is not threading.current_thread():
+                hilo_anterior.join(timeout=max(2.0, INTERVALO_ESCANEO_SEGUNDOS + 1.0))
+
+            # Limpia únicamente el estado operativo que puede quedar obsoleto.
+            self.resultados = []
+            self.ultima_actualizacion = None
+            self.duracion_ciclo = None
+            self.ultimo_error = None
+            self.n_radar_base = 0
+            self.universo = []
+            self.universo_ts = 0.0
+            self.calendario_ts = 0.0
+            self.dias_mercado_cache = set()
+            self.auto_en_horario = False
+            self.auto_motivo = "Scanner reiniciado; esperando el próximo ciclo"
+            self.float_pendientes = 0
+            self.float_sin_dato = 0
+            self.tg_msg_id = None
+            self.tg_ultimo_hash = None
+            self.eventos = []
+            self._ultimo_precio_evento = {}
+            self.cache_tecnico = {}
+            self.fmp_pausado_hasta = 0.0
+            self._ultima_peticion = 0.0
+
+            # Nuevo hilo único. Las credenciales y la configuración permanecen intactas.
+            self._detener_hilo.clear()
+            self._hilo = threading.Thread(target=self._bucle, daemon=True)
+            self._hilo.start()
 
     # ---------- universo ----------
     def _cargar_universo(self):
@@ -1266,7 +1285,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             self._escribir_html(tabla)
 
     def _bucle(self):
-        while True:
+        while not self._detener_hilo.is_set():
             inicio = time.monotonic()
             try:
                 en_horario = self._esta_en_horario_automatico()
@@ -1275,7 +1294,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             except Exception as e:
                 self.ultimo_error = f"Ciclo: {e}"
                 print(f"⚠️ Error en escaneo: {e}")
-            time.sleep(max(1.0, INTERVALO_ESCANEO_SEGUNDOS - (time.monotonic() - inicio)))
+            espera = max(1.0, INTERVALO_ESCANEO_SEGUNDOS - (time.monotonic() - inicio))
+            # Event.wait permite interrumpir el descanso inmediatamente al reiniciar.
+            self._detener_hilo.wait(timeout=espera)
 
 
 @st.cache_resource
@@ -1552,7 +1573,7 @@ with control_col:
                     st.rerun()
             if st.button("🔄 REINICIAR SCANNER", key="reiniciar_scanner_dashboard", use_container_width=True):
                 servicio.reiniciar_scanner()
-                st.success("Scanner reiniciado. El motor reconstruirá el radar en el próximo ciclo.")
+                st.success("Scanner reiniciado. El motor fue reconstruido correctamente.")
                 st.rerun()
             st.markdown("**Horario de funcionamiento (ET)**")
             h1,h2 = st.columns(2, gap="small")
