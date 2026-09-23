@@ -114,7 +114,7 @@ RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
 VALORES_POR_DEFECTO = {
     "precio_min": 0.5,
     "precio_max": 20.0,
-    "gap_min": 5.0,
+    "gap_min": 3.0,
     "gap_max": 500.0,
     "flotacion_max": 15_000_000,
     "volumen_min": 15_000,
@@ -606,11 +606,14 @@ def descargar_cierres(data_client, tickers):
     if not tickers:
         return salida
 
-    for i in range(0, len(tickers), 120):
-        lote = tickers[i:i + 120]
+    # Lotes pequeños para evitar respuestas demasiado grandes de Alpaca.
+    # Solo necesitamos suficientes velas recientes para EMA20/MACD.
+    for i in range(0, len(tickers), 25):
+        lote = tickers[i:i + 25]
         try:
-            inicio = datetime.now(timezone.utc) - timedelta(days=2)
+            inicio = datetime.now(timezone.utc) - timedelta(days=1)
             fin = datetime.now(timezone.utc)
+            time.sleep(PAUSA_MIN_ENTRE_PETICIONES)
             solicitud = StockBarsRequest(
                 symbol_or_symbols=lote,
                 timeframe=TimeFrame.Minute,
@@ -1542,8 +1545,8 @@ with st.container(border=True):
     f1,f2,f3,f4,f5,f6,f7 = st.columns(7, gap="small")
     with f1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
     with f2: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-    with f3: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
-    with f4: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
+    with f3: GAP_MIN = st.number_input("Subida mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
+    with f4: GAP_MAX = st.number_input("Subida máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
     with f5: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
     with f6: VOLUMEN_MIN = st.number_input("Volumen mín. (títulos)", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
     with f7: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
