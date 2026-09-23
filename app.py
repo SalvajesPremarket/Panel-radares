@@ -117,7 +117,7 @@ VALORES_POR_DEFECTO = {
     "gap_min": 5.0,
     "gap_max": 500.0,
     "flotacion_max": 15_000_000,
-    "vol_rel_min": 1.5,
+    "volumen_min": 15_000,
     "intervalo_refresco": 5,
     # Valores técnicos usados por el motor compartido/diagnóstico.
     # Antes faltaban aquí y filtrar_resultados() podía lanzar KeyError
@@ -655,7 +655,7 @@ def filtrar_resultados(filas, p):
             continue
         if c["float_shares"] is not None and c["float_shares"] >= p["flotacion_max"]:
             continue
-        if c["volumen_relativo"] < p["vol_rel_min"]:
+        if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
             continue
         cruce = p.get("cruce_ema", "Neutro")
         if cruce == "Hacia arriba" and not c["cruzando_ema20"]:
@@ -672,7 +672,7 @@ def filtrar_resultados(filas, p):
     claves = {
         "Actualizado": lambda x: x["actualizado"],
         "Cambio %": lambda x: x["cambio_pct"],
-        "Vol. relativo": lambda x: x["volumen_relativo"],
+        "Volumen": lambda x: x["volumen_dia"],
     }
     resultado.sort(key=claves.get(p.get("orden", "Actualizado"), claves["Actualizado"]), reverse=True)
     # Tolerante a configuraciones antiguas sin top_n. Esto evita que una
@@ -694,7 +694,7 @@ def filtrar_eventos(eventos, p):
             continue
         if e["float_shares"] is not None and e["float_shares"] >= p["flotacion_max"]:
             continue
-        if e["volumen_relativo"] < p["vol_rel_min"]:
+        if e.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
             continue
         salida.append(e)
     return salida
@@ -1013,60 +1013,6 @@ class ServicioScanner:
             print(f"⚠️ FMP float {ticker}: {e}")
             return None
 
-    def _promedios_volumen_alpaca(self, tickers):
-        """Calcula volumen diario medio reciente con Alpaca en lotes pequeños."""
-        salida = {}
-        if not tickers:
-            return salida
-
-        inicio = datetime.now(timezone.utc) - timedelta(days=45)
-        fin = datetime.now(timezone.utc)
-
-        # Evita enviar una petición enorme a Alpaca. Procesamos lotes pequeños
-        # y dejamos una pausa mínima entre ellos para reducir errores/transitorios.
-        TAMANO_LOTE_VOL = 20
-        for pos in range(0, len(tickers), TAMANO_LOTE_VOL):
-            lote = list(tickers[pos:pos + TAMANO_LOTE_VOL])
-            try:
-                self._esperar_turno()
-
-                solicitud = StockBarsRequest(
-                    symbol_or_symbols=lote,
-                    timeframe=TimeFrame.Day,
-                    start=inicio,
-                    end=fin,
-                )
-                barras = self.data.get_stock_bars(solicitud)
-                datos = getattr(barras, "df", None)
-
-                if datos is None or datos.empty or "volume" not in datos.columns:
-                    print(f"⚠️ Alpaca sin barras de volumen para lote de {len(lote)} símbolos.")
-                    continue
-
-                if isinstance(datos.index, pd.MultiIndex):
-                    for ticker, grupo in datos.groupby(level=0):
-                        vols = pd.to_numeric(
-                            grupo["volume"], errors="coerce"
-                        ).dropna()
-                        if not vols.empty:
-                            salida[str(ticker)] = float(vols.tail(20).mean())
-                else:
-                    # Caso de un único símbolo.
-                    if len(lote) == 1:
-                        vols = pd.to_numeric(
-                            datos["volume"], errors="coerce"
-                        ).dropna()
-                        if not vols.empty:
-                            salida[str(lote[0])] = float(vols.tail(20).mean())
-
-            except Exception as e:
-                print(
-                    f"⚠️ Error calculando volumen promedio con Alpaca "
-                    f"(lote {pos + 1}-{pos + len(lote)}): {e}"
-                )
-
-        return salida
-
     def _asegurar_fundamentales(self, tickers):
         ahora = time.time()
         faltan = []
@@ -1086,14 +1032,9 @@ class ServicioScanner:
         if not faltan:
             return
 
-        # El volumen relativo también deja de depender de Yahoo Finance.
-        promedios_volumen = self._promedios_volumen_alpaca(faltan)
-
         def pedir(t):
             # FMP es la única fuente de FLOAT.
             float_fmp = self._float_fmp(t)
-            avgvol = promedios_volumen.get(t)
-
             float_final = float_fmp
             try:
                 if float_final is not None:
@@ -1108,7 +1049,6 @@ class ServicioScanner:
 
             return t, {
                 "float": float_final,
-                "avgvol": avgvol,
                 "float_source": fuente,
                 "float_status": estado,
                 "ts": time.time(),
@@ -1283,10 +1223,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         for c in base:
             entrada = self.cache_fund.get(c["ticker"], {})
             float_shares = entrada.get("float")
-            avgvol = entrada.get("avgvol")
-
             # Un ticker sin float NO se descarta.
             if float_shares is not None and float_shares >= BASE_FLOTACION_MAX:
+                continue
+            # Volumen = títulos negociados durante la sesión actual.
+            # Ya no se calcula ni se consulta "volumen premarket" ni promedio externo.
+            if c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
                 continue
 
             c["float_shares"] = float_shares
@@ -1295,9 +1237,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "pending" if not entrada else "no_data"
             )
             c["float_source"] = entrada.get("float_source", "")
-            c["volumen_relativo"] = (
-                c["volumen_dia"] / avgvol if avgvol and avgvol > 0 else 0.0
-            )
+            # El porcentaje de subida se representa directamente con cambio_pct.
+            c["volumen_relativo"] = c["cambio_pct"]
             enriquecidos.append(c)
 
         tickers_enr = [c["ticker"] for c in enriquecidos]
@@ -1321,7 +1262,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         )
         tras_vol_rel_count = sum(
             1 for c in enriquecidos
-            if c.get("volumen_relativo", 0) >= self.filtros_dueno.get("vol_rel_min", 1.5)
+            if c.get("volumen_dia", 0) >= self.filtros_dueno.get("volumen_min", 15_000)
         )
         self.diagnostico_filtros = {
             "radar_base": radar_base_total,
@@ -1604,18 +1545,18 @@ with st.container(border=True):
     with f3: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
     with f4: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
     with f5: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
-    with f6: VOLREL_MIN = st.number_input("Vol. relativo mín.", value=float(cfg["vol_rel_min"]), step=0.1, key="f_vr")
+    with f6: VOLUMEN_MIN = st.number_input("Volumen mín. (títulos)", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
     with f7: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
     q1,q2,q3,q4,q5,q6 = st.columns(6, gap="small")
     with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
     with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
-    with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Vol. relativo"], key="f_orden")
+    with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
     with q4: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
     with q5: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
 
 params = {
     "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
-    "flotacion_max": FLOT_MAX, "vol_rel_min": VOLREL_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
+    "flotacion_max": FLOT_MAX, "volumen_min": VOLUMEN_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
     "orden": ORDEN, "top_n": TOP_N,
 }
 
@@ -1752,7 +1693,7 @@ def panel_diagnostico_filtros():
             st.markdown(
                 f"**Radar base:** {d.get('radar_base', 0)} → "
                 f"**tras float:** {d.get('tras_float', 0)} → "
-                f"**vol. relativo ≥ {servicio.filtros_dueno.get('vol_rel_min', 1.5):.2f}:** {d.get('tras_vol_rel', 0)} → "
+                f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 15_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
                 f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
                 f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
                 f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
@@ -1781,7 +1722,7 @@ def panel_resultados():
                    f" · ciclo {servicio.duracion_ciclo:.1f}s"
                    f" · {len(servicio.universo)} tickers vigilados"
                    f" · {servicio.n_radar_base} en el radar base"
-                   f" (precio ${BASE_PRECIO_MIN:.0f}-${BASE_PRECIO_MAX:.0f}, gap ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)})")
+                   f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 15_000))})")
         st.caption(detalle)
     else:
         st.caption("Esperando el primer escaneo (la primera vez puede tardar un minuto)...")
@@ -1807,7 +1748,6 @@ def panel_resultados():
                 if c["float_shares"] is not None
                 else ("Pendiente" if c.get("float_status") == "pending" else "Sin dato")
             ),
-            "Vol. Relativo": round(c["volumen_relativo"], 2),
             "EMA20": "✅" if c["cruzando_ema20"] else ("🔻" if c.get("cruzando_ema20_abajo") else ""),
             "MACD": "✅" if c["macd_positivo"] else ("🔻" if c.get("macd_negativo") else ""),
             "Noticia": "🔥" if c["tiene_noticia"] else "",
