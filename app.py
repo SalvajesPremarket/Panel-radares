@@ -278,8 +278,20 @@ def cerrar_sesion():
         "token_verificado",
         "fecha_vencimiento",
         "tipo_acceso",
+        # No dejar credenciales/configuración del broker en una sesión
+        # que pueda ser reutilizada por otro usuario.
+        "bk_api_key",
+        "bk_api_secret",
+        "bk_nombre",
+        "bk_puente",
+        "bk_cargado",
+        "_bk_guardado",
+        "bk_colores",
+        "usar_api_broker_dashboard",
     ):
         st.session_state.pop(clave, None)
+    for _i in range(len(COLORES_LAYOUT_DEFECTO)):
+        st.session_state.pop(f"bk_wh_{_i}", None)
 
 
 def _guardar_usuario_auth(data, tipo="usuario"):
@@ -1488,7 +1500,16 @@ params = {
 }
 
 # 2) Control del scanner + conexión API/broker
-control_col, broker_col, premium_col = st.columns([1.15, 1.55, 0.72], gap="small")
+# Los controles internos de operación y las credenciales del broker
+# solo se muestran al administrador. El usuario mantiene únicamente
+# el acceso al scanner y sus filtros de búsqueda.
+if ES_ADMIN:
+    control_col, broker_col, premium_col = st.columns([1.15, 1.55, 0.72], gap="small")
+else:
+    control_col = st.container()
+    broker_col = None
+    premium_col = None
+
 with control_col:
     with st.container(border=True):
         st.markdown('<div class="simple-title">⚙️ Control del Scanner</div>', unsafe_allow_html=True)
@@ -1528,61 +1549,63 @@ with control_col:
         else:
             st.info("Modo usuario. El encendido/apagado y el horario solo los puede modificar el administrador.")
 
-with broker_col:
-    with st.container(border=True):
-        st.markdown('<div class="simple-title">🔗 Conexión API / Broker <span style="font-size:10px;background:#123d67;border-radius:12px;padding:4px 8px;">Opcional</span></div>', unsafe_allow_html=True)
-        api1,api2,api3 = st.columns(3, gap="small")
-        brokers_ui = ["Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
-        with api1:
-            st.session_state.setdefault("bk_nombre", brokers_ui[0])
-            _idx_b = brokers_ui.index(st.session_state["bk_nombre"]) if st.session_state["bk_nombre"] in brokers_ui else 0
-            st.session_state["bk_nombre"] = st.selectbox("Broker", brokers_ui, index=_idx_b, key="bk_nombre_ui_dashboard")
-        with api2:
-            st.session_state.setdefault("bk_api_key", "")
-            st.session_state["bk_api_key"] = st.text_input("API Key", value=st.session_state.get("bk_api_key", ""), type="password", key="bk_api_key_ui_dashboard")
-        with api3:
-            st.session_state.setdefault("bk_api_secret", "")
-            st.session_state["bk_api_secret"] = st.text_input("Secret Key", value=st.session_state.get("bk_api_secret", ""), type="password", key="bk_api_secret_ui_dashboard")
-        st.session_state.setdefault("bk_puente", "http://127.0.0.1:8765/enviar")
-        st.session_state["bk_puente"] = st.text_input(
-            "Puente / URL para enviar el símbolo al layout del broker",
-            value=st.session_state.get("bk_puente", "http://127.0.0.1:8765/enviar"),
-            key="bk_puente_ui_dashboard",
-        )
-        api_a, api_b = st.columns(2, gap="small")
-        with api_a:
-            st.toggle("Usar API del broker", value=bool(st.session_state.get("bk_api_key")), key="usar_api_broker_dashboard")
-        with api_b:
-            if st.button("🔌 Probar conexión", key="probar_broker_dashboard", use_container_width=True):
-                st.info("La conexión se realizará mediante el puente/webhook configurado.")
+if ES_ADMIN:
+    with broker_col:
+        with st.container(border=True):
+            st.markdown('<div class="simple-title">🔗 Conexión API / Broker <span style="font-size:10px;background:#123d67;border-radius:12px;padding:4px 8px;">Opcional</span></div>', unsafe_allow_html=True)
+            api1,api2,api3 = st.columns(3, gap="small")
+            brokers_ui = ["Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
+            with api1:
+                st.session_state.setdefault("bk_nombre", brokers_ui[0])
+                _idx_b = brokers_ui.index(st.session_state["bk_nombre"]) if st.session_state["bk_nombre"] in brokers_ui else 0
+                st.session_state["bk_nombre"] = st.selectbox("Broker", brokers_ui, index=_idx_b, key="bk_nombre_ui_dashboard")
+            with api2:
+                st.session_state.setdefault("bk_api_key", "")
+                st.session_state["bk_api_key"] = st.text_input("API Key", value=st.session_state.get("bk_api_key", ""), type="password", key="bk_api_key_ui_dashboard")
+            with api3:
+                st.session_state.setdefault("bk_api_secret", "")
+                st.session_state["bk_api_secret"] = st.text_input("Secret Key", value=st.session_state.get("bk_api_secret", ""), type="password", key="bk_api_secret_ui_dashboard")
+            st.session_state.setdefault("bk_puente", "http://127.0.0.1:8765/enviar")
+            st.session_state["bk_puente"] = st.text_input(
+                "Puente / URL para enviar el símbolo al layout del broker",
+                value=st.session_state.get("bk_puente", "http://127.0.0.1:8765/enviar"),
+                key="bk_puente_ui_dashboard",
+            )
+            api_a, api_b = st.columns(2, gap="small")
+            with api_a:
+                st.toggle("Usar API del broker", value=bool(st.session_state.get("bk_api_key")), key="usar_api_broker_dashboard")
+            with api_b:
+                if st.button("🔌 Probar conexión", key="probar_broker_dashboard", use_container_width=True):
+                    st.info("La conexión se realizará mediante el puente/webhook configurado.")
 
-with premium_col:
-    with st.container(border=True):
-        st.markdown('<div class="simple-title">🔐 Modalidades</div>', unsafe_allow_html=True)
-        st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
-        st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
-        st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
+    with premium_col:
+        with st.container(border=True):
+            st.markdown('<div class="simple-title">🔐 Modalidades</div>', unsafe_allow_html=True)
+            st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
 
 # 3) Colores: accesibles, pero sin el bloque vertical gigante de la izquierda.
-with st.expander("🎨 Configurar colores y layouts del broker", expanded=False):
-    st.caption("Los colores representan los 10 layouts. Puedes cambiarlos sin ocupar espacio en la tabla principal.")
-    _colores_nuevos = list(st.session_state.get("bk_colores", [bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
-    while len(_colores_nuevos) < len(COLORES_LAYOUT_DEFECTO):
-        _colores_nuevos.append(COLORES_LAYOUT_DEFECTO[len(_colores_nuevos)][1])
-    color_cols = st.columns(5, gap="small")
-    for idx,(nombre,bg,_fg) in enumerate(COLORES_LAYOUT_DEFECTO):
-        with color_cols[idx % 5]:
-            _colores_nuevos[idx] = st.color_picker(
-                f"L{idx+1} · {nombre}",
-                _colores_nuevos[idx],
-                key=f"bk_color_dashboard_{idx}",
-            )
-    st.session_state["bk_colores"] = _colores_nuevos
+if ES_ADMIN:
+    with st.expander("🎨 Configurar colores y layouts del broker", expanded=False):
+        st.caption("Los colores representan los 10 layouts. Puedes cambiarlos sin ocupar espacio en la tabla principal.")
+        _colores_nuevos = list(st.session_state.get("bk_colores", [bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
+        while len(_colores_nuevos) < len(COLORES_LAYOUT_DEFECTO):
+            _colores_nuevos.append(COLORES_LAYOUT_DEFECTO[len(_colores_nuevos)][1])
+        color_cols = st.columns(5, gap="small")
+        for idx,(nombre,bg,_fg) in enumerate(COLORES_LAYOUT_DEFECTO):
+            with color_cols[idx % 5]:
+                _colores_nuevos[idx] = st.color_picker(
+                    f"L{idx+1} · {nombre}",
+                    _colores_nuevos[idx],
+                    key=f"bk_color_dashboard_{idx}",
+                )
+        st.session_state["bk_colores"] = _colores_nuevos
 
-    st.markdown(
-        '<div class="small-note">⚙️ El enlace 🔗 del panel de layouts permite vincular un activo con su ventana correspondiente del broker mediante puente o webhook.</div>',
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            '<div class="small-note">⚙️ El enlace 🔗 del panel de layouts permite vincular un activo con su ventana correspondiente del broker mediante puente o webhook.</div>',
+            unsafe_allow_html=True,
+        )
 
 # ==========================================
 # 📊 ESTADO DEL MOTOR
@@ -1984,13 +2007,24 @@ def panel_broker():
         }
         for c in filas
     ]
-    cfg = {
-        "broker": st.session_state.get("bk_nombre", BROKERS_DISPONIBLES[0]),
-        "api_key": st.session_state.get("bk_api_key", ""),
-        "api_secret": st.session_state.get("bk_api_secret", ""),
-        "puente": st.session_state.get("bk_puente", ""),
-        "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT_DEFECTO))],
-    }
+    if ES_ADMIN:
+        cfg = {
+            "broker": st.session_state.get("bk_nombre", BROKERS_DISPONIBLES[0]),
+            "api_key": st.session_state.get("bk_api_key", ""),
+            "api_secret": st.session_state.get("bk_api_secret", ""),
+            "puente": st.session_state.get("bk_puente", ""),
+            "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT_DEFECTO))],
+        }
+    else:
+        # Nunca enviar credenciales, webhooks ni puentes privados al navegador
+        # de un usuario normal.
+        cfg = {
+            "broker": "",
+            "api_key": "",
+            "api_secret": "",
+            "puente": "",
+            "webhooks": ["" for _ in range(len(COLORES_LAYOUT_DEFECTO))],
+        }
     st.iframe(construir_html_panel_broker(filas10, cfg, colores_layout_actuales()), height=PANEL_BROKER_ALTO_PX)
 
 
