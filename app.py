@@ -81,7 +81,7 @@ BASE_FLOTACION_MAX = 50_000_000
 # Luego podremos pasar a 2, 3, 4... agregando un filtro por vez.
 ETAPA_PRUEBA_FILTROS = 1
 
-MAX_ENRIQUECER = 120                   # máx. de tickers a los que se les calcula float / EMA / noticia por ciclo
+MAX_ENRIQUECER = 500                   # PRUEBA 3: ampliar temporalmente la muestra técnica; no es un filtro de trading
 
 # Float: FMP es la fuente principal; volumen y velas técnicas se obtienen con Alpaca.
 FMP_API_URL = "https://financialmodelingprep.com/stable/shares-float"
