@@ -75,6 +75,12 @@ BASE_PRECIO_MAX = 20.0
 BASE_GAP_MIN = 3.0
 BASE_GAP_MAX = 1000.0
 BASE_FLOTACION_MAX = 50_000_000
+
+# 🧪 ETAPA DE DEPURACIÓN DE FILTROS
+# 1 = solo precio + EMA20 + MACD. Telegram queda APAGADO.
+# Luego podremos pasar a 2, 3, 4... agregando un filtro por vez.
+ETAPA_PRUEBA_FILTROS = 1
+
 MAX_ENRIQUECER = 120                   # máx. de tickers a los que se les calcula float / EMA / noticia por ciclo
 
 # Float: FMP es la fuente principal; volumen y velas técnicas se obtienen con Alpaca.
@@ -853,12 +859,17 @@ def filtrar_resultados(filas, p):
     for c in filas:
         if not (p["precio_min"] <= c["precio"] <= p["precio_max"]):
             continue
-        if not (p["gap_min"] <= c["cambio_pct"] <= p["gap_max"]):
-            continue
-        if c["float_shares"] is not None and c["float_shares"] >= p["flotacion_max"]:
-            continue
-        if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
-            continue
+        # Etapa 1: dejamos fuera gap, float y volumen para localizar
+        # exactamente qué filtro está provocando la caída a cero.
+        if ETAPA_PRUEBA_FILTROS >= 4:
+            if not (p["gap_min"] <= c["cambio_pct"] <= p["gap_max"]):
+                continue
+        if ETAPA_PRUEBA_FILTROS >= 3:
+            if c["float_shares"] is not None and c["float_shares"] >= p["flotacion_max"]:
+                continue
+        if ETAPA_PRUEBA_FILTROS >= 2:
+            if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
+                continue
         cruce = p.get("cruce_ema", "Neutro")
         if cruce == "Hacia arriba" and not c["cruzando_ema20"]:
             continue
@@ -1409,7 +1420,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if not (BASE_PRECIO_MIN <= precio <= BASE_PRECIO_MAX):
                 continue
             cambio = ((precio - cierre_prev) / cierre_prev) * 100
-            if not (BASE_GAP_MIN <= cambio <= BASE_GAP_MAX):
+            if ETAPA_PRUEBA_FILTROS >= 4 and not (BASE_GAP_MIN <= cambio <= BASE_GAP_MAX):
                 continue
             base.append({
                 "ticker": ticker,
@@ -1427,18 +1438,22 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         base.sort(key=lambda c: c["volumen_dia"], reverse=True)
         base = base[:MAX_ENRIQUECER]
 
-        self._asegurar_fundamentales([c["ticker"] for c in base])
+        if ETAPA_PRUEBA_FILTROS >= 3:
+            self._asegurar_fundamentales([c["ticker"] for c in base])
+        else:
+            # Etapa 1: no consultar FMP/float. Así aislamos EMA + MACD
+            # y evitamos que el límite HTTP 429 contamine la prueba.
+            self.ultimo_error = None
 
         enriquecidos = []
         for c in base:
             entrada = self.cache_fund.get(c["ticker"], {})
             float_shares = entrada.get("float")
-            # Un ticker sin float NO se descarta.
-            if float_shares is not None and float_shares >= BASE_FLOTACION_MAX:
+            # En la etapa 1 no usamos float ni volumen como filtros.
+            # Tampoco consultamos float en esta etapa para evitar HTTP 429 de FMP.
+            if ETAPA_PRUEBA_FILTROS >= 3 and float_shares is not None and float_shares >= BASE_FLOTACION_MAX:
                 continue
-            # Volumen = títulos negociados durante la sesión actual.
-            # Ya no se calcula ni se consulta "volumen premarket" ni promedio externo.
-            if c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
+            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
                 continue
 
             c["float_shares"] = float_shares
@@ -1497,7 +1512,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self.duracion_ciclo = time.monotonic() - inicio
         self._registrar_eventos(enriquecidos)
 
-        # Telegram / HTML con los filtros del dueño (los de config_filtros.json)
+        # 🛑 TELEGRAM APAGADO DURANTE LA DEPURACIÓN.
+        # No se envía nada al grupo mientras comprobamos los filtros.
         p = dict(self.filtros_dueno)
         p.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 10, "orden": "Actualizado"})
         top = filtrar_resultados(enriquecidos, p)
@@ -1507,7 +1523,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 nombre = f"🔥{c['ticker']}" if c["tiene_noticia"] else c["ticker"]
                 tabla += (f"{nombre:<5}|{c['precio']:>5.2f}|{c['cambio_pct']:>3.0f}%|"
                           f"{formatear_numero_grande(c['volumen_dia']):>5}|{formatear_numero_grande(c['float_shares']):>5}\n")
-            self._enviar_telegram(tabla)
+            # Telegram permanece desactivado en las pruebas.
+            # self._enviar_telegram(tabla)
             self._escribir_html(tabla)
 
     def _bucle(self):
@@ -1769,6 +1786,15 @@ params = {
     "flotacion_max": FLOT_MAX, "volumen_min": VOLUMEN_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
     "orden": ORDEN, "top_n": TOP_N,
 }
+
+if ETAPA_PRUEBA_FILTROS == 1:
+    st.warning("🧪 PRUEBA 1 ACTIVA: solo Precio + EMA20 + MACD. Gap, Float, Volumen y Telegram están desactivados temporalmente.")
+elif ETAPA_PRUEBA_FILTROS == 2:
+    st.info("🧪 PRUEBA 2: Precio + Volumen + EMA20 + MACD.")
+elif ETAPA_PRUEBA_FILTROS == 3:
+    st.info("🧪 PRUEBA 3: Precio + Volumen + Float + EMA20 + MACD.")
+elif ETAPA_PRUEBA_FILTROS >= 4:
+    st.info("🧪 PRUEBA 4: Precio + Subida + Volumen + Float + EMA20 + MACD.")
 
 # 2) Control del scanner + conexión API/broker
 # Los controles internos de operación y las credenciales del broker
