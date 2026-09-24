@@ -279,16 +279,19 @@ def iniciar_sesion_usuario(email, password):
 
 
 def solicitar_recuperacion(email):
-    """Envía a Supabase un enlace para recuperar la contraseña."""
+    """Solicita un código OTP de recuperación por correo.
+
+    No usamos el enlace de un solo uso de Supabase porque algunos clientes
+    de correo/seguridad pueden abrirlo automáticamente y consumirlo antes
+    de que el usuario lo pulse.
+    """
     email = str(email).strip().lower()
 
     if not email or "@" not in email:
         return None, "Introduce un correo electrónico válido."
 
-    redirect_url = "https://jd6gih.streamlit.app"
-
     data, error = supabase_auth_request(
-        f"recover?redirect_to={quote(redirect_url, safe='')}",
+        "recover",
         {"email": email},
     )
 
@@ -298,124 +301,90 @@ def solicitar_recuperacion(email):
     return data, None
 
 
-def render_recuperacion_password():
-    """
-    Muestra el formulario de nueva contraseña cuando Supabase devuelve
-    un enlace de recuperación a esta misma aplicación.
-    """
+def verificar_codigo_recuperacion(email, codigo):
+    """Verifica el OTP de recuperación y obtiene una sesión temporal."""
+    email = str(email).strip().lower()
+    codigo = "".join(str(codigo).split())
+
+    if not email or "@" not in email:
+        return None, "Introduce un correo electrónico válido."
+
+    # Supabase usa OTP numérico para este flujo. Aceptamos 6-8 dígitos para
+    # mantener compatibilidad con las variantes de plantilla documentadas.
+    if not codigo.isdigit() or len(codigo) not in (6, 8):
+        return None, "El código debe tener 6 u 8 dígitos."
+
+    data, error = supabase_auth_request(
+        "verify",
+        {
+            "email": email,
+            "token": codigo,
+            "type": "recovery",
+        },
+    )
+
+    if error:
+        return None, error
+
+    if not data or not data.get("access_token"):
+        return None, "Supabase no devolvió una sesión válida de recuperación."
+
+    return data, None
+
+
+def actualizar_password_recuperacion(access_token, nueva_password):
+    """Cambia la contraseña usando la sesión temporal obtenida con el OTP."""
+    if not access_token:
+        return None, "La sesión de recuperación no es válida. Solicita un nuevo código."
+
+    if len(str(nueva_password)) < 8:
+        return None, "La contraseña debe tener al menos 8 caracteres."
+
     url, key = _supabase_config()
     if not url or not key:
-        return
-
-    html = f"""
-    <style>
-      body {{ margin:0; font-family:Arial,sans-serif; background:transparent; color:#e8e8e8; }}
-      #box {{ display:none; padding:18px; border:1px solid rgba(255,255,255,.16);
-              border-radius:12px; background:rgba(20,20,20,.92); }}
-      h3 {{ margin:0 0 8px 0; }}
-      p {{ margin:6px 0 12px 0; }}
-      input {{ width:100%; box-sizing:border-box; margin:6px 0; padding:11px;
-               border-radius:8px; border:1px solid #555; background:#111; color:white; }}
-      button {{ width:100%; margin-top:8px; padding:11px; border:0;
-                border-radius:8px; cursor:pointer; font-weight:700; }}
-      #msg {{ margin-top:10px; }}
-      .ok {{ color:#55d66b; }} .err {{ color:#ff5b5b; }}
-    </style>
-
-    <div id="box">
-      <h3>🔐 Restablecer contraseña</h3>
-      <p>Escribe tu nueva contraseña.</p>
-      <input id="p1" type="password" minlength="8" placeholder="Nueva contraseña">
-      <input id="p2" type="password" minlength="8" placeholder="Repetir contraseña">
-      <button id="save">💾 CAMBIAR CONTRASEÑA</button>
-      <div id="msg"></div>
-    </div>
-
-    <script>
-      const SUPABASE_URL = {json.dumps(url)};
-      const SUPABASE_KEY = {json.dumps(key)};
-
-      function setMsg(text, cls) {{
-        const el = document.getElementById("msg");
-        el.textContent = text;
-        el.className = cls || "";
-      }}
-
-      async function main() {{
-        const hash = new URLSearchParams(
-          window.parent.location.hash.replace(/^#/, "")
-        );
-        const type = hash.get("type");
-        const accessToken = hash.get("access_token");
-
-        if (type !== "recovery" || !accessToken) return;
-
-        document.getElementById("box").style.display = "block";
-
-        document.getElementById("save").onclick = async () => {{
-          const p1 = document.getElementById("p1").value;
-          const p2 = document.getElementById("p2").value;
-
-          if (p1.length < 8) {{
-            setMsg("La contraseña debe tener al menos 8 caracteres.", "err");
-            return;
-          }}
-          if (p1 !== p2) {{
-            setMsg("Las contraseñas no coinciden.", "err");
-            return;
-          }}
-
-          setMsg("Guardando...", "");
-
-          try {{
-            const response = await fetch(
-              SUPABASE_URL + "/auth/v1/user",
-              {{
-                method: "PUT",
-                headers: {{
-                  "apikey": SUPABASE_KEY,
-                  "Authorization": "Bearer " + accessToken,
-                  "Content-Type": "application/json"
-                }},
-                body: JSON.stringify({{ password: p1 }})
-              }}
-            );
-
-            let data = {{}};
-            try {{ data = await response.json(); }} catch (e) {{}}
-
-            if (!response.ok) {{
-              setMsg(
-                data.msg || data.message || data.error_description ||
-                "No se pudo cambiar la contraseña.",
-                "err"
-              );
-              return;
-            }}
-
-            setMsg("✅ Contraseña cambiada. Ya puedes iniciar sesión.", "ok");
-
-            window.parent.history.replaceState(
-              {{}}, document.title, window.parent.location.pathname
-            );
-
-            setTimeout(() => window.parent.location.reload(), 1400);
-          }} catch (e) {{
-            setMsg("Error de conexión con Supabase.", "err");
-          }}
-        }};
-      }}
-
-      main();
-    </script>
-    """
+        return None, "Faltan SUPABASE_URL y/o SUPABASE_ANON_KEY en Streamlit Secrets."
 
     try:
-        st.iframe(html, height=260, scrolling=False)
-    except Exception:
-        import streamlit.components.v1 as components
-        components.html(html, height=260, scrolling=False)
+        respuesta = requests.put(
+            f"{url}/auth/v1/user",
+            headers={
+                "apikey": key,
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            json={"password": str(nueva_password)},
+            timeout=20,
+        )
 
+        try:
+            data = respuesta.json()
+        except Exception:
+            data = {}
+
+        if respuesta.ok:
+            return data, None
+
+        mensaje = (
+            data.get("msg")
+            or data.get("message")
+            or data.get("error_description")
+            or data.get("error")
+            or "No se pudo cambiar la contraseña."
+        )
+        return None, str(mensaje)
+
+    except Exception as e:
+        return None, f"Error de conexión con el servicio de autenticación: {e}"
+
+
+def limpiar_recuperacion():
+    """Elimina cualquier sesión temporal de recuperación."""
+    for clave in (
+        "recovery_email",
+        "recovery_access_token",
+        "recovery_codigo_verificado",
+    ):
+        st.session_state.pop(clave, None)
 
 def cerrar_sesion():
     """Limpia la sesión local de Streamlit."""
@@ -542,31 +511,93 @@ def pantalla_autenticacion():
                 _guardar_usuario_auth(data, tipo="usuario")
                 st.rerun()
 
-        with st.expander("🔑 ¿Olvidaste tu contraseña?"):
-            st.caption("Te enviaremos un enlace para crear una contraseña nueva.")
-            with st.form("form_recuperar_password"):
-                email_recuperacion = st.text_input(
-                    "Correo de tu cuenta",
-                    value=st.session_state.get("login_email", ""),
-                    placeholder="tu@email.com",
-                    key="recovery_email",
-                )
-                enviar_recuperacion = st.form_submit_button(
-                    "📩 ENVIAR ENLACE DE RECUPERACIÓN",
-                    use_container_width=True,
-                )
+        with st.expander("🔑 ¿Olvidaste tu contraseña?", expanded=bool(st.session_state.get("recovery_email"))):
+            st.caption("Te enviaremos un código de recuperación por correo. No necesitas abrir ningún enlace.")
 
-            if enviar_recuperacion:
-                _, error_recuperacion = solicitar_recuperacion(email_recuperacion)
-                if error_recuperacion:
-                    st.error(f"❌ {error_recuperacion}")
-                else:
-                    st.success(
-                        "✅ Si el correo está registrado, recibirás un enlace "
-                        "para restablecer la contraseña. Revisa también spam."
+            email_recuperacion = st.text_input(
+                "Correo de tu cuenta",
+                value=st.session_state.get("recovery_email", st.session_state.get("login_email", "")),
+                placeholder="tu@email.com",
+                key="recovery_email_ui",
+            )
+            st.session_state["recovery_email"] = str(email_recuperacion).strip().lower()
+
+            if not st.session_state.get("recovery_codigo_verificado"):
+                with st.form("form_recuperar_password"):
+                    enviar_recuperacion = st.form_submit_button(
+                        "📩 ENVIAR CÓDIGO DE RECUPERACIÓN",
+                        use_container_width=True,
                     )
 
-        render_recuperacion_password()
+                if enviar_recuperacion:
+                    _, error_recuperacion = solicitar_recuperacion(email_recuperacion)
+                    if error_recuperacion:
+                        st.error(f"❌ {error_recuperacion}")
+                    else:
+                        st.success(
+                            "✅ Si el correo está registrado, recibirás un código. "
+                            "Revisa también la carpeta de spam."
+                        )
+                        st.session_state["recovery_codigo_enviado"] = True
+
+                if st.session_state.get("recovery_codigo_enviado"):
+                    with st.form("form_verificar_codigo_recuperacion"):
+                        codigo_recuperacion = st.text_input(
+                            "Código recibido por correo",
+                            placeholder="Ej.: 123456",
+                            max_chars=8,
+                            key="recovery_otp",
+                        )
+                        verificar_codigo = st.form_submit_button(
+                            "🔐 VERIFICAR CÓDIGO",
+                            use_container_width=True,
+                        )
+
+                    if verificar_codigo:
+                        data_recuperacion, error_verificacion = verificar_codigo_recuperacion(
+                            email_recuperacion,
+                            codigo_recuperacion,
+                        )
+                        if error_verificacion:
+                            st.error(f"❌ {error_verificacion}")
+                        else:
+                            st.session_state["recovery_access_token"] = data_recuperacion.get("access_token", "")
+                            st.session_state["recovery_codigo_verificado"] = True
+                            st.success("✅ Código verificado. Ahora puedes crear una contraseña nueva.")
+                            st.rerun()
+
+            if st.session_state.get("recovery_codigo_verificado"):
+                st.info("🔓 Identidad verificada. Crea tu nueva contraseña.")
+                with st.form("form_nueva_password_recuperacion"):
+                    nueva_password_recuperacion = st.text_input(
+                        "Nueva contraseña",
+                        type="password",
+                        key="recovery_new_password",
+                    )
+                    repetir_password_recuperacion = st.text_input(
+                        "Repetir nueva contraseña",
+                        type="password",
+                        key="recovery_new_password_2",
+                    )
+                    cambiar_password = st.form_submit_button(
+                        "💾 CAMBIAR CONTRASEÑA",
+                        use_container_width=True,
+                    )
+
+                if cambiar_password:
+                    if nueva_password_recuperacion != repetir_password_recuperacion:
+                        st.error("❌ Las contraseñas no coinciden.")
+                    else:
+                        _, error_password = actualizar_password_recuperacion(
+                            st.session_state.get("recovery_access_token", ""),
+                            nueva_password_recuperacion,
+                        )
+                        if error_password:
+                            st.error(f"❌ {error_password}")
+                        else:
+                            limpiar_recuperacion()
+                            st.success("✅ Contraseña cambiada correctamente. Ya puedes iniciar sesión con tu nueva contraseña.")
+                            st.rerun()
 
     with tab_registro:
         st.markdown("### Crear cuenta")
