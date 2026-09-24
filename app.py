@@ -793,13 +793,20 @@ def evaluar_tecnico(cierres):
     cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
     cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
 
-    cruzo_arriba = False
-    cruzo_abajo = False
-    for i in range(-VENTANA_CRUCE_EMA_MINUTOS, 0):
-        if cierres.iloc[i - 1] <= ema20.iloc[i - 1] and cierres.iloc[i] > ema20.iloc[i]:
-            cruzo_arriba = True
-        if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
-            cruzo_abajo = True
+    # PRUEBA 1: EMA20 significa literalmente "precio por encima de EMA20".
+    # No exigimos un cruce ocurrido en el último minuto, porque eso convertiría
+    # EMA20 en un filtro mucho más estricto que el que estamos probando.
+    if ETAPA_PRUEBA_FILTROS == 1:
+        cruzo_arriba = bool(precio_act > ema_act)
+        cruzo_abajo = bool(precio_act < ema_act)
+    else:
+        cruzo_arriba = False
+        cruzo_abajo = False
+        for i in range(-VENTANA_CRUCE_EMA_MINUTOS, 0):
+            if cierres.iloc[i - 1] <= ema20.iloc[i - 1] and cierres.iloc[i] > ema20.iloc[i]:
+                cruzo_arriba = True
+            if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
+                cruzo_abajo = True
 
     macd_actual = macd_line.iloc[-1]
     macd_positivo = bool(not pd.isna(macd_actual) and macd_actual > 0)
@@ -870,12 +877,18 @@ def filtrar_resultados(filas, p):
         if ETAPA_PRUEBA_FILTROS >= 2:
             if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
                 continue
-        cruce = p.get("cruce_ema", "Neutro")
-        if cruce == "Hacia arriba" and not c["cruzando_ema20"]:
-            continue
-        if cruce == "Hacia abajo" and not c["cruzando_ema20_abajo"]:
-            continue
-        macd = p.get("macd", "No exigir")
+        if ETAPA_PRUEBA_FILTROS == 1:
+            # PRUEBA 1 real: EMA20 = precio por encima de EMA20.
+            if not c.get("cruzando_ema20", False):
+                continue
+            macd = "Positivo"
+        else:
+            cruce = p.get("cruce_ema", "Neutro")
+            if cruce == "Hacia arriba" and not c["cruzando_ema20"]:
+                continue
+            if cruce == "Hacia abajo" and not c["cruzando_ema20_abajo"]:
+                continue
+            macd = p.get("macd", "No exigir")
         if macd == "Positivo" and not c["macd_positivo"]:
             continue
         if macd == "Negativo" and not c["macd_negativo"]:
@@ -1766,20 +1779,47 @@ st.markdown(f"""
 with st.container(border=True):
     st.markdown('<div class="simple-title">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
     cfg = cargar_config()
-    f1,f2,f3,f4,f5,f6,f7 = st.columns(7, gap="small")
-    with f1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
-    with f2: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-    with f3: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
-    with f4: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
-    with f5: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
-    with f6: VOLUMEN_MIN = st.number_input("Volumen mín. (títulos)", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
-    with f7: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
-    q1,q2,q3,q4,q5,q6 = st.columns(6, gap="small")
-    with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
-    with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
-    with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-    with q4: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
-    with q5: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
+
+    if ETAPA_PRUEBA_FILTROS == 1:
+        # PRUEBA 1: solo mostramos los parámetros que realmente participan.
+        f1, f2, f3, f4, f5 = st.columns(5, gap="small")
+        with f1:
+            PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+        with f2:
+            PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+        with f3:
+            CRUCE_EMA = "Hacia arriba"
+            st.text_input("EMA20", value="Precio por encima", disabled=True, key="f_ema_prueba1")
+        with f4:
+            MACD_MODO = "Positivo"
+            st.text_input("MACD", value="Positivo", disabled=True, key="f_macd_prueba1")
+        with f5:
+            REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+
+        ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
+        TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+        AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
+
+        # Valores heredados solo para compatibilidad interna. La etapa 1 los ignora.
+        GAP_MIN = float(cfg["gap_min"])
+        GAP_MAX = float(cfg["gap_max"])
+        FLOT_MAX = int(cfg["flotacion_max"])
+        VOLUMEN_MIN = int(cfg["volumen_min"])
+    else:
+        f1,f2,f3,f4,f5,f6,f7 = st.columns(7, gap="small")
+        with f1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+        with f2: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+        with f3: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
+        with f4: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
+        with f5: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
+        with f6: VOLUMEN_MIN = st.number_input("Volumen mín. (títulos)", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
+        with f7: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+        q1,q2,q3,q4,q5,q6 = st.columns(6, gap="small")
+        with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
+        with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
+        with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
+        with q4: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+        with q5: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
 
 params = {
     "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
@@ -1788,7 +1828,7 @@ params = {
 }
 
 if ETAPA_PRUEBA_FILTROS == 1:
-    st.warning("🧪 PRUEBA 1 ACTIVA: solo Precio + EMA20 + MACD. Gap, Float, Volumen y Telegram están desactivados temporalmente.")
+    st.warning("🧪 PRUEBA 1 REAL: solo Precio + EMA20 (precio por encima) + MACD positivo. Subida, Gap, Float, Volumen, RVOL y Telegram están DESACTIVADOS.")
 elif ETAPA_PRUEBA_FILTROS == 2:
     st.info("🧪 PRUEBA 2: Precio + Volumen + EMA20 + MACD.")
 elif ETAPA_PRUEBA_FILTROS == 3:
@@ -1911,8 +1951,9 @@ if ES_ADMIN:
 # ==========================================
 # 📊 ESTADO DEL MOTOR
 # ==========================================
-# Un único aviso de float; antes había tres bloques idénticos y se mostraba repetido.
-if getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0):
+# El aviso de float se oculta durante la PRUEBA 1 porque Float está
+# realmente desactivado y no debe contaminar el diagnóstico visual.
+if ETAPA_PRUEBA_FILTROS != 1 and (getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0)):
     partes_float = []
     if servicio.float_pendientes:
         partes_float.append(f"{servicio.float_pendientes} con float pendiente")
@@ -1926,15 +1967,24 @@ def panel_diagnostico_filtros():
         d = servicio.diagnostico_filtros
         with st.expander("🔎 Diagnóstico de filtros (prueba)", expanded=True):
             st.caption("Este panel es temporal y solo informa dónde se reducen los candidatos. No modifica el scanner.")
-            st.markdown(
-                f"**Radar base:** {d.get('radar_base', 0)} → "
-                f"**tras float:** {d.get('tras_float', 0)} → "
-                f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 15_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
-                f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
-                f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
-                f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
-                f"**resultado final:** {d.get('resultados', 0)}"
-            )
+            if ETAPA_PRUEBA_FILTROS == 1:
+                st.markdown(
+                    f"**Radar base (solo precio):** {d.get('radar_base', 0)} → "
+                    f"**EMA20: precio arriba:** {d.get('ema_arriba', 0)} → "
+                    f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
+                    f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
+                    f"**resultado final:** {d.get('resultados', 0)}"
+                )
+            else:
+                st.markdown(
+                    f"**Radar base:** {d.get('radar_base', 0)} → "
+                    f"**tras float:** {d.get('tras_float', 0)} → "
+                    f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 15_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
+                    f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
+                    f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
+                    f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
+                    f"**resultado final:** {d.get('resultados', 0)}"
+                )
 
 panel_diagnostico_filtros()
 
@@ -1954,11 +2004,18 @@ def panel_resultados():
     filas = filtrar_resultados(list(servicio.resultados), params)
 
     if servicio.ultima_actualizacion:
-        detalle = (f"Última actualización: {servicio.ultima_actualizacion.strftime('%H:%M:%S')} ET"
-                   f" · ciclo {servicio.duracion_ciclo:.1f}s"
-                   f" · {len(servicio.universo)} tickers vigilados"
-                   f" · {servicio.n_radar_base} en el radar base"
-                   f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 15_000))})")
+        if ETAPA_PRUEBA_FILTROS == 1:
+            detalle = (f"Última actualización: {servicio.ultima_actualizacion.strftime('%H:%M:%S')} ET"
+                       f" · ciclo {servicio.duracion_ciclo:.1f}s"
+                       f" · {len(servicio.universo)} tickers vigilados"
+                       f" · {servicio.n_radar_base} en el radar base"
+                       f" (solo precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}; EMA20 arriba + MACD positivo)")
+        else:
+            detalle = (f"Última actualización: {servicio.ultima_actualizacion.strftime('%H:%M:%S')} ET"
+                       f" · ciclo {servicio.duracion_ciclo:.1f}s"
+                       f" · {len(servicio.universo)} tickers vigilados"
+                       f" · {servicio.n_radar_base} en el radar base"
+                       f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 15_000))})")
         st.caption(detalle)
     else:
         st.caption("Esperando el primer escaneo (la primera vez puede tardar un minuto)...")
