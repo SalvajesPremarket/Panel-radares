@@ -793,9 +793,9 @@ def evaluar_tecnico(cierres):
     cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
     cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
 
-    # PRUEBA 1: EMA20 significa literalmente "precio por encima de EMA20".
-    # No exigimos un cruce ocurrido en el último minuto, porque eso convertiría
-    # EMA20 en un filtro mucho más estricto que el que estamos probando.
+    # PRUEBA 1 REAL: EMA20 significa literalmente "precio por encima de EMA20".
+    # IMPORTANTE: no aplicar MARGEN_PROXIMIDAD_EMA en esta prueba.
+    # El objetivo es comprobar únicamente si precio > EMA20.
     if ETAPA_PRUEBA_FILTROS == 1:
         cruzo_arriba = bool(precio_act > ema_act)
         cruzo_abajo = bool(precio_act < ema_act)
@@ -811,6 +811,11 @@ def evaluar_tecnico(cierres):
     macd_actual = macd_line.iloc[-1]
     macd_positivo = bool(not pd.isna(macd_actual) and macd_actual > 0)
     macd_negativo = bool(not pd.isna(macd_actual) and macd_actual < 0)
+    # En PRUEBA 1 no hay filtro de proximidad: devolver directamente la condición
+    # precio > EMA20 / precio < EMA20. En etapas posteriores se conserva la
+    # lógica original de proximidad + cruce.
+    if ETAPA_PRUEBA_FILTROS == 1:
+        return cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo
     return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo
 
 
@@ -1300,12 +1305,52 @@ class ServicioScanner:
             t for t in tickers
             if t not in self.cache_tecnico or ahora - self.cache_tecnico[t][0] > TTL_TECNICO_SEGUNDOS
         ]
+
+        # Diagnóstico independiente de EMA/MACD. No altera filtros ni resultados.
+        diagnostico = {
+            "enviados_tecnico": len(tickers),
+            "con_barras": 0,
+            "sin_barras": 0,
+            "ema_calculable": 0,
+            "macd_calculable": 0,
+            "muestra": [],
+        }
+
         if not pendientes:
+            # Si todo está en caché, reconstruimos el diagnóstico a partir de las
+            # series disponibles solo cuando fueron guardadas en este ciclo.
+            self.diagnostico_tecnico = diagnostico
             return
+
         series = descargar_cierres(self.data, pendientes)
         for t in pendientes:
-            cruz_arriba, cruz_abajo, macd_pos, macd_neg = evaluar_tecnico(series.get(t))
+            serie = series.get(t)
+            barras = len(serie) if serie is not None else 0
+            if barras >= 40:
+                diagnostico["con_barras"] += 1
+                ema20 = serie.ewm(span=20, adjust=False).mean()
+                macd_line = serie.ewm(span=12, adjust=False).mean() - serie.ewm(span=26, adjust=False).mean()
+                ema_val = float(ema20.iloc[-1]) if len(ema20) else float("nan")
+                macd_val = float(macd_line.iloc[-1]) if len(macd_line) else float("nan")
+                if not pd.isna(ema_val) and ema_val > 0:
+                    diagnostico["ema_calculable"] += 1
+                if not pd.isna(macd_val):
+                    diagnostico["macd_calculable"] += 1
+                if len(diagnostico["muestra"]) < 12:
+                    diagnostico["muestra"].append({
+                        "ticker": t,
+                        "barras": barras,
+                        "precio": float(serie.iloc[-1]),
+                        "ema20": ema_val,
+                        "macd": macd_val,
+                    })
+            else:
+                diagnostico["sin_barras"] += 1
+
+            cruz_arriba, cruz_abajo, macd_pos, macd_neg = evaluar_tecnico(serie)
             self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg)
+
+        self.diagnostico_tecnico = diagnostico
 
     # ---------- noticias (una sola llamada para todos) ----------
     def _noticias_recientes(self, tickers):
@@ -1502,14 +1547,21 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             1 for c in enriquecidos
             if c.get("volumen_dia", 0) >= self.filtros_dueno.get("volumen_min", 15_000)
         )
+        dt = getattr(self, "diagnostico_tecnico", {}) or {}
         self.diagnostico_filtros = {
             "radar_base": radar_base_total,
+            "tecnico_enviados": dt.get("enviados_tecnico", len(tickers_enr)),
+            "con_barras": dt.get("con_barras", 0),
+            "sin_barras": dt.get("sin_barras", 0),
+            "ema_calculable": dt.get("ema_calculable", 0),
+            "macd_calculable": dt.get("macd_calculable", 0),
             "tras_float": len(enriquecidos),
             "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
             "ema_y_macd": ema_y_macd_count,
             "resultados": len(filtrar_resultados(enriquecidos, self.filtros_dueno)),
+            "muestra_tecnica": dt.get("muestra", []),
         }
 
         self.resultados = enriquecidos
@@ -1970,11 +2022,25 @@ def panel_diagnostico_filtros():
             if ETAPA_PRUEBA_FILTROS == 1:
                 st.markdown(
                     f"**Radar base (solo precio):** {d.get('radar_base', 0)} → "
-                    f"**EMA20: precio arriba:** {d.get('ema_arriba', 0)} → "
+                    f"**enviados a técnico:** {d.get('tecnico_enviados', 0)} → "
+                    f"**con ≥40 barras:** {d.get('con_barras', 0)} → "
+                    f"**sin suficientes barras:** {d.get('sin_barras', 0)} → "
+                    f"**EMA20 calculable:** {d.get('ema_calculable', 0)} → "
+                    f"**Precio > EMA20:** {d.get('ema_arriba', 0)} → "
+                    f"**MACD calculable:** {d.get('macd_calculable', 0)} → "
                     f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
                     f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
                     f"**resultado final:** {d.get('resultados', 0)}"
                 )
+                muestra = d.get("muestra_tecnica", [])
+                if muestra:
+                    st.dataframe(
+                        pd.DataFrame(muestra).rename(columns={
+                            "ticker": "Ticker", "barras": "Barras", "precio": "Precio",
+                            "ema20": "EMA20", "macd": "MACD"
+                        }),
+                        use_container_width=True, hide_index=True
+                    )
             else:
                 st.markdown(
                     f"**Radar base:** {d.get('radar_base', 0)} → "
