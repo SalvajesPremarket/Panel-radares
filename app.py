@@ -450,8 +450,7 @@ def pantalla_autenticacion():
                             "la cuenta y después inicia sesión."
                         )
 
-    if modo_admin:
-        with tab_admin:
+    with tab_admin:
             st.markdown("### Acceso del administrador")
             st.caption("Este acceso conserva el sistema de token del propietario.")
 
