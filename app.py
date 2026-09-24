@@ -15,22 +15,88 @@ from alpaca.data.requests import StockSnapshotRequest
 from openai import OpenAI
 from threading import Thread
 
-st.set_page_config(page_title="Panel Radares", layout="wide")
-st.title("⚡ Scanner Pre Market")
+st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 print("⚙️ Iniciando el Sistema de Radar Definitivo...")
 
 # ==========================================
-# 📊 FILTROS (editables desde la barra lateral)
+# 🎨 ESTILO OSCURO TIPO FINVIZ
 # ==========================================
-st.sidebar.header("⚙️ Filtros del Scanner")
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #0e1117;
+        color: #e6e6e6;
+    }
+    [data-testid="stHeader"] { background-color: #0e1117; }
+    [data-testid="stSidebar"] { background-color: #0e1117; }
+    .block-container { padding-top: 1rem; }
 
-PRECIO_MIN = st.sidebar.number_input("Precio mínimo ($)", value=2.0, step=0.5)
-PRECIO_MAX = st.sidebar.number_input("Precio máximo ($)", value=20.0, step=0.5)
-GAP_MINIMO_PORCENTAJE = st.sidebar.number_input("Gap mínimo (%)", value=7.0, step=1.0)
-GAP_MAXIMO_PORCENTAJE = st.sidebar.number_input("Gap máximo (%)", value=500.0, step=10.0)
-FLOTACION_MAXIMA_ACCIONES = st.sidebar.number_input("Flotación máxima (acciones)", value=10_000_000, step=1_000_000)
-VOLUMEN_RELATIVO_MINIMO = st.sidebar.number_input("Volumen relativo mínimo", value=1.3, step=0.1)
+    .finviz-topbar {
+        background-color: #12151c;
+        padding: 12px 20px;
+        border-radius: 6px;
+        margin-bottom: 14px;
+        border: 1px solid #2a2e39;
+        text-align: center;
+    }
+    .finviz-topbar h1 {
+        color: #ffffff;
+        font-size: 24px;
+        margin: 0;
+        font-family: Arial, sans-serif;
+        text-align: center;
+    }
+    .finviz-badge {
+        background-color: #2ecc71;
+        color: white;
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 3px;
+        margin-left: 10px;
+        vertical-align: middle;
+    }
+    .finviz-filterbar {
+        background-color: #12151c;
+        border: 1px solid #2a2e39;
+        border-radius: 6px;
+        padding: 12px 16px 2px 16px;
+        margin-bottom: 14px;
+    }
+    label, .stNumberInput label, .stMarkdown, p, span {
+        color: #cfd3da !important;
+    }
+    div[data-testid="stNumberInput"] input {
+        background-color: #1a1e27;
+        color: #ffffff;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("""
+<div class="finviz-topbar">
+    <h1>SCANNER PRE MARKET <span class="finviz-badge">LIVE</span></h1>
+</div>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# 📊 FILTROS (barra horizontal tipo Finviz)
+# ==========================================
+st.markdown('<div class="finviz-filterbar">', unsafe_allow_html=True)
+c1, c2, c3, c4, c5, c6 = st.columns(6)
+with c1:
+    PRECIO_MIN = st.number_input("Precio mín. ($)", value=2.0, step=0.5)
+with c2:
+    PRECIO_MAX = st.number_input("Precio máx. ($)", value=20.0, step=0.5)
+with c3:
+    GAP_MINIMO_PORCENTAJE = st.number_input("Gap mín. (%)", value=7.0, step=1.0)
+with c4:
+    GAP_MAXIMO_PORCENTAJE = st.number_input("Gap máx. (%)", value=500.0, step=10.0)
+with c5:
+    FLOTACION_MAXIMA_ACCIONES = st.number_input("Flotación máx.", value=10_000_000, step=1_000_000)
+with c6:
+    VOLUMEN_RELATIVO_MINIMO = st.number_input("Vol. relativo mín.", value=1.3, step=0.1)
+st.markdown('</div>', unsafe_allow_html=True)
 
 MINUTOS_NOTICIA_RECIENTE = 60
 TICKERS_POR_MINUTO = 15000
@@ -42,7 +108,6 @@ MARGEN_PROXIMIDAD_EMA = 0.05
 
 NOMBRE_ARCHIVO_HTML = "radar_premarket.html"
 
-# Credenciales Globales
 ALPACA_API_KEY = st.secrets["ALPACA_API_KEY"]
 ALPACA_SECRET_KEY = st.secrets["ALPACA_SECRET_KEY"]
 DEEPSEEK_API_KEY = st.secrets["DEEPSEEK_API_KEY"]
@@ -56,12 +121,15 @@ deepseek_client = OpenAI(api_key=DEEPSEEK_API_KEY, base_url="https://api.deepsee
 
 CACHE_FLOAT = {}
 CACHE_VOL_PROMEDIO = {}
-BOT_ENCENDIDO = True
 
-# Estos dos deben sobrevivir a los reruns de Streamlit, por eso el guard con globals()
 if "ULTIMOS_RESULTADOS" not in globals():
     ULTIMOS_RESULTADOS = []
     ULTIMA_ACTUALIZACION = None
+
+if "bot_on" not in st.session_state:
+    st.session_state.bot_on = True
+
+BOT_ENCENDIDO = st.session_state.bot_on
 
 
 def cargar_universo_mercado():
@@ -80,7 +148,6 @@ def cargar_universo_mercado():
     return tickers
 
 
-# Cargar el universo de tickers UNA sola vez por sesión (evita descargarlo cada 15s)
 if "universo_mercado" not in st.session_state:
     st.session_state.universo_mercado = cargar_universo_mercado()
     print(f"📊 ¡Éxito! Bot cargado con {len(st.session_state.universo_mercado)} activos del mercado completo.")
@@ -323,7 +390,6 @@ def ejecutar_ciclo_escaneo():
     candidatos_finales = sorted(candidatos_finales, key=lambda x: x['actualizado'], reverse=True)
     top_candidatos = candidatos_finales[:MAX_CANDIDATOS_A_ANALIZAR]
 
-    # Guardar para mostrar en el panel web
     ULTIMOS_RESULTADOS = top_candidatos
     ULTIMA_ACTUALIZACION = datetime.now()
 
@@ -351,18 +417,39 @@ def bucle_control_scanner():
         time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
 
 
-# Lanzar el hilo del scanner en segundo plano UNA sola vez por sesión
 if "hilo_iniciado" not in st.session_state:
     st.session_state.hilo_iniciado = True
     hilo_servicio = Thread(target=bucle_control_scanner, daemon=True)
     hilo_servicio.start()
 
 # ==========================================
-# 🖥️ PANEL DE RESULTADOS
+# 🟢🔴 BOTÓN DE ENCENDIDO/APAGADO
 # ==========================================
-st_autorefresh(interval=15000, key="auto_refresh_radar")
+col_estado, col_bot = st.columns([3, 1])
+with col_estado:
+    if st.session_state.bot_on:
+        st.markdown("### 🟢 Scanner ENCENDIDO")
+    else:
+        st.markdown("### 🔴 Scanner APAGADO")
+with col_bot:
+    st.session_state.bot_on = st.toggle("Encender / Apagar", value=st.session_state.bot_on, key="toggle_bot_encendido")
 
-st.subheader("📡 Últimos resultados del scanner")
+BOT_ENCENDIDO = st.session_state.bot_on
+
+# ==========================================
+# 🖥️ TABLA DE RESULTADOS (estilo Finviz oscuro)
+# ==========================================
+col_toggle, col_manual, col_info = st.columns([1.3, 1.3, 3])
+with col_toggle:
+    auto_on = st.toggle("Auto-refresh 15s", value=True, key="auto_refresh_toggle")
+with col_manual:
+    if st.button("🔄 Refrescar ahora"):
+        st.rerun()
+with col_info:
+    st.markdown(f"**#1 / {len(ULTIMOS_RESULTADOS)} Total**")
+
+if auto_on:
+    st_autorefresh(interval=15000, key="auto_refresh_radar")
 
 if ULTIMA_ACTUALIZACION:
     st.caption(f"Última actualización: {ULTIMA_ACTUALIZACION.strftime('%H:%M:%S')}")
@@ -370,8 +457,9 @@ else:
     st.caption("Esperando el primer escaneo con resultados...")
 
 if ULTIMOS_RESULTADOS:
-    tabla = pd.DataFrame([
+    df = pd.DataFrame([
         {
+            "No.": i + 1,
             "Ticker": c["ticker"],
             "Precio": round(c["precio"], 2),
             "Cambio %": round(c["cambio_pct"], 1),
@@ -381,8 +469,29 @@ if ULTIMOS_RESULTADOS:
             "Noticia": "🔥" if c.get("tiene_noticia") else "",
             "Actualizado": c["actualizado"].strftime("%H:%M:%S") if hasattr(c["actualizado"], "strftime") else c["actualizado"],
         }
-        for c in ULTIMOS_RESULTADOS
+        for i, c in enumerate(ULTIMOS_RESULTADOS)
     ])
-    st.dataframe(tabla, use_container_width=True, hide_index=True)
+
+    def color_cambio(val):
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ''
+        color = '#2ecc71' if v >= 0 else '#e74c3c'
+        return f'color: {color}; font-weight: 700'
+
+    styled = (
+        df.style
+        .map(color_cambio, subset=['Cambio %'])
+        .set_properties(**{
+            'background-color': '#12151c',
+            'color': '#e6e6e6',
+            'border-color': '#2a2e39'
+        })
+        .set_table_styles([
+            {'selector': 'th', 'props': [('background-color', '#0e1117'), ('color', '#00ffcc'), ('font-weight', 'bold')]}
+        ])
+    )
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 else:
     st.info("Sin candidatos que cumplan los filtros en este momento.")
