@@ -778,24 +778,24 @@ def formatear_numero_grande(numero):
 
 
 def evaluar_tecnico(cierres):
-    """Devuelve (cruza_arriba, cruza_abajo, macd_positivo, macd_negativo) a partir de una serie de cierres de 1 minuto."""
+    """Devuelve señales + valores crudos para diagnosticar EMA20/MACD."""
     if cierres is None or len(cierres) < 40:
-        return False, False, False, False
+        return False, False, False, False, None, None, None, 0
 
+    barras_count = int(len(cierres))
     ema20 = cierres.ewm(span=20, adjust=False).mean()
     macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
 
     precio_act = float(cierres.iloc[-1])
     ema_act = float(ema20.iloc[-1])
+    macd_actual = macd_line.iloc[-1]
+    macd_val = float(macd_actual) if not pd.isna(macd_actual) else None
     if pd.isna(ema_act) or ema_act <= 0:
-        return False, False, False, False
+        return False, False, False, False, precio_act, None, macd_val, barras_count
 
     cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
     cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
 
-    # PRUEBA 1: EMA20 significa literalmente "precio por encima de EMA20".
-    # No exigimos un cruce ocurrido en el último minuto, porque eso convertiría
-    # EMA20 en un filtro mucho más estricto que el que estamos probando.
     if ETAPA_PRUEBA_FILTROS == 1:
         cruzo_arriba = bool(precio_act > ema_act)
         cruzo_abajo = bool(precio_act < ema_act)
@@ -808,10 +808,9 @@ def evaluar_tecnico(cierres):
             if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
                 cruzo_abajo = True
 
-    macd_actual = macd_line.iloc[-1]
-    macd_positivo = bool(not pd.isna(macd_actual) and macd_actual > 0)
-    macd_negativo = bool(not pd.isna(macd_actual) and macd_actual < 0)
-    return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo
+    macd_positivo = bool(macd_val is not None and macd_val > 0)
+    macd_negativo = bool(macd_val is not None and macd_val < 0)
+    return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo, precio_act, float(ema_act), macd_val, barras_count
 
 
 def descargar_cierres(data_client, tickers):
@@ -1309,8 +1308,8 @@ class ServicioScanner:
             return
         series = descargar_cierres(self.data, pendientes)
         for t in pendientes:
-            cruz_arriba, cruz_abajo, macd_pos, macd_neg = evaluar_tecnico(series.get(t))
-            self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg)
+            cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act, macd_val, barras_count = evaluar_tecnico(series.get(t))
+            self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act, macd_val, barras_count)
 
     # ---------- noticias (una sola llamada para todos) ----------
     def _noticias_recientes(self, tickers):
@@ -1489,11 +1488,16 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in enriquecidos:
-            _, cruz_arriba, cruz_abajo, macd_pos, macd_neg = self.cache_tecnico.get(c["ticker"], (0, False, False, False, False))
+            tech = self.cache_tecnico.get(c["ticker"], (0, False, False, False, False, None, None, None, 0))
+            _, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec = tech
             c["cruzando_ema20"] = cruz_arriba
             c["cruzando_ema20_abajo"] = cruz_abajo
             c["macd_positivo"] = macd_pos
             c["macd_negativo"] = macd_neg
+            c["tecnico_precio"] = precio_tec
+            c["tecnico_ema20"] = ema_tec
+            c["tecnico_macd"] = macd_tec
+            c["tecnico_barras"] = barras_tec
             c["tiene_noticia"] = c["ticker"] in con_noticia
 
         # Diagnóstico del embudo: no cambia ningún filtro ni el resultado del scanner.
@@ -1507,13 +1511,23 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             1 for c in enriquecidos
             if c.get("volumen_dia", 0) >= self.filtros_dueno.get("volumen_min", 15_000)
         )
+        tecnicos_validos = sum(1 for c in enriquecidos if c.get("tecnico_barras", 0) >= 40)
+        ema_calculable = sum(1 for c in enriquecidos if c.get("tecnico_ema20") is not None)
+        macd_calculable = sum(1 for c in enriquecidos if c.get("tecnico_macd") is not None)
+        tickers_enr_unicos = len({c.get("ticker") for c in enriquecidos})
         self.diagnostico_filtros = {
             "radar_base": radar_base_total,
+            "enviados_tecnico": len(enriquecidos),
+            "con_40_barras": tecnicos_validos,
+            "ema_calculable": ema_calculable,
+            "macd_calculable": macd_calculable,
             "tras_float": len(enriquecidos),
             "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
             "ema_y_macd": ema_y_macd_count,
+            "tickers_unicos": tickers_enr_unicos,
+            "duplicados": len(enriquecidos) - tickers_enr_unicos,
             "resultados": len(filtrar_resultados(enriquecidos, self.filtros_dueno)),
         }
 
@@ -1974,12 +1988,27 @@ def panel_diagnostico_filtros():
             st.caption("Este panel es temporal y solo informa dónde se reducen los candidatos. No modifica el scanner.")
             if ETAPA_PRUEBA_FILTROS == 1:
                 st.markdown(
-                    f"**Radar base (solo precio):** {d.get('radar_base', 0)} → "
-                    f"**EMA20: precio arriba:** {d.get('ema_arriba', 0)} → "
+                    f"**Radar base:** {d.get('radar_base', 0)} → "
+                    f"**enviados a técnico:** {d.get('enviados_tecnico', 0)} → "
+                    f"**con ≥40 barras:** {d.get('con_40_barras', 0)} → "
+                    f"**EMA20 calculable:** {d.get('ema_calculable', 0)} → "
+                    f"**Precio > EMA20:** {d.get('ema_arriba', 0)} → "
+                    f"**MACD calculable:** {d.get('macd_calculable', 0)} → "
                     f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
                     f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
                     f"**resultado final:** {d.get('resultados', 0)}"
                 )
+                st.caption(f"Tickers únicos en técnico: {d.get('tickers_unicos', 0)} · duplicados detectados: {d.get('duplicados', 0)}")
+                muestra = [c for c in servicio.resultados if c.get('cruzando_ema20') and c.get('macd_positivo')]
+                if muestra:
+                    df_tec = pd.DataFrame([{
+                        "Ticker": c["ticker"],
+                        "Barras": c.get("tecnico_barras", 0),
+                        "Precio": round(c.get("tecnico_precio") or c["precio"], 4),
+                        "EMA20": round(c.get("tecnico_ema20"), 4) if c.get("tecnico_ema20") is not None else None,
+                        "MACD": round(c.get("tecnico_macd"), 6) if c.get("tecnico_macd") is not None else None,
+                    } for c in muestra])
+                    st.dataframe(df_tec, hide_index=True, use_container_width=True)
             else:
                 st.markdown(
                     f"**Radar base:** {d.get('radar_base', 0)} → "
