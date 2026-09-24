@@ -84,7 +84,7 @@ WORKERS_FUNDAMENTALES = 1               # FMP no se consulta en paralelo
 VIGENCIA_FUNDAMENTALES = 7 * 86400
 REINTENTO_FUNDAMENTALES = 300
 PAUSA_FMP_429_SEGUNDOS = 900            # tras HTTP 429, pausa FMP durante 15 min
-FMP_MIN_INTERVAL_SEGUNDOS = 30          # máximo 2 consultas/minuto para no golpear el límite de FMP
+FMP_MIN_INTERVAL_SEGUNDOS = 120         # como máximo 1 consulta cada 2 min; FMP puede responder 429 con límites bajos
 
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
 HORA_AUTO_INICIO_ET = 4
@@ -92,7 +92,7 @@ HORA_AUTO_FIN_ET = 16
 TTL_CALENDARIO_MERCADO = 12 * 3600
 
 TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker más seguido que esto
-VENTANA_CRUCE_EMA_MINUTOS = 1
+VENTANA_CRUCE_EMA_MINUTOS = 3
 MARGEN_PROXIMIDAD_EMA = 0.05
 MINUTOS_NOTICIA_RECIENTE = 60
 
@@ -572,45 +572,55 @@ def formatear_numero_grande(numero):
 
 
 def evaluar_tecnico(cierres):
-    """Devuelve (cruza_arriba, cruza_abajo, macd_positivo, macd_negativo) a partir de una serie de cierres de 1 minuto."""
+    """Evalúa la posición actual frente a EMA20 y MACD.
+
+    "Hacia arriba" y "Hacia abajo" significan que el precio actual está
+    por encima o por debajo de EMA20. La versión anterior exigía además un
+    cruce ocurrido en la última vela y que el precio estuviera a <=5% de la
+    EMA; eso dejaba el radar en 0 aunque el precio siguiera claramente por
+    encima de EMA20.
+    """
     if cierres is None or len(cierres) < 40:
         return False, False, False, False
 
-    ema20 = cierres.ewm(span=20, adjust=False).mean()
-    macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
+    try:
+        cierres = pd.to_numeric(cierres, errors="coerce").dropna()
+        if len(cierres) < 40:
+            return False, False, False, False
 
-    precio_act = float(cierres.iloc[-1])
-    ema_act = float(ema20.iloc[-1])
-    if pd.isna(ema_act) or ema_act <= 0:
+        ema20 = cierres.ewm(span=20, adjust=False).mean()
+        ema12 = cierres.ewm(span=12, adjust=False).mean()
+        ema26 = cierres.ewm(span=26, adjust=False).mean()
+        macd_line = ema12 - ema26
+
+        precio_act = float(cierres.iloc[-1])
+        ema_act = float(ema20.iloc[-1])
+        macd_actual = float(macd_line.iloc[-1])
+        if pd.isna(ema_act) or ema_act <= 0 or pd.isna(macd_actual):
+            return False, False, False, False
+
+        # Filtro técnico principal: posición actual, no "cruce de una sola vela".
+        arriba = precio_act > ema_act
+        abajo = precio_act < ema_act
+        macd_positivo = macd_actual > 0
+        macd_negativo = macd_actual < 0
+        return arriba, abajo, macd_positivo, macd_negativo
+    except Exception:
         return False, False, False, False
-
-    cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
-    cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
-
-    cruzo_arriba = False
-    cruzo_abajo = False
-    for i in range(-VENTANA_CRUCE_EMA_MINUTOS, 0):
-        if cierres.iloc[i - 1] <= ema20.iloc[i - 1] and cierres.iloc[i] > ema20.iloc[i]:
-            cruzo_arriba = True
-        if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
-            cruzo_abajo = True
-
-    macd_actual = macd_line.iloc[-1]
-    macd_positivo = bool(not pd.isna(macd_actual) and macd_actual > 0)
-    macd_negativo = bool(not pd.isna(macd_actual) and macd_actual < 0)
-    return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo
 
 
 def descargar_cierres(data_client, tickers):
-    """Velas de 1 minuto de Alpaca para EMA20/MACD, sin depender de Yahoo Finance."""
+    """Descarga cierres intradía de Alpaca de forma robusta para EMA20/MACD."""
     salida = {}
     if not tickers:
         return salida
 
-    for i in range(0, len(tickers), 50):
-        lote = tickers[i:i + 50]
+    # Lotes más pequeños reducen respuestas incompletas de Alpaca cuando se
+    # consultan muchos símbolos al mismo tiempo.
+    for i in range(0, len(tickers), 25):
+        lote = tickers[i:i + 25]
         try:
-            inicio = datetime.now(timezone.utc) - timedelta(days=2)
+            inicio = datetime.now(timezone.utc) - timedelta(days=3)
             fin = datetime.now(timezone.utc)
             solicitud = StockBarsRequest(
                 symbol_or_symbols=lote,
@@ -621,30 +631,31 @@ def descargar_cierres(data_client, tickers):
             barras = data_client.get_stock_bars(solicitud)
             datos = getattr(barras, "df", None)
         except Exception as e:
-            self_error = str(e)
-            print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {self_error}")
+            print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {e}")
             continue
 
-        if datos is None or datos.empty:
+        if datos is None or datos.empty or "close" not in datos.columns:
             continue
 
         try:
             if isinstance(datos.index, pd.MultiIndex):
+                # Alpaca normalmente devuelve (symbol, timestamp), pero no
+                # asumimos que el nivel del símbolo sea siempre el 0.
+                nombres = list(datos.index.names)
+                nivel_simbolo = nombres.index("symbol") if "symbol" in nombres else 0
                 for ticker in lote:
                     try:
-                        serie = datos.xs(ticker, level=0)["close"].dropna()
+                        serie = datos.xs(ticker, level=nivel_simbolo)["close"].dropna()
                     except Exception:
                         continue
                     if len(serie) >= 40:
                         salida[ticker] = serie
-            else:
-                # Caso excepcional de un solo ticker.
-                if "close" in datos.columns and len(lote) == 1:
-                    serie = datos["close"].dropna()
-                    if len(serie) >= 40:
-                        salida[lote[0]] = serie
-        except Exception:
-            continue
+            elif len(lote) == 1:
+                serie = datos["close"].dropna()
+                if len(serie) >= 40:
+                    salida[lote[0]] = serie
+        except Exception as e:
+            print(f"⚠️ No se pudo interpretar las velas de Alpaca: {e}")
     return salida
 
 
@@ -971,10 +982,7 @@ class ServicioScanner:
         if ahora < self.fmp_pausado_hasta:
             restante = max(1, int(self.fmp_pausado_hasta - ahora))
             minutos = restante // 60 + (1 if restante % 60 else 0)
-            self.ultimo_error = (
-                "FMP está en pausa por límite de solicitudes (HTTP 429). "
-                f"Se reintentará en aproximadamente {minutos} min."
-            )
+            print(f"ℹ️ FMP en pausa por HTTP 429; faltan aproximadamente {minutos} min. Se conserva el scanner operativo.")
             return None
 
         try:
@@ -992,11 +1000,7 @@ class ServicioScanner:
             )
             if respuesta.status_code == 429:
                 self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
-                self.ultimo_error = (
-                    f"FMP devolvió HTTP 429 para {ticker}. "
-                    "Se pausaron las consultas de float durante 15 minutos para evitar más bloqueos."
-                )
-                print(f"⚠️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s")
+                print(f"ℹ️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s. El float queda pendiente y el radar continúa.")
                 return None
             if respuesta.status_code in (401, 403):
                 self.ultimo_error = (
