@@ -79,7 +79,7 @@ BASE_FLOTACION_MAX = 50_000_000
 # 🧪 ETAPA DE DEPURACIÓN DE FILTROS
 # 1 = solo precio + EMA20 + MACD. Telegram queda APAGADO.
 # Luego podremos pasar a 2, 3, 4... agregando un filtro por vez.
-ETAPA_PRUEBA_FILTROS = 1
+ETAPA_PRUEBA_FILTROS = 2
 
 MAX_ENRIQUECER = 500                   # PRUEBA 3: ampliar temporalmente la muestra técnica; no es un filtro de trading
 
