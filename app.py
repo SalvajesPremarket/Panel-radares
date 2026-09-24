@@ -793,8 +793,10 @@ def evaluar_tecnico(cierres):
     if pd.isna(ema_act) or ema_act <= 0:
         return False, False, False, False, precio_act, None, macd_val, barras_count
 
-    cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
-    cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
+    # cerca_arriba/cerca_abajo (margen de proximidad del 5%) ya NO se usan
+    # en la condición final — ver nota más abajo (PRUEBA 2-bis).
+    # cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
+    # cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
 
     if ETAPA_PRUEBA_FILTROS == 1:
         cruzo_arriba = bool(precio_act > ema_act)
@@ -810,7 +812,12 @@ def evaluar_tecnico(cierres):
 
     macd_positivo = bool(macd_val is not None and macd_val > 0)
     macd_negativo = bool(macd_val is not None and macd_val < 0)
-    return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo, precio_act, float(ema_act), macd_val, barras_count
+    # PRUEBA 2-bis: se retira el margen de proximidad del 5% de la condición
+    # final. Antes se exigía "cruzó Y además sigue dentro del 5% de la EMA20",
+    # lo cual descartaba movers que ya se alejaron de la EMA20 justo al cruzar.
+    # Ahora basta con que la vela haya nacido por encima/debajo de la EMA20
+    # (cruzo_arriba / cruzo_abajo), sin exigir cercanía de precio.
+    return cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo, precio_act, float(ema_act), macd_val, barras_count
 
 
 def descargar_cierres(data_client, tickers):
