@@ -84,7 +84,7 @@ WORKERS_FUNDAMENTALES = 1               # FMP no se consulta en paralelo
 VIGENCIA_FUNDAMENTALES = 7 * 86400
 REINTENTO_FUNDAMENTALES = 300
 PAUSA_FMP_429_SEGUNDOS = 900            # tras HTTP 429, pausa FMP durante 15 min
-FMP_MIN_INTERVAL_SEGUNDOS = 120         # como máximo 1 consulta cada 2 min; FMP puede responder 429 con límites bajos
+FMP_MIN_INTERVAL_SEGUNDOS = 30          # máximo 2 consultas/minuto para no golpear el límite de FMP
 
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
 HORA_AUTO_INICIO_ET = 4
@@ -92,10 +92,7 @@ HORA_AUTO_FIN_ET = 16
 TTL_CALENDARIO_MERCADO = 12 * 3600
 
 TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker más seguido que esto
-TTL_RVOL_SEGUNDOS = 6 * 3600           # el promedio histórico de volumen se actualiza cada 6 h
-RVOL_PERIODOS = 20                      # promedio de 20 sesiones anteriores
-RVOL_MIN_POR_DEFECTO = 1.2             # 1.2x = 20% por encima del promedio
-VENTANA_CRUCE_EMA_MINUTOS = 3
+VENTANA_CRUCE_EMA_MINUTOS = 1
 MARGEN_PROXIMIDAD_EMA = 0.05
 MINUTOS_NOTICIA_RECIENTE = 60
 
@@ -118,11 +115,10 @@ RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
 VALORES_POR_DEFECTO = {
     "precio_min": 0.5,
     "precio_max": 20.0,
-    "gap_min": 3.0,
+    "gap_min": 5.0,
     "gap_max": 500.0,
-    "flotacion_max": 50_000_000,
+    "flotacion_max": 15_000_000,
     "volumen_min": 15_000,
-    "rvol_min": 1.2,
     "intervalo_refresco": 5,
     # Valores técnicos usados por el motor compartido/diagnóstico.
     # Antes faltaban aquí y filtrar_resultados() podía lanzar KeyError
@@ -245,7 +241,7 @@ def registrar_usuario(email, password):
 
     # Supabase debe enviar el enlace de confirmación de vuelta a la
     # aplicación pública del scanner, no a share.streamlit.io.
-    redirect_url = "https://panel-radares-ovnooclctxhthqpcjd6gih.streamlit.app"
+    redirect_url = "https://jd6gih.streamlit.app"
 
     data, error = supabase_auth_request(
         f"signup?redirect_to={quote(redirect_url, safe='')}",
@@ -373,6 +369,10 @@ def pantalla_autenticacion():
         unsafe_allow_html=True,
     )
 
+    # Una sola ventana para todos.
+    # El acceso de administrador está dentro de la misma pantalla y
+    # requiere el token secreto configurado en Streamlit Secrets.
+    # No se utiliza una segunda URL ni un parámetro especial de administrador.
     tab_login, tab_registro, tab_admin = st.tabs(
         ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
     )
@@ -450,36 +450,37 @@ def pantalla_autenticacion():
                             "la cuenta y después inicia sesión."
                         )
 
-    with tab_admin:
-        st.markdown("### Acceso del administrador")
-        st.caption("Este acceso conserva el sistema de token del propietario.")
+    if modo_admin:
+        with tab_admin:
+            st.markdown("### Acceso del administrador")
+            st.caption("Este acceso conserva el sistema de token del propietario.")
 
-        with st.form("form_admin_token"):
-            token_ingresado = st.text_input(
-                "Token de administrador",
-                type="password",
-                key="admin_token_login",
-            )
-            entrar_admin = st.form_submit_button(
-                "👑 VALIDAR ACCESO",
-                use_container_width=True,
-            )
+            with st.form("form_admin_token"):
+                token_ingresado = st.text_input(
+                    "Token de administrador",
+                    type="password",
+                    key="admin_token_login",
+                )
+                entrar_admin = st.form_submit_button(
+                    "👑 VALIDAR ACCESO",
+                    use_container_width=True,
+                )
 
-        if entrar_admin:
-            token_limpio = token_ingresado.strip()
-            es_valido, estado = verificar_token(token_limpio)
+            if entrar_admin:
+                token_limpio = token_ingresado.strip()
+                es_valido, estado = verificar_token(token_limpio)
 
-            if es_valido:
-                st.session_state["token_verificado"] = token_limpio
-                st.session_state["fecha_vencimiento"] = estado
-                st.session_state["tipo_acceso"] = "admin"
-                st.rerun()
-            elif estado == "EXPIRADO":
-                st.error("🔒 Token expirado.")
-            elif estado == "FORMATO":
-                st.error("❌ Error de configuración del token.")
-            else:
-                st.error("❌ Token no válido. Acceso denegado.")
+                if es_valido:
+                    st.session_state["token_verificado"] = token_limpio
+                    st.session_state["fecha_vencimiento"] = estado
+                    st.session_state["tipo_acceso"] = "admin"
+                    st.rerun()
+                elif estado == "EXPIRADO":
+                    st.error("🔒 Token expirado.")
+                elif estado == "FORMATO":
+                    st.error("❌ Error de configuración del token.")
+                else:
+                    st.error("❌ Token no válido. Acceso denegado.")
 
     st.stop()
 
@@ -576,55 +577,45 @@ def formatear_numero_grande(numero):
 
 
 def evaluar_tecnico(cierres):
-    """Evalúa la posición actual frente a EMA20 y MACD.
-
-    "Hacia arriba" y "Hacia abajo" significan que el precio actual está
-    por encima o por debajo de EMA20. La versión anterior exigía además un
-    cruce ocurrido en la última vela y que el precio estuviera a <=5% de la
-    EMA; eso dejaba el radar en 0 aunque el precio siguiera claramente por
-    encima de EMA20.
-    """
+    """Devuelve (cruza_arriba, cruza_abajo, macd_positivo, macd_negativo) a partir de una serie de cierres de 1 minuto."""
     if cierres is None or len(cierres) < 40:
         return False, False, False, False
 
-    try:
-        cierres = pd.to_numeric(cierres, errors="coerce").dropna()
-        if len(cierres) < 40:
-            return False, False, False, False
+    ema20 = cierres.ewm(span=20, adjust=False).mean()
+    macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
 
-        ema20 = cierres.ewm(span=20, adjust=False).mean()
-        ema12 = cierres.ewm(span=12, adjust=False).mean()
-        ema26 = cierres.ewm(span=26, adjust=False).mean()
-        macd_line = ema12 - ema26
-
-        precio_act = float(cierres.iloc[-1])
-        ema_act = float(ema20.iloc[-1])
-        macd_actual = float(macd_line.iloc[-1])
-        if pd.isna(ema_act) or ema_act <= 0 or pd.isna(macd_actual):
-            return False, False, False, False
-
-        # Filtro técnico principal: posición actual, no "cruce de una sola vela".
-        arriba = precio_act > ema_act
-        abajo = precio_act < ema_act
-        macd_positivo = macd_actual > 0
-        macd_negativo = macd_actual < 0
-        return arriba, abajo, macd_positivo, macd_negativo
-    except Exception:
+    precio_act = float(cierres.iloc[-1])
+    ema_act = float(ema20.iloc[-1])
+    if pd.isna(ema_act) or ema_act <= 0:
         return False, False, False, False
+
+    cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
+    cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
+
+    cruzo_arriba = False
+    cruzo_abajo = False
+    for i in range(-VENTANA_CRUCE_EMA_MINUTOS, 0):
+        if cierres.iloc[i - 1] <= ema20.iloc[i - 1] and cierres.iloc[i] > ema20.iloc[i]:
+            cruzo_arriba = True
+        if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
+            cruzo_abajo = True
+
+    macd_actual = macd_line.iloc[-1]
+    macd_positivo = bool(not pd.isna(macd_actual) and macd_actual > 0)
+    macd_negativo = bool(not pd.isna(macd_actual) and macd_actual < 0)
+    return (cerca_arriba and cruzo_arriba), (cerca_abajo and cruzo_abajo), macd_positivo, macd_negativo
 
 
 def descargar_cierres(data_client, tickers):
-    """Descarga cierres intradía de Alpaca de forma robusta para EMA20/MACD."""
+    """Velas de 1 minuto de Alpaca para EMA20/MACD, sin depender de Yahoo Finance."""
     salida = {}
     if not tickers:
         return salida
 
-    # Lotes más pequeños reducen respuestas incompletas de Alpaca cuando se
-    # consultan muchos símbolos al mismo tiempo.
-    for i in range(0, len(tickers), 25):
-        lote = tickers[i:i + 25]
+    for i in range(0, len(tickers), 50):
+        lote = tickers[i:i + 50]
         try:
-            inicio = datetime.now(timezone.utc) - timedelta(days=3)
+            inicio = datetime.now(timezone.utc) - timedelta(days=2)
             fin = datetime.now(timezone.utc)
             solicitud = StockBarsRequest(
                 symbol_or_symbols=lote,
@@ -635,31 +626,30 @@ def descargar_cierres(data_client, tickers):
             barras = data_client.get_stock_bars(solicitud)
             datos = getattr(barras, "df", None)
         except Exception as e:
-            print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {e}")
+            self_error = str(e)
+            print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {self_error}")
             continue
 
-        if datos is None or datos.empty or "close" not in datos.columns:
+        if datos is None or datos.empty:
             continue
 
         try:
             if isinstance(datos.index, pd.MultiIndex):
-                # Alpaca normalmente devuelve (symbol, timestamp), pero no
-                # asumimos que el nivel del símbolo sea siempre el 0.
-                nombres = list(datos.index.names)
-                nivel_simbolo = nombres.index("symbol") if "symbol" in nombres else 0
                 for ticker in lote:
                     try:
-                        serie = datos.xs(ticker, level=nivel_simbolo)["close"].dropna()
+                        serie = datos.xs(ticker, level=0)["close"].dropna()
                     except Exception:
                         continue
                     if len(serie) >= 40:
                         salida[ticker] = serie
-            elif len(lote) == 1:
-                serie = datos["close"].dropna()
-                if len(serie) >= 40:
-                    salida[lote[0]] = serie
-        except Exception as e:
-            print(f"⚠️ No se pudo interpretar las velas de Alpaca: {e}")
+            else:
+                # Caso excepcional de un solo ticker.
+                if "close" in datos.columns and len(lote) == 1:
+                    serie = datos["close"].dropna()
+                    if len(serie) >= 40:
+                        salida[lote[0]] = serie
+        except Exception:
+            continue
     return salida
 
 
@@ -673,9 +663,6 @@ def filtrar_resultados(filas, p):
         if c["float_shares"] is not None and c["float_shares"] >= p["flotacion_max"]:
             continue
         if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
-            continue
-        rvol = c.get("rvol")
-        if rvol is None or rvol < p.get("rvol_min", RVOL_MIN_POR_DEFECTO):
             continue
         cruce = p.get("cruce_ema", "Neutro")
         if cruce == "Hacia arriba" and not c["cruzando_ema20"]:
@@ -772,7 +759,6 @@ class ServicioScanner:
         self._ultimo_precio_evento = {}
 
         self.cache_tecnico = {}
-        self.cache_rvol = {}
         self.cache_fund = self._leer_cache_fundamentales()
         # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
         self.fmp_pausado_hasta = 0.0
@@ -900,7 +886,6 @@ class ServicioScanner:
             self.eventos = []
             self._ultimo_precio_evento = {}
             self.cache_tecnico = {}
-            self.cache_rvol = {}
             self.fmp_pausado_hasta = 0.0
             self._ultima_peticion_fmp = 0.0
             self._ultima_peticion = 0.0
@@ -991,7 +976,10 @@ class ServicioScanner:
         if ahora < self.fmp_pausado_hasta:
             restante = max(1, int(self.fmp_pausado_hasta - ahora))
             minutos = restante // 60 + (1 if restante % 60 else 0)
-            print(f"ℹ️ FMP en pausa por HTTP 429; faltan aproximadamente {minutos} min. Se conserva el scanner operativo.")
+            self.ultimo_error = (
+                "FMP está en pausa por límite de solicitudes (HTTP 429). "
+                f"Se reintentará en aproximadamente {minutos} min."
+            )
             return None
 
         try:
@@ -1009,7 +997,11 @@ class ServicioScanner:
             )
             if respuesta.status_code == 429:
                 self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
-                print(f"ℹ️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s. El float queda pendiente y el radar continúa.")
+                self.ultimo_error = (
+                    f"FMP devolvió HTTP 429 para {ticker}. "
+                    "Se pausaron las consultas de float durante 15 minutos para evitar más bloqueos."
+                )
+                print(f"⚠️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s")
                 return None
             if respuesta.status_code in (401, 403):
                 self.ultimo_error = (
@@ -1081,74 +1073,6 @@ class ServicioScanner:
             for t, entrada in ex.map(pedir, faltan):
                 self.cache_fund[t] = entrada
         self._guardar_cache_fundamentales()
-
-    # ---------- RVOL ----------
-    def _asegurar_rvol(self, tickers):
-        """Calcula RVOL real: volumen de la sesión actual / promedio de 20 sesiones previas.
-
-        El volumen de hoy proviene del daily_bar del snapshot (sesión actual),
-        mientras que el denominador usa únicamente las 20 sesiones anteriores.
-        No se usa el porcentaje de subida del precio como sustituto.
-        """
-        ahora = time.time()
-        pendientes = [
-            t for t in tickers
-            if t not in self.cache_rvol or ahora - self.cache_rvol[t][0] > TTL_RVOL_SEGUNDOS
-        ]
-        if not pendientes:
-            return
-
-        for i in range(0, len(pendientes), 25):
-            lote = pendientes[i:i + 25]
-            try:
-                inicio = datetime.now(timezone.utc) - timedelta(days=45)
-                fin = datetime.now(timezone.utc)
-                self._esperar_turno()
-                solicitud = StockBarsRequest(
-                    symbol_or_symbols=lote,
-                    timeframe=TimeFrame.Day,
-                    start=inicio,
-                    end=fin,
-                )
-                barras = self.data.get_stock_bars(solicitud)
-                datos = getattr(barras, "df", None)
-            except Exception as e:
-                print(f"⚠️ Error descargando volumen histórico para RVOL (lote {len(lote)}): {e}")
-                continue
-
-            if datos is None or datos.empty or "volume" not in datos.columns:
-                continue
-
-            hoy_et = datetime.now(ET).date()
-            try:
-                if isinstance(datos.index, pd.MultiIndex):
-                    nombres = list(datos.index.names)
-                    nivel_simbolo = nombres.index("symbol") if "symbol" in nombres else 0
-                    for ticker in lote:
-                        try:
-                            serie = datos.xs(ticker, level=nivel_simbolo)["volume"].dropna()
-                            fechas = pd.to_datetime(serie.index)
-                            if getattr(fechas, "tz", None) is not None:
-                                fechas = fechas.tz_convert(ET)
-                            fechas = pd.Index([x.date() for x in fechas])
-                            serie = pd.Series(serie.to_numpy(dtype=float), index=fechas)
-                            historico = serie[serie.index < hoy_et].tail(RVOL_PERIODOS)
-                            promedio = float(historico.mean()) if len(historico) >= RVOL_PERIODOS else None
-                            self.cache_rvol[ticker] = (ahora, promedio)
-                        except Exception:
-                            self.cache_rvol[ticker] = (ahora, None)
-                elif len(lote) == 1:
-                    serie = datos["volume"].dropna()
-                    fechas = pd.to_datetime(serie.index)
-                    if getattr(fechas, "tz", None) is not None:
-                        fechas = fechas.tz_convert(ET)
-                    fechas = pd.Index([x.date() for x in fechas])
-                    serie = pd.Series(serie.to_numpy(dtype=float), index=fechas)
-                    historico = serie[serie.index < hoy_et].tail(RVOL_PERIODOS)
-                    promedio = float(historico.mean()) if len(historico) >= RVOL_PERIODOS else None
-                    self.cache_rvol[lote[0]] = (ahora, promedio)
-            except Exception as e:
-                print(f"⚠️ No se pudo interpretar el volumen histórico para RVOL: {e}")
 
     # ---------- EMA20 / MACD ----------
     def _asegurar_tecnico(self, tickers):
@@ -1317,8 +1241,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # Un ticker sin float NO se descarta.
             if float_shares is not None and float_shares >= BASE_FLOTACION_MAX:
                 continue
-                    # Volumen = títulos negociados durante la sesión actual.
-            # No se usa volumen premarket para este filtro.
+            # Volumen = títulos negociados durante la sesión actual.
+            # Ya no se calcula ni se consulta "volumen premarket" ni promedio externo.
             if c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
                 continue
 
@@ -1328,25 +1252,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "pending" if not entrada else "no_data"
             )
             c["float_source"] = entrada.get("float_source", "")
+            # El porcentaje de subida se representa directamente con cambio_pct.
+            c["volumen_relativo"] = c["cambio_pct"]
             enriquecidos.append(c)
-
-        # RVOL real: volumen actual de la sesión / promedio de las 20 sesiones anteriores.
-        # Se calcula después del filtro de volumen absoluto para no gastar llamadas en
-        # acciones que ya no pueden entrar al radar.
-        self._asegurar_rvol([c["ticker"] for c in enriquecidos])
-        enriquecidos_rvol = []
-        rvol_min = self.filtros_dueno.get("rvol_min", RVOL_MIN_POR_DEFECTO)
-        for c in enriquecidos:
-            cache = self.cache_rvol.get(c["ticker"], (0, None))
-            promedio = cache[1]
-            if promedio is None or promedio <= 0:
-                continue
-            c["volumen_promedio_20d"] = promedio
-            c["rvol"] = c["volumen_dia"] / promedio
-            c["volumen_relativo"] = c["rvol"]
-            if c["rvol"] >= rvol_min:
-                enriquecidos_rvol.append(c)
-        enriquecidos = enriquecidos_rvol
 
         tickers_enr = [c["ticker"] for c in enriquecidos]
         self._asegurar_tecnico(tickers_enr)
@@ -1367,10 +1275,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             1 for c in enriquecidos
             if c.get("cruzando_ema20") and c.get("macd_positivo")
         )
+        tras_vol_rel_count = sum(
+            1 for c in enriquecidos
+            if c.get("volumen_dia", 0) >= self.filtros_dueno.get("volumen_min", 15_000)
+        )
         self.diagnostico_filtros = {
             "radar_base": radar_base_total,
             "tras_float": len(enriquecidos),
-            "tras_vol_rel": len(enriquecidos),
+            "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
             "ema_y_macd": ema_y_macd_count,
@@ -1642,17 +1554,16 @@ st.markdown(f"""
 with st.container(border=True):
     st.markdown('<div class="simple-title">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
     cfg = cargar_config()
-    f1,f2,f3,f4,f5,f6,f7,f8 = st.columns(8, gap="small")
-    with f1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, min_value=0.5, key="f_pmin")
+    f1,f2,f3,f4,f5,f6,f7 = st.columns(7, gap="small")
+    with f1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
     with f2: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
     with f3: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
     with f4: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
     with f5: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
     with f6: VOLUMEN_MIN = st.number_input("Volumen mín. (títulos)", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
-    with f7: RVOL_MIN = st.number_input("RVOL mín. (x)", value=float(cfg.get("rvol_min", RVOL_MIN_POR_DEFECTO)), min_value=0.0, step=0.1, key="f_rvol")
-    with f8: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+    with f7: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
     q1,q2,q3,q4,q5,q6 = st.columns(6, gap="small")
-    with q1: CRUCE_EMA = st.selectbox("EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
+    with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
     with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
     with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
     with q4: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
@@ -1660,7 +1571,7 @@ with st.container(border=True):
 
 params = {
     "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
-    "flotacion_max": FLOT_MAX, "volumen_min": VOLUMEN_MIN, "rvol_min": RVOL_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
+    "flotacion_max": FLOT_MAX, "volumen_min": VOLUMEN_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
     "orden": ORDEN, "top_n": TOP_N,
 }
 
@@ -1797,7 +1708,7 @@ def panel_diagnostico_filtros():
             st.markdown(
                 f"**Radar base:** {d.get('radar_base', 0)} → "
                 f"**tras float:** {d.get('tras_float', 0)} → "
-                f"**volumen + RVOL ≥ {servicio.filtros_dueno.get('rvol_min', RVOL_MIN_POR_DEFECTO):.1f}x:** {d.get('tras_vol_rel', 0)} → "
+                f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 15_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
                 f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
                 f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
                 f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
@@ -1826,7 +1737,7 @@ def panel_resultados():
                    f" · ciclo {servicio.duracion_ciclo:.1f}s"
                    f" · {len(servicio.universo)} tickers vigilados"
                    f" · {servicio.n_radar_base} en el radar base"
-                   f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 15_000))}, RVOL ≥ {servicio.filtros_dueno.get('rvol_min', RVOL_MIN_POR_DEFECTO):.1f}x)")
+                   f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 15_000))})")
         st.caption(detalle)
     else:
         st.caption("Esperando el primer escaneo (la primera vez puede tardar un minuto)...")
@@ -1847,7 +1758,6 @@ def panel_resultados():
             "Precio": round(c["precio"], 2),
             "Cambio %": round(c["cambio_pct"], 1),
             "Volumen": formatear_numero_grande(c["volumen_dia"]),
-            "RVOL": f'{c.get("rvol", 0):.2f}x',
             "Flotación": (
                 formatear_numero_grande(c["float_shares"])
                 if c["float_shares"] is not None
@@ -2096,7 +2006,7 @@ def construir_html_panel_broker(filas10, cfg, colores_layout=None):
         "<div class='tbl-wrap'>"
         "<table><thead><tr>"
         '<th class="gearhdr">🔗</th><th class="colhdr">&nbsp;</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>' 
-        "<th>Volumen</th><th>Flotación</th><th>RVOL</th>"
+        "<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>"
         "</tr></thead><tbody>" + "".join(cuerpo) + "</tbody></table>"
         "</div>"
         '<div id="msg"></div>'
