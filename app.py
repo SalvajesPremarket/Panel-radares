@@ -278,6 +278,145 @@ def iniciar_sesion_usuario(email, password):
     return data, None
 
 
+def solicitar_recuperacion(email):
+    """Envía a Supabase un enlace para recuperar la contraseña."""
+    email = str(email).strip().lower()
+
+    if not email or "@" not in email:
+        return None, "Introduce un correo electrónico válido."
+
+    redirect_url = "https://jd6gih.streamlit.app"
+
+    data, error = supabase_auth_request(
+        f"recover?redirect_to={quote(redirect_url, safe='')}",
+        {"email": email},
+    )
+
+    if error:
+        return None, error
+
+    return data, None
+
+
+def render_recuperacion_password():
+    """
+    Muestra el formulario de nueva contraseña cuando Supabase devuelve
+    un enlace de recuperación a esta misma aplicación.
+    """
+    url, key = _supabase_config()
+    if not url or not key:
+        return
+
+    html = f"""
+    <style>
+      body {{ margin:0; font-family:Arial,sans-serif; background:transparent; color:#e8e8e8; }}
+      #box {{ display:none; padding:18px; border:1px solid rgba(255,255,255,.16);
+              border-radius:12px; background:rgba(20,20,20,.92); }}
+      h3 {{ margin:0 0 8px 0; }}
+      p {{ margin:6px 0 12px 0; }}
+      input {{ width:100%; box-sizing:border-box; margin:6px 0; padding:11px;
+               border-radius:8px; border:1px solid #555; background:#111; color:white; }}
+      button {{ width:100%; margin-top:8px; padding:11px; border:0;
+                border-radius:8px; cursor:pointer; font-weight:700; }}
+      #msg {{ margin-top:10px; }}
+      .ok {{ color:#55d66b; }} .err {{ color:#ff5b5b; }}
+    </style>
+
+    <div id="box">
+      <h3>🔐 Restablecer contraseña</h3>
+      <p>Escribe tu nueva contraseña.</p>
+      <input id="p1" type="password" minlength="8" placeholder="Nueva contraseña">
+      <input id="p2" type="password" minlength="8" placeholder="Repetir contraseña">
+      <button id="save">💾 CAMBIAR CONTRASEÑA</button>
+      <div id="msg"></div>
+    </div>
+
+    <script>
+      const SUPABASE_URL = {json.dumps(url)};
+      const SUPABASE_KEY = {json.dumps(key)};
+
+      function setMsg(text, cls) {{
+        const el = document.getElementById("msg");
+        el.textContent = text;
+        el.className = cls || "";
+      }}
+
+      async function main() {{
+        const hash = new URLSearchParams(
+          window.parent.location.hash.replace(/^#/, "")
+        );
+        const type = hash.get("type");
+        const accessToken = hash.get("access_token");
+
+        if (type !== "recovery" || !accessToken) return;
+
+        document.getElementById("box").style.display = "block";
+
+        document.getElementById("save").onclick = async () => {{
+          const p1 = document.getElementById("p1").value;
+          const p2 = document.getElementById("p2").value;
+
+          if (p1.length < 8) {{
+            setMsg("La contraseña debe tener al menos 8 caracteres.", "err");
+            return;
+          }}
+          if (p1 !== p2) {{
+            setMsg("Las contraseñas no coinciden.", "err");
+            return;
+          }}
+
+          setMsg("Guardando...", "");
+
+          try {{
+            const response = await fetch(
+              SUPABASE_URL + "/auth/v1/user",
+              {{
+                method: "PUT",
+                headers: {{
+                  "apikey": SUPABASE_KEY,
+                  "Authorization": "Bearer " + accessToken,
+                  "Content-Type": "application/json"
+                }},
+                body: JSON.stringify({{ password: p1 }})
+              }}
+            );
+
+            let data = {{}};
+            try {{ data = await response.json(); }} catch (e) {{}}
+
+            if (!response.ok) {{
+              setMsg(
+                data.msg || data.message || data.error_description ||
+                "No se pudo cambiar la contraseña.",
+                "err"
+              );
+              return;
+            }}
+
+            setMsg("✅ Contraseña cambiada. Ya puedes iniciar sesión.", "ok");
+
+            window.parent.history.replaceState(
+              {{}}, document.title, window.parent.location.pathname
+            );
+
+            setTimeout(() => window.parent.location.reload(), 1400);
+          }} catch (e) {{
+            setMsg("Error de conexión con Supabase.", "err");
+          }}
+        }};
+      }}
+
+      main();
+    </script>
+    """
+
+    try:
+        st.iframe(html, height=260, scrolling=False)
+    except Exception:
+        import streamlit.components.v1 as components
+        components.html(html, height=260, scrolling=False)
+
+
 def cerrar_sesion():
     """Limpia la sesión local de Streamlit."""
     for clave in (
@@ -402,6 +541,32 @@ def pantalla_autenticacion():
             else:
                 _guardar_usuario_auth(data, tipo="usuario")
                 st.rerun()
+
+        with st.expander("🔑 ¿Olvidaste tu contraseña?"):
+            st.caption("Te enviaremos un enlace para crear una contraseña nueva.")
+            with st.form("form_recuperar_password"):
+                email_recuperacion = st.text_input(
+                    "Correo de tu cuenta",
+                    value=st.session_state.get("login_email", ""),
+                    placeholder="tu@email.com",
+                    key="recovery_email",
+                )
+                enviar_recuperacion = st.form_submit_button(
+                    "📩 ENVIAR ENLACE DE RECUPERACIÓN",
+                    use_container_width=True,
+                )
+
+            if enviar_recuperacion:
+                _, error_recuperacion = solicitar_recuperacion(email_recuperacion)
+                if error_recuperacion:
+                    st.error(f"❌ {error_recuperacion}")
+                else:
+                    st.success(
+                        "✅ Si el correo está registrado, recibirás un enlace "
+                        "para restablecer la contraseña. Revisa también spam."
+                    )
+
+        render_recuperacion_password()
 
     with tab_registro:
         st.markdown("### Crear cuenta")
