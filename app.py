@@ -1462,7 +1462,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # y evitamos que el límite HTTP 429 contamine la prueba.
             self.ultimo_error = None
 
-        enriquecidos = []
+        # PRUEBA 2: separamos el filtro de float y el de volumen en dos pasadas
+        # para poder medir, en el diagnóstico, cuánto recorta CADA UNO por
+        # separado (antes ambos se aplicaban en el mismo bucle y el panel
+        # mostraba el mismo número para "tras_float" y "tras_vol_rel").
+        tras_float = []
         for c in base:
             entrada = self.cache_fund.get(c["ticker"], {})
             float_shares = entrada.get("float")
@@ -1470,15 +1474,19 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # Tampoco consultamos float en esta etapa para evitar HTTP 429 de FMP.
             if ETAPA_PRUEBA_FILTROS >= 3 and float_shares is not None and float_shares >= BASE_FLOTACION_MAX:
                 continue
-            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
-                continue
-
             c["float_shares"] = float_shares
             c["float_status"] = entrada.get(
                 "float_status",
                 "pending" if not entrada else "no_data"
             )
             c["float_source"] = entrada.get("float_source", "")
+            tras_float.append(c)
+        self.n_tras_float = len(tras_float)
+
+        enriquecidos = []
+        for c in tras_float:
+            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
+                continue
             # El porcentaje de subida se representa directamente con cambio_pct.
             c["volumen_relativo"] = c["cambio_pct"]
             enriquecidos.append(c)
@@ -1507,10 +1515,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             1 for c in enriquecidos
             if c.get("cruzando_ema20") and c.get("macd_positivo")
         )
-        tras_vol_rel_count = sum(
-            1 for c in enriquecidos
-            if c.get("volumen_dia", 0) >= self.filtros_dueno.get("volumen_min", 15_000)
-        )
+        # El filtro de volumen ya se aplicó al construir 'enriquecidos', así
+        # que ese conteo ES el resultado "tras volumen". El paso previo
+        # (antes de aplicar volumen) queda guardado en self.n_tras_float.
+        tras_vol_rel_count = len(enriquecidos)
         tecnicos_validos = sum(1 for c in enriquecidos if c.get("tecnico_barras", 0) >= 40)
         ema_calculable = sum(1 for c in enriquecidos if c.get("tecnico_ema20") is not None)
         macd_calculable = sum(1 for c in enriquecidos if c.get("tecnico_macd") is not None)
@@ -1527,7 +1535,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "con_40_barras": tecnicos_validos,
             "ema_calculable": ema_calculable,
             "macd_calculable": macd_calculable,
-            "tras_float": len(enriquecidos),
+            "tras_float": getattr(self, "n_tras_float", len(enriquecidos)),
             "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
