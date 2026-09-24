@@ -132,7 +132,7 @@ VALORES_POR_DEFECTO = {
     "cruce_ema": "Hacia arriba",
     "macd": "Positivo",
     "orden": "Actualizado",
-    "top_n": 10,
+    "top_n": 50,
 }
 
 
@@ -1515,6 +1515,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         ema_calculable = sum(1 for c in enriquecidos if c.get("tecnico_ema20") is not None)
         macd_calculable = sum(1 for c in enriquecidos if c.get("tecnico_macd") is not None)
         tickers_enr_unicos = len({c.get("ticker") for c in enriquecidos})
+        # Conteo bruto que cumple EMA20 + MACD antes del límite de presentación.
+        # En PRUEBA 4 top_n=50, por lo que el resultado final podrá mostrar hasta 50.
+        candidatos_ema_macd_brutos = sum(
+            1 for c in enriquecidos
+            if c.get("cruzando_ema20") and c.get("macd_positivo")
+        )
         self.diagnostico_filtros = {
             "radar_base": radar_base_total,
             "enviados_tecnico": len(enriquecidos),
@@ -1526,6 +1532,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
             "ema_y_macd": ema_y_macd_count,
+            "candidatos_ema_macd_brutos": candidatos_ema_macd_brutos,
             "tickers_unicos": tickers_enr_unicos,
             "duplicados": len(enriquecidos) - tickers_enr_unicos,
             "resultados": len(filtrar_resultados(enriquecidos, self.filtros_dueno)),
@@ -1547,7 +1554,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # 🛑 TELEGRAM APAGADO DURANTE LA DEPURACIÓN.
         # No se envía nada al grupo mientras comprobamos los filtros.
         p = dict(self.filtros_dueno)
-        p.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 10, "orden": "Actualizado"})
+        p.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
         top = filtrar_resultados(enriquecidos, p)
         if top:
             tabla = f"{'TICK':<5}|{'PRE':>5}|{'CHG%':>4}|{'VOL':>5}|{'FLT':>5}\n" + "-" * 28 + "\n"
@@ -1996,6 +2003,7 @@ def panel_diagnostico_filtros():
                     f"**MACD calculable:** {d.get('macd_calculable', 0)} → "
                     f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
                     f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
+                    f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
                     f"**resultado final:** {d.get('resultados', 0)}"
                 )
                 st.caption(f"Tickers únicos en técnico: {d.get('tickers_unicos', 0)} · duplicados detectados: {d.get('duplicados', 0)}")
@@ -2017,6 +2025,7 @@ def panel_diagnostico_filtros():
                     f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
                     f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
                     f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
+                    f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
                     f"**resultado final:** {d.get('resultados', 0)}"
                 )
 
