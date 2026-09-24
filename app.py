@@ -1,7 +1,4 @@
 from datetime import datetime, timedelta, timezone
-import streamlit as st
-st.title("Panel Radares")
-st.write("El scanner está corriendo en segundo plano...")
 import yfinance as yf
 import os
 import time
@@ -373,3 +370,65 @@ def bucle_control_scanner():
 # Lanzar el hilo del scanner en segundo plano (arranca en pausa hasta que le des al botón)
 hilo_servicio = Thread(target=bucle_control_scanner, daemon=True)
 hilo_servicio.start()
+
+
+# ==========================================
+# 🎛 VENTANA FLOTANTE CON BOTÓN DE ENCENDIDO/APAGADO
+# ==========================================
+def abrir_web():
+    ruta_html = os.path.join(os.getcwd(), NOMBRE_ARCHIVO_HTML)
+    if os.path.exists(ruta_html):
+        webbrowser.open(f"file:///{ruta_html}")
+        print(f"🌐 Abriendo {NOMBRE_ARCHIVO_HTML} en tu navegador...")
+    else:
+        print("⏳ El archivo HTML se creará en cuanto el scanner haga su primer envío.")
+
+
+def alternar_bot():
+    global BOT_ENCENDIDO
+    BOT_ENCENDIDO = not BOT_ENCENDIDO
+    if BOT_ENCENDIDO:
+        boton.config(text="🔴  DETENER SCANNER", bg="#c0392b")
+        etiqueta_estado.config(text="Estado: 🟢 OPERANDO", fg="#2ecc71")
+        print("\n   ⚙️ El Bot ahora está: ¡ENCENDIDO!")
+        Thread(target=ejecutar_ciclo_escaneo, daemon=True).start()  # primer escaneo inmediato
+    else:
+        boton.config(text="🟢  INICIAR SCANNER", bg="#27ae60")
+        etiqueta_estado.config(text="Estado: 🔴 EN PAUSA", fg="#e74c3c")
+        print("\n   ⚙️ El Bot ahora está: ¡PAUSADO!")
+
+
+ventana = tk.Tk()
+ventana.title("Control Scanner Pre Market")
+ventana.geometry("280x180")
+ventana.resizable(False, False)
+ventana.attributes("-topmost", True)  # Siempre encima de las demás ventanas
+ventana.configure(bg="#121212")
+
+titulo = tk.Label(
+    ventana, text="⚡ SCANNER PRE MARKET 1.1.1",
+    fg="#00ffcc", bg="#121212", font=("Arial", 10, "bold"), wraplength=260
+)
+titulo.pack(pady=(12, 4))
+
+etiqueta_estado = tk.Label(
+    ventana, text="Estado: 🔴 EN PAUSA",
+    fg="#e74c3c", bg="#121212", font=("Arial", 10)
+)
+etiqueta_estado.pack(pady=4)
+
+boton = tk.Button(
+    ventana, text="🟢  INICIAR SCANNER", command=alternar_bot,
+    bg="#27ae60", fg="white", font=("Arial", 11, "bold"),
+    width=22, height=2, relief="flat", cursor="hand2", activebackground="#1e8449"
+)
+boton.pack(pady=8)
+
+boton_web = tk.Button(
+    ventana, text="🌐 Abrir cuadro en navegador", command=abrir_web,
+    bg="#2c3e50", fg="white", font=("Arial", 8),
+    relief="flat", cursor="hand2"
+)
+boton_web.pack(pady=2)
+
+ventana.mainloop()
