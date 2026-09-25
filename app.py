@@ -124,7 +124,7 @@ VALORES_POR_DEFECTO = {
     "gap_min": 5.0,
     "gap_max": 500.0,
     "flotacion_max": 15_000_000,
-    "volumen_min": 15_000,
+    "volumen_min": 20_000,
     "intervalo_refresco": 5,
     # Valores técnicos usados por el motor compartido/diagnóstico.
     # Antes faltaban aquí y filtrar_resultados() podía lanzar KeyError
@@ -798,46 +798,37 @@ def formatear_numero_grande(numero):
 
 
 def evaluar_tecnico(cierres):
-    """Devuelve señales + valores crudos para diagnosticar EMA20/MACD."""
+    """Calcula EMA20, MACD y Bollinger sobre velas de 1 minuto.
+    También devuelve los valores anterior/actual para auditar el cruce.
+    """
     if cierres is None or len(cierres) < 40:
-        return False, False, False, False, None, None, None, 0
-
+        return (False, False, False, False, None, None, None, 0,
+                None, None, None, None, None, None)
     barras_count = int(len(cierres))
     ema20 = cierres.ewm(span=20, adjust=False).mean()
     macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
-
-    precio_act = float(cierres.iloc[-1])
-    ema_act = float(ema20.iloc[-1])
+    precio_act = float(cierres.iloc[-1]); precio_prev = float(cierres.iloc[-2])
+    ema_act = float(ema20.iloc[-1]); ema_prev = float(ema20.iloc[-2])
     macd_actual = macd_line.iloc[-1]
     macd_val = float(macd_actual) if not pd.isna(macd_actual) else None
+    bb_mid = cierres.rolling(20).mean(); bb_std = cierres.rolling(20).std()
+    bb_upper = bb_mid.iloc[-1] + 2 * bb_std.iloc[-1]
+    bb_upper_val = float(bb_upper) if not pd.isna(bb_upper) else None
     if pd.isna(ema_act) or ema_act <= 0:
-        return False, False, False, False, precio_act, None, macd_val, barras_count
-
-    # cerca_arriba/cerca_abajo (margen de proximidad del 5%) ya NO se usan
-    # en la condición final — ver nota más abajo (PRUEBA 2-bis).
-    # cerca_arriba = precio_act > ema_act and (precio_act - ema_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
-    # cerca_abajo = precio_act < ema_act and (ema_act - precio_act) / ema_act <= MARGEN_PROXIMIDAD_EMA
-
+        return (False, False, False, False, precio_act, None, macd_val, barras_count,
+                precio_prev, ema_prev, precio_act, ema_act, bb_upper_val, None)
     if ETAPA_PRUEBA_FILTROS == 1:
-        cruzo_arriba = bool(precio_act > ema_act)
-        cruzo_abajo = bool(precio_act < ema_act)
+        cruzo_arriba = precio_act > ema_act; cruzo_abajo = precio_act < ema_act
     else:
-        cruzo_arriba = False
-        cruzo_abajo = False
-        for i in range(-VENTANA_CRUCE_EMA_MINUTOS, 0):
-            if cierres.iloc[i - 1] <= ema20.iloc[i - 1] and cierres.iloc[i] > ema20.iloc[i]:
-                cruzo_arriba = True
-            if cierres.iloc[i - 1] >= ema20.iloc[i - 1] and cierres.iloc[i] < ema20.iloc[i]:
-                cruzo_abajo = True
-
+        # Ventana estricta de 1 minuto: anterior -> actual.
+        cruzo_arriba = bool(precio_prev <= ema_prev and precio_act > ema_act)
+        cruzo_abajo = bool(precio_prev >= ema_prev and precio_act < ema_act)
     macd_positivo = bool(macd_val is not None and macd_val > 0)
     macd_negativo = bool(macd_val is not None and macd_val < 0)
-    # PRUEBA 2-bis: se retira el margen de proximidad del 5% de la condición
-    # final. Antes se exigía "cruzó Y además sigue dentro del 5% de la EMA20",
-    # lo cual descartaba movers que ya se alejaron de la EMA20 justo al cruzar.
-    # Ahora basta con que la vela haya nacido por encima/debajo de la EMA20
-    # (cruzo_arriba / cruzo_abajo), sin exigir cercanía de precio.
-    return cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo, precio_act, float(ema_act), macd_val, barras_count
+    bb_dist_pct = ((bb_upper_val - precio_act) / precio_act * 100.0) if bb_upper_val is not None and precio_act > 0 else None
+    return (cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo,
+            precio_act, ema_act, macd_val, barras_count, precio_prev, ema_prev,
+            precio_act, ema_act, bb_upper_val, bb_dist_pct)
 
 
 def descargar_cierres(data_client, tickers):
@@ -906,7 +897,7 @@ def filtrar_resultados(filas, p):
             if c["float_shares"] is not None and c["float_shares"] >= p["flotacion_max"]:
                 continue
         if ETAPA_PRUEBA_FILTROS >= 2:
-            if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
+            if c.get("volumen_dia", 0) < p.get("volumen_min", 20_000):
                 continue
         if ETAPA_PRUEBA_FILTROS == 1:
             # PRUEBA 1 real: EMA20 = precio por encima de EMA20.
@@ -951,7 +942,7 @@ def filtrar_eventos(eventos, p):
             continue
         if e["float_shares"] is not None and e["float_shares"] >= p["flotacion_max"]:
             continue
-        if e.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
+        if e.get("volumen_dia", 0) < p.get("volumen_min", 20_000):
             continue
         salida.append(e)
     return salida
@@ -1339,7 +1330,7 @@ class ServicioScanner:
         series = descargar_cierres(self.data, pendientes)
         for t in pendientes:
             cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act, macd_val, barras_count = evaluar_tecnico(series.get(t))
-            self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act, macd_val, barras_count)
+            self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act, macd_val, barras_count, precio_prev, ema_prev, precio_act, ema_act, bb_upper, bb_dist_pct)
 
     # ---------- noticias (una sola llamada para todos) ----------
     def _noticias_recientes(self, tickers):
@@ -1520,7 +1511,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         enriquecidos = []
         for c in tras_float:
-            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
+            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 20_000):
                 continue
             # El porcentaje de subida se representa directamente con cambio_pct.
             c["volumen_relativo"] = c["cambio_pct"]
@@ -1531,8 +1522,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in enriquecidos:
-            tech = self.cache_tecnico.get(c["ticker"], (0, False, False, False, False, None, None, None, 0))
-            _, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec = tech
+            tech = self.cache_tecnico.get(c["ticker"], (0, False, False, False, False, None, None, None, 0, None, None, None, None, None, None))
+            _, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec, precio_prev_tec, ema_prev_tec, precio_actual_tec, ema_actual_tec, bb_upper_tec, bb_dist_tec = tech
             c["cruzando_ema20"] = cruz_arriba
             c["cruzando_ema20_abajo"] = cruz_abajo
             c["macd_positivo"] = macd_pos
@@ -1541,6 +1532,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["tecnico_ema20"] = ema_tec
             c["tecnico_macd"] = macd_tec
             c["tecnico_barras"] = barras_tec
+            c["tecnico_precio_anterior"] = precio_prev_tec
+            c["tecnico_ema20_anterior"] = ema_prev_tec
+            c["tecnico_precio_actual"] = precio_actual_tec
+            c["tecnico_ema20_actual"] = ema_actual_tec
+            c["bb_upper"] = bb_upper_tec
+            c["bb_dist_pct"] = bb_dist_tec
+            c["cruce_ema20_confirmado"] = bool(cruz_arriba and precio_prev_tec is not None and ema_prev_tec is not None)
             c["tiene_noticia"] = c["ticker"] in con_noticia
 
         # Diagnóstico del embudo: no cambia ningún filtro ni el resultado del scanner.
@@ -1866,7 +1864,7 @@ with st.container(border=True):
             REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
 
         ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-        TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+        TOP_N = st.number_input("Top N", value=50, min_value=1, max_value=100, key="f_top")
         AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
 
         # Valores heredados solo para compatibilidad interna. La etapa 1 los ignora.
@@ -1887,7 +1885,7 @@ with st.container(border=True):
         with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
         with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
         with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-        with q4: TOP_N = st.number_input("Top N", value=10, min_value=1, max_value=100, key="f_top")
+        with q4: TOP_N = st.number_input("Top N", value=50, min_value=1, max_value=100, key="f_top")
         with q5: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
 
 params = {
@@ -2064,13 +2062,30 @@ def panel_diagnostico_filtros():
                 st.markdown(
                     f"**Radar base:** {d.get('radar_base', 0)} → "
                     f"**flotación ≤ {formatear_numero_grande(servicio.filtros_dueno.get('flotacion_max', 15_000_000))}:** {d.get('tras_float', 0)} → "
-                    f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 15_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
+                    f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 20_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
                     f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
                     f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
                     f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
                     f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
                     f"**resultado final:** {d.get('resultados', 0)}"
                 )
+
+                muestra = [c for c in servicio.resultados if c.get("cruzando_ema20") and c.get("macd_positivo")]
+                if muestra:
+                    df_diag = pd.DataFrame([{
+                        "Ticker": c["ticker"],
+                        "Precio ant.": round(c.get("tecnico_precio_anterior"), 4) if c.get("tecnico_precio_anterior") is not None else None,
+                        "EMA20 ant.": round(c.get("tecnico_ema20_anterior"), 4) if c.get("tecnico_ema20_anterior") is not None else None,
+                        "Precio actual": round(c.get("tecnico_precio_actual"), 4) if c.get("tecnico_precio_actual") is not None else None,
+                        "EMA20 actual": round(c.get("tecnico_ema20_actual"), 4) if c.get("tecnico_ema20_actual") is not None else None,
+                        "Cruce EMA20": "✅ SÍ" if c.get("cruce_ema20_confirmado") else "❌ NO",
+                        "MACD": round(c.get("tecnico_macd"), 6) if c.get("tecnico_macd") is not None else None,
+                        "BB superior": round(c.get("bb_upper"), 4) if c.get("bb_upper") is not None else None,
+                        "Dist. BB %": round(c.get("bb_dist_pct"), 2) if c.get("bb_dist_pct") is not None else None,
+                        "Barras": c.get("tecnico_barras", 0),
+                    } for c in muestra])
+                    st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos · se muestran todos, sin límite Top N.")
+                    st.dataframe(df_diag, hide_index=True, use_container_width=True)
 
 panel_diagnostico_filtros()
 
@@ -2101,7 +2116,7 @@ def panel_resultados():
                        f" · ciclo {servicio.duracion_ciclo:.1f}s"
                        f" · {len(servicio.universo)} tickers vigilados"
                        f" · {servicio.n_radar_base} en el radar base"
-                       f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 15_000))})")
+                       f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 20_000))})")
         st.caption(detalle)
     else:
         st.caption("Esperando el primer escaneo (la primera vez puede tardar un minuto)...")
@@ -2129,6 +2144,8 @@ def panel_resultados():
             ),
             "EMA20": "✅" if c["cruzando_ema20"] else ("🔻" if c.get("cruzando_ema20_abajo") else ""),
             "MACD": "✅" if c["macd_positivo"] else ("🔻" if c.get("macd_negativo") else ""),
+            "BB sup.": round(c.get("bb_upper"), 2) if c.get("bb_upper") is not None else None,
+            "Dist. BB %": round(c.get("bb_dist_pct"), 1) if c.get("bb_dist_pct") is not None else None,
             "Noticia": "🔥" if c["tiene_noticia"] else "",
             "Actualizado (ET)": c["actualizado"].astimezone(ET).strftime("%H:%M:%S") if hasattr(c["actualizado"], "astimezone") else str(c["actualizado"]),
         }
