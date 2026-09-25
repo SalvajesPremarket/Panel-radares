@@ -2350,13 +2350,36 @@ IMG_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAACHwAAALUCAIAAAD8byAGAABcZmNhQlgAAFxmanVt
 # ==========================================
 # 🖥️ DASHBOARD SUPERIOR — INTERFAZ SIMPLE
 # ==========================================
+# Estado del dashboard: calculado de forma defensiva para evitar NameError
+# durante reruns de Streamlit o si el servicio aún no terminó de inicializar.
 try:
     servicio._esta_en_horario_automatico()
 except Exception:
     pass
-_hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
-_dia_txt = "Sí (Alpaca)" if datetime.now(ET).date() in servicio.dias_mercado_cache else "No / fuera de mercado"
-_estado_txt = "Scanner Activo" if servicio.encendido and servicio.auto_en_horario else ("Scanner Apagado" if not servicio.encendido else "Scanner En espera")
+
+try:
+    _hora_inicio = int(getattr(servicio, "hora_inicio_auto_min", HORA_AUTO_INICIO_ET * 60))
+    _hora_fin = int(getattr(servicio, "hora_fin_auto_min", HORA_AUTO_FIN_ET * 60))
+    _hora_txt = f"{_hora_inicio//60:02d}:{_hora_inicio%60:02d} - {_hora_fin//60:02d}:{_hora_fin%60:02d} ET"
+except Exception:
+    _hora_txt = f"{HORA_AUTO_INICIO_ET:02d}:00 - {HORA_AUTO_FIN_ET:02d}:00 ET"
+
+try:
+    _dias_cache = getattr(servicio, "dias_mercado_cache", set()) or set()
+    _dia_txt = "Sí (Alpaca)" if datetime.now(ET).date() in _dias_cache else "No / fuera de mercado"
+except Exception:
+    _dia_txt = "No disponible"
+
+try:
+    _encendido = bool(getattr(servicio, "encendido", False))
+    _auto_horario = bool(getattr(servicio, "auto_en_horario", False))
+    _estado_txt = (
+        "Scanner Activo" if _encendido and _auto_horario
+        else "Scanner Apagado" if not _encendido
+        else "Scanner En espera"
+    )
+except Exception:
+    _estado_txt = "Scanner En espera"
 
 COLORES_LAYOUT = [
     ("Rojo", "#e53935", "#ffffff"), ("Naranja", "#fb8c00", "#000000"),
