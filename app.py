@@ -100,9 +100,6 @@ TTL_CALENDARIO_MERCADO = 12 * 3600
 TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker más seguido que esto
 VENTANA_CRUCE_EMA_MINUTOS = 1
 MARGEN_PROXIMIDAD_EMA = 0.05
-# PRUEBA 6: ventana fija de observación posterior a la detección.
-# Es diagnóstico únicamente; no modifica ningún filtro ni resultado.
-VENTANA_PRUEBA6_MINUTOS = 10
 MINUTOS_NOTICIA_RECIENTE = 60
 
 # --- Cuadro "Eventos en vivo" (parte de abajo de la interfaz) ---
@@ -801,9 +798,12 @@ def formatear_numero_grande(numero):
     return f"{numero:.0f}"
 
 
-def evaluar_tecnico(cierres):
-    """Calcula EMA20, MACD y Bollinger sobre velas de 1 minuto.
-    También devuelve los valores anterior/actual para auditar el cruce.
+def evaluar_tecnico(cierres, entrada_actual=None):
+    """Calcula EMA20, MACD y Bollinger sobre cierres de 1 minuto.
+
+    La señal EMA20 de entrada se evalúa en el nacimiento de la vela actual,
+    no al cierre: apertura_actual > EMA20 y apertura_actual > mínimo_de_la_vela_anterior.
+    El máximo de la vela actual nunca participa en esta condición.
     """
     if cierres is None or len(cierres) < 40:
         return (False, False, False, False, None, None, None, 0,
@@ -821,12 +821,25 @@ def evaluar_tecnico(cierres):
     if pd.isna(ema_act) or ema_act <= 0:
         return (False, False, False, False, precio_act, None, macd_val, barras_count,
                 precio_prev, ema_prev, precio_act, ema_act, bb_upper_val, None)
-    if ETAPA_PRUEBA_FILTROS == 1:
-        cruzo_arriba = precio_act > ema_act; cruzo_abajo = precio_act < ema_act
+    # ENTRADA EMA20: se decide al nacer la vela actual.
+    # No se usa el máximo de la vela actual porque todavía no terminó.
+    if entrada_actual is not None:
+        apertura_actual = entrada_actual.get("open")
+        minimo_anterior = entrada_actual.get("low_anterior")
+        ema_entrada = entrada_actual.get("ema20", ema_act)
+        cruzo_arriba = bool(
+            apertura_actual is not None
+            and minimo_anterior is not None
+            and ema_entrada is not None
+            and apertura_actual > ema_entrada
+            and apertura_actual > minimo_anterior
+        )
+    elif ETAPA_PRUEBA_FILTROS == 1:
+        cruzo_arriba = precio_act > ema_act
     else:
-        # Ventana estricta de 1 minuto: anterior -> actual.
+        # Respaldo para llamadas antiguas: cruce por cierre.
         cruzo_arriba = bool(precio_prev <= ema_prev and precio_act > ema_act)
-        cruzo_abajo = bool(precio_prev >= ema_prev and precio_act < ema_act)
+    cruzo_abajo = bool(precio_prev >= ema_prev and precio_act < ema_act)
     macd_positivo = bool(macd_val is not None and macd_val > 0)
     macd_negativo = bool(macd_val is not None and macd_val < 0)
     bb_dist_pct = ((bb_upper_val - precio_act) / precio_act * 100.0) if bb_upper_val is not None and precio_act > 0 else None
@@ -1013,13 +1026,10 @@ class ServicioScanner:
         self.historial_ciclos = []            # últimos ciclos: permite ver cuándo entran/salen candidatos
         self._raw_tickers_ciclo_anterior = set()
 
-        # PRUEBA 6: seguimiento temporal de señales EMA20+MACD.
-        # Cada señal se observa durante una ventana fija y se conserva
-        # el máximo precio visto para calcular MFE. No afecta filtros.
-        self.prueba6_activos = {}
-        self.prueba6_completadas = []
-
         self.cache_tecnico = {}
+        # Estado intraminuto para detectar el nacimiento de la vela de entrada:
+        # ticker -> minuto actual, apertura actual y mínimo acumulado de esa vela.
+        self._velas_intraminuto = {}
         self.cache_fund = self._leer_cache_fundamentales()
         # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
         self.fmp_pausado_hasta = 0.0
@@ -1154,10 +1164,9 @@ class ServicioScanner:
             self.historial_ciclos = []
             self._raw_tickers_ciclo_anterior = set()
             self.candidatos_ema_macd_actual = []
-            self.prueba6_activos = {}
-            self.prueba6_completadas = []
             self.finales_ema_macd_actual = []
             self.cache_tecnico = {}
+            self._velas_intraminuto = {}
             self.fmp_pausado_hasta = 0.0
             self._ultima_peticion_fmp = 0.0
             self._ultima_peticion = 0.0
@@ -1347,19 +1356,66 @@ class ServicioScanner:
         self._guardar_cache_fundamentales()
 
     # ---------- EMA20 / MACD ----------
-    def _asegurar_tecnico(self, tickers):
+    def _asegurar_tecnico(self, tickers, snapshots=None):
         ahora = time.time()
+        snapshots = snapshots or {}
         pendientes = [
             t for t in tickers
             if t not in self.cache_tecnico or ahora - self.cache_tecnico[t][0] > TTL_TECNICO_SEGUNDOS
         ]
         if not pendientes:
             return
+
         series = descargar_cierres(self.data, pendientes)
         for t in pendientes:
+            entrada_actual = None
+            snap = snapshots.get(t)
+            trade = getattr(snap, "latest_trade", None) if snap is not None else None
+            if trade is not None and getattr(trade, "price", None) is not None and getattr(trade, "timestamp", None) is not None:
+                try:
+                    precio = float(trade.price)
+                    ts = trade.timestamp
+                    minuto = ts.replace(second=0, microsecond=0)
+                    estado = self._velas_intraminuto.get(t)
+
+                    if estado is None or estado.get("minuto") != minuto:
+                        # Nace una vela nueva. El mínimo de la vela anterior
+                        # es el mínimo que veníamos acumulando en el minuto anterior.
+                        low_anterior = estado.get("low") if estado else None
+                        self._velas_intraminuto[t] = {
+                            "minuto": minuto,
+                            "open": precio,
+                            "high": precio,
+                            "low": precio,
+                        }
+                    else:
+                        estado["high"] = max(float(estado.get("high", precio)), precio)
+                        estado["low"] = min(float(estado.get("low", precio)), precio)
+                        low_anterior = estado.get("low_anterior")
+
+                    # Guardamos el mínimo de la vela anterior al cambiar de minuto.
+                    # En el mismo minuto, conservamos el valor que originó la entrada.
+                    if estado is not None and estado.get("minuto") == minuto:
+                        low_anterior = self._velas_intraminuto[t].get("low_anterior", low_anterior)
+                    if estado is not None and estado.get("open") == precio and low_anterior is not None:
+                        self._velas_intraminuto[t]["low_anterior"] = low_anterior
+
+                    # Recalcular EMA/MACD con el histórico disponible y evaluar
+                    # la condición exactamente al nacimiento de la vela.
+                    serie = series.get(t)
+                    if serie is not None and len(serie) >= 40:
+                        ema20 = serie.ewm(span=20, adjust=False).mean()
+                        entrada_actual = {
+                            "open": self._velas_intraminuto[t].get("open"),
+                            "low_anterior": self._velas_intraminuto[t].get("low_anterior"),
+                            "ema20": float(ema20.iloc[-1]) if not pd.isna(ema20.iloc[-1]) else None,
+                        }
+                except Exception as ex:
+                    print(f"⚠️ Error formando vela intraminuto {t}: {ex}")
+
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
-             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(series.get(t))
+             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(series.get(t), entrada_actual)
             self.cache_tecnico[t] = (
                 ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
                 precio_act, ema_act, macd_val, barras_count,
@@ -1509,75 +1565,6 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         except Exception as ex:
             print(f"⚠️ Error guardando historial de ciclos: {ex}")
 
-    # ---------- PRUEBA 6: MFE posterior a la señal ----------
-    def _actualizar_prueba6(self, candidatos, snapshots=None):
-        """Observa el máximo precio posterior a cada señal EMA20+MACD.
-
-        La ventana es fija (VENTANA_PRUEBA6_MINUTOS) y el cálculo es
-        exclusivamente diagnóstico. No elimina ni modifica candidatos.
-        La señal se toma en el momento en que el scanner la detecta.
-        """
-        try:
-            ahora = datetime.now(ET)
-            ahora_ts = ahora.timestamp()
-            candidatos_validos = {
-                c.get("ticker"): c for c in candidatos
-                if c.get("ticker") and c.get("cruzando_ema20") and c.get("macd_positivo")
-            }
-
-            # Actualizar señales ya abiertas con el precio de mercado actual,
-            # incluso si el ticker dejó de cumplir EMA20+MACD en este ciclo.
-            # Así medimos realmente el recorrido posterior y no solo el tiempo
-            # durante el cual el candidato permanece visible.
-            for ticker, obs in list(self.prueba6_activos.items()):
-                precio_actual = None
-                snap = (snapshots or {}).get(ticker)
-                if snap is not None and getattr(snap, "latest_trade", None):
-                    precio_actual = getattr(snap.latest_trade, "price", None)
-                if precio_actual is None:
-                    precio_actual = candidatos_validos.get(ticker, {}).get("precio")
-                if precio_actual is not None:
-                    obs["max_precio"] = max(float(obs["max_precio"]), float(precio_actual))
-
-                transcurridos = ahora_ts - obs["inicio_ts"]
-                if transcurridos >= VENTANA_PRUEBA6_MINUTOS * 60:
-                    precio_senal = float(obs["precio_senal"])
-                    max_precio = float(obs["max_precio"])
-                    mfe_pct = ((max_precio - precio_senal) / precio_senal * 100.0) if precio_senal > 0 else None
-                    obs_final = dict(obs)
-                    obs_final.update({
-                        "fin_hora": ahora.strftime("%H:%M:%S ET"),
-                        "mfe_pct": mfe_pct,
-                        "duracion_min": transcurridos / 60.0,
-                    })
-                    self.prueba6_completadas.insert(0, obs_final)
-                    self.prueba6_completadas = self.prueba6_completadas[:100]
-                    del self.prueba6_activos[ticker]
-
-            # Abrir una observación nueva solo para una señal detectada que
-            # todavía no esté siendo observada.
-            for ticker, c in candidatos_validos.items():
-                if ticker in self.prueba6_activos:
-                    continue
-                precio_senal = c.get("tecnico_precio_actual")
-                if precio_senal is None:
-                    precio_senal = c.get("precio")
-                if precio_senal is None or float(precio_senal) <= 0:
-                    continue
-                bb_upper = c.get("bb_upper")
-                bb_dist = c.get("bb_dist_pct")
-                self.prueba6_activos[ticker] = {
-                    "ticker": ticker,
-                    "inicio_ts": ahora_ts,
-                    "inicio_hora": ahora.strftime("%H:%M:%S ET"),
-                    "precio_senal": float(precio_senal),
-                    "bb_upper_senal": float(bb_upper) if bb_upper is not None else None,
-                    "bb_dist_inicial": float(bb_dist) if bb_dist is not None else None,
-                    "max_precio": float(c.get("precio") if c.get("precio") is not None else precio_senal),
-                }
-        except Exception as ex:
-            print(f"⚠️ Error en PRUEBA 6: {ex}")
-
     # ---------- ciclo principal ----------
     def _ciclo(self):
         inicio = time.monotonic()
@@ -1661,7 +1648,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             enriquecidos.append(c)
 
         tickers_enr = [c["ticker"] for c in enriquecidos]
-        self._asegurar_tecnico(tickers_enr)
+        self._asegurar_tecnico(tickers_enr, snapshots)
         con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in enriquecidos:
@@ -1730,10 +1717,6 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         p_hist = dict(self.filtros_dueno)
         p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
         resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
-
-        # PRUEBA 6: iniciar/actualizar observaciones posteriores a la señal.
-        # Esto se ejecuta antes de publicar el resultado y no modifica ningún filtro.
-        self._actualizar_prueba6(enriquecidos, snapshots)
 
         # PRUEBA 4B: conservar las dos listas del MISMO ciclo.
         candidatos_raw_actual = [c for c in enriquecidos if c.get("cruzando_ema20") and c.get("macd_positivo")]
@@ -2302,50 +2285,6 @@ def panel_diagnostico_filtros():
                         value="\n".join(lineas_p5),
                         height=min(500, max(180, 105 + 24 * len(muestra))),
                         key="prueba5_copiar",
-                    )
-
-                    # PRUEBA 6: MFE posterior a la señal, ventana fija de 10 minutos.
-                    completadas_p6 = list(getattr(servicio, "prueba6_completadas", []))
-                    activas_p6 = list(getattr(servicio, "prueba6_activos", {}).values())
-                    st.caption(
-                        f"PRUEBA 6 · máximo avance posterior a la detección durante {VENTANA_PRUEBA6_MINUTOS} minutos · "
-                        f"completadas: {len(completadas_p6)} · en observación: {len(activas_p6)} · solo diagnóstico."
-                    )
-                    if completadas_p6:
-                        df_p6 = pd.DataFrame([{
-                            "Ticker": x.get("ticker"),
-                            "Hora señal": x.get("inicio_hora"),
-                            "Precio señal": round(x.get("precio_senal"), 4) if x.get("precio_senal") is not None else None,
-                            "BB superior señal": round(x.get("bb_upper_senal"), 4) if x.get("bb_upper_senal") is not None else None,
-                            "Precio máximo posterior": round(x.get("max_precio"), 4) if x.get("max_precio") is not None else None,
-                            "Dist.BB inicial %": round(x.get("bb_dist_inicial"), 2) if x.get("bb_dist_inicial") is not None else None,
-                            "MFE %": round(x.get("mfe_pct"), 2) if x.get("mfe_pct") is not None else None,
-                        } for x in completadas_p6])
-                        st.dataframe(df_p6, hide_index=True, width="stretch")
-
-                    lineas_p6 = [
-                        "PRUEBA 6",
-                        f"VENTANA: {VENTANA_PRUEBA6_MINUTOS} MINUTOS",
-                        f"COMPLETADAS: {len(completadas_p6)}",
-                        f"EN OBSERVACIÓN: {len(activas_p6)}",
-                        "",
-                        "Ticker | Precio señal | BB superior señal | Precio máximo posterior | Dist.BB inicial | MFE%",
-                    ]
-                    for x in sorted(completadas_p6, key=lambda z: str(z.get("inicio_hora", "")), reverse=True):
-                        vals = [
-                            x.get("ticker", ""),
-                            f"{x.get('precio_senal'):.4f}" if isinstance(x.get("precio_senal"), (int, float)) else "",
-                            f"{x.get('bb_upper_senal'):.4f}" if isinstance(x.get("bb_upper_senal"), (int, float)) else "",
-                            f"{x.get('max_precio'):.4f}" if isinstance(x.get("max_precio"), (int, float)) else "",
-                            f"{x.get('bb_dist_inicial'):.2f}" if isinstance(x.get("bb_dist_inicial"), (int, float)) else "",
-                            f"{x.get('mfe_pct'):.2f}" if isinstance(x.get("mfe_pct"), (int, float)) else "",
-                        ]
-                        lineas_p6.append(" | ".join(vals))
-                    st.text_area(
-                        "📋 PRUEBA 6 — copia las observaciones COMPLETADAS",
-                        value="\n".join(lineas_p6),
-                        height=min(600, max(180, 125 + 24 * max(1, len(completadas_p6)))),
-                        key="prueba6_copiar",
                     )
 
                     df_4b = pd.DataFrame([{
