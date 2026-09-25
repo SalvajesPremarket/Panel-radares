@@ -1027,6 +1027,7 @@ class ServicioScanner:
         self._raw_tickers_ciclo_anterior = set()
 
         self.cache_tecnico = {}
+        self.cache_series_tecnico = {}  # ticker -> (timestamp, serie de cierres históricos)
         # Estado intraminuto para detectar el nacimiento de la vela de entrada:
         # ticker -> minuto actual, apertura actual y mínimo acumulado de esa vela.
         self._velas_intraminuto = {}
@@ -1166,6 +1167,7 @@ class ServicioScanner:
             self.candidatos_ema_macd_actual = []
             self.finales_ema_macd_actual = []
             self.cache_tecnico = {}
+            self.cache_series_tecnico = {}
             self._velas_intraminuto = {}
             self.fmp_pausado_hasta = 0.0
             self._ultima_peticion_fmp = 0.0
@@ -1269,7 +1271,9 @@ class ServicioScanner:
             ahora = time.time()
             espera_fmp = self._ultima_peticion_fmp + FMP_MIN_INTERVAL_SEGUNDOS - ahora
             if espera_fmp > 0:
-                time.sleep(espera_fmp)
+                # El scanner nunca debe quedar dormido esperando FMP.
+                # Se intentará en un ciclo posterior cuando venza el intervalo.
+                return None
             self._ultima_peticion_fmp = time.time()
             respuesta = requests.get(
                 FMP_API_URL,
@@ -1357,18 +1361,35 @@ class ServicioScanner:
 
     # ---------- EMA20 / MACD ----------
     def _asegurar_tecnico(self, tickers, snapshots=None):
+        """Motor técnico híbrido y no bloqueante.
+
+        1) El histórico de cierres para EMA20/MACD se cachea y solo se renueva
+           cuando vence TTL_TECNICO_SEGUNDOS.
+        2) La vela intraminuto se evalúa en CADA ciclo usando el snapshot actual,
+           sin esperar a que termine la vela.
+        3) Así, una consulta histórica lenta no impide detectar el nacimiento
+           de una vela de entrada. Esta separación permite migrar después a
+           WebSocket sin cambiar la lógica del motor.
+        """
         ahora = time.time()
         snapshots = snapshots or {}
-        pendientes = [
-            t for t in tickers
-            if t not in self.cache_tecnico or ahora - self.cache_tecnico[t][0] > TTL_TECNICO_SEGUNDOS
-        ]
-        if not pendientes:
-            return
 
-        series = descargar_cierres(self.data, pendientes)
-        for t in pendientes:
+        # Histórico: solo descargamos lo que realmente venció.
+        pendientes_hist = []
+        for t in tickers:
+            e = self.cache_series_tecnico.get(t)
+            if e is None or ahora - float(e.get("ts", 0)) > TTL_TECNICO_SEGUNDOS:
+                pendientes_hist.append(t)
+
+        series_nuevas = descargar_cierres(self.data, pendientes_hist) if pendientes_hist else {}
+        for t, serie in series_nuevas.items():
+            self.cache_series_tecnico[t] = {"ts": ahora, "serie": serie}
+
+        for t in tickers:
+            cache_serie = self.cache_series_tecnico.get(t, {})
+            serie = cache_serie.get("serie")
             entrada_actual = None
+
             snap = snapshots.get(t)
             trade = getattr(snap, "latest_trade", None) if snap is not None else None
             if trade is not None and getattr(trade, "price", None) is not None and getattr(trade, "timestamp", None) is not None:
@@ -1379,43 +1400,38 @@ class ServicioScanner:
                     estado = self._velas_intraminuto.get(t)
 
                     if estado is None or estado.get("minuto") != minuto:
-                        # Nace una vela nueva. El mínimo de la vela anterior
-                        # es el mínimo que veníamos acumulando en el minuto anterior.
+                        # Nace una vela nueva. En ese instante su low es su open.
+                        # Por tanto, low_actual > low_anterior equivale a
+                        # open_actual > low_anterior. El high de la vela actual NO cuenta.
                         low_anterior = estado.get("low") if estado else None
                         self._velas_intraminuto[t] = {
                             "minuto": minuto,
                             "open": precio,
                             "high": precio,
                             "low": precio,
+                            "low_anterior": low_anterior,
                         }
                     else:
+                        estado = self._velas_intraminuto[t]
                         estado["high"] = max(float(estado.get("high", precio)), precio)
                         estado["low"] = min(float(estado.get("low", precio)), precio)
-                        low_anterior = estado.get("low_anterior")
 
-                    # Guardamos el mínimo de la vela anterior al cambiar de minuto.
-                    # En el mismo minuto, conservamos el valor que originó la entrada.
-                    if estado is not None and estado.get("minuto") == minuto:
-                        low_anterior = self._velas_intraminuto[t].get("low_anterior", low_anterior)
-                    if estado is not None and estado.get("open") == precio and low_anterior is not None:
-                        self._velas_intraminuto[t]["low_anterior"] = low_anterior
-
-                    # Recalcular EMA/MACD con el histórico disponible y evaluar
-                    # la condición exactamente al nacimiento de la vela.
-                    serie = series.get(t)
+                    estado = self._velas_intraminuto[t]
+                    entrada_actual = {
+                        "open": estado.get("open"),
+                        "low_anterior": estado.get("low_anterior"),
+                        "ema20": None,
+                    }
                     if serie is not None and len(serie) >= 40:
                         ema20 = serie.ewm(span=20, adjust=False).mean()
-                        entrada_actual = {
-                            "open": self._velas_intraminuto[t].get("open"),
-                            "low_anterior": self._velas_intraminuto[t].get("low_anterior"),
-                            "ema20": float(ema20.iloc[-1]) if not pd.isna(ema20.iloc[-1]) else None,
-                        }
+                        entrada_actual["ema20"] = float(ema20.iloc[-1]) if not pd.isna(ema20.iloc[-1]) else None
                 except Exception as ex:
                     print(f"⚠️ Error formando vela intraminuto {t}: {ex}")
 
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
-             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(series.get(t), entrada_actual)
+             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(serie, entrada_actual)
+
             self.cache_tecnico[t] = (
                 ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
                 precio_act, ema_act, macd_val, barras_count,
