@@ -2190,6 +2190,36 @@ def panel_diagnostico_filtros():
                     st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos del MISMO ciclo · se muestran todos, sin límite Top N.")
                     st.dataframe(df_diag, hide_index=True, width="stretch")
 
+                    # PRUEBA 5: bloque de texto simple para copiar desde el teléfono.
+                    hora_ciclo = (servicio.ultima_actualizacion.strftime("%H:%M:%S")
+                                  if getattr(servicio, "ultima_actualizacion", None) else "--:--:--")
+                    lineas_p5 = [
+                        "PRUEBA 5",
+                        f"CICLO: {hora_ciclo}",
+                        f"EMA20+MACD: {len(muestra)}",
+                        f"FINAL: {len(final_tickers)}",
+                        "",
+                        "Ticker | Precio | BB superior | Dist.BB%",
+                    ]
+                    for c in sorted(muestra, key=lambda x: str(x.get("ticker", ""))):
+                        precio_p5 = c.get("tecnico_precio_actual")
+                        if precio_p5 is None:
+                            precio_p5 = c.get("tecnico_precio") or c.get("precio")
+                        bb_p5 = c.get("bb_upper")
+                        dist_p5 = c.get("bb_dist_pct")
+                        lineas_p5.append(
+                            f"{c.get('ticker','')} | "
+                            f"{precio_p5:.4f} | " if isinstance(precio_p5, (int, float)) else f"{c.get('ticker','')} | {precio_p5} | "
+                            + (f"{bb_p5:.4f} | " if isinstance(bb_p5, (int, float)) else f"{bb_p5} | ")
+                            + (f"{dist_p5:.2f}" if isinstance(dist_p5, (int, float)) else str(dist_p5))
+                        )
+                    st.text_area(
+                        "📋 PRUEBA 5 — copia este bloque completo y pégamelo aquí",
+                        value="\n".join(lineas_p5),
+                        height=min(500, max(180, 105 + 24 * len(muestra))),
+                        key="prueba5_copiar",
+                    )
+
                     df_4b = pd.DataFrame([{
                         "Ticker": c.get("ticker"),
                         "EMA20+MACD": "✅ SÍ",
