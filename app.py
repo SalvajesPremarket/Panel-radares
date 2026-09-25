@@ -526,7 +526,7 @@ def pantalla_autenticacion():
             )
             entrar = st.form_submit_button(
                 "🚀 INICIAR SESIÓN",
-                use_container_width=True,
+                width="stretch",
             )
 
         if entrar:
@@ -552,7 +552,7 @@ def pantalla_autenticacion():
                 with st.form("form_recuperar_password"):
                     enviar_recuperacion = st.form_submit_button(
                         "📩 ENVIAR CÓDIGO DE RECUPERACIÓN",
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                 if enviar_recuperacion:
@@ -576,7 +576,7 @@ def pantalla_autenticacion():
                         )
                         verificar_codigo = st.form_submit_button(
                             "🔐 VERIFICAR CÓDIGO",
-                            use_container_width=True,
+                            width="stretch",
                         )
 
                     if verificar_codigo:
@@ -607,7 +607,7 @@ def pantalla_autenticacion():
                     )
                     cambiar_password = st.form_submit_button(
                         "💾 CAMBIAR CONTRASEÑA",
-                        use_container_width=True,
+                        width="stretch",
                     )
 
                 if cambiar_password:
@@ -647,7 +647,7 @@ def pantalla_autenticacion():
             )
             registrar = st.form_submit_button(
                 "📝 CREAR CUENTA",
-                use_container_width=True,
+                width="stretch",
             )
 
         if registrar:
@@ -684,7 +684,7 @@ def pantalla_autenticacion():
                 )
                 entrar_admin = st.form_submit_button(
                     "👑 VALIDAR ACCESO",
-                    use_container_width=True,
+                    width="stretch",
                 )
 
             if entrar_admin:
@@ -776,7 +776,7 @@ with st.sidebar:
     if st.button(
         "🚪 CERRAR SESIÓN",
         key="cerrar_sesion_global",
-        use_container_width=True,
+        width="stretch",
     ):
         cerrar_sesion()
         st.rerun()
@@ -1927,16 +1927,16 @@ with control_col:
         if ES_ADMIN:
             b1,b2 = st.columns(2, gap="small")
             with b1:
-                if st.button("🟢 ENCENDER", key="encender_scanner_dashboard", use_container_width=True):
+                if st.button("🟢 ENCENDER", key="encender_scanner_dashboard", width="stretch"):
                     servicio.encendido = True
                     servicio.ultimo_error = None
                     st.rerun()
             with b2:
-                if st.button("🔴 APAGAR", key="apagar_scanner_dashboard", use_container_width=True):
+                if st.button("🔴 APAGAR", key="apagar_scanner_dashboard", width="stretch"):
                     servicio.encendido = False
                     servicio.auto_en_horario = False
                     st.rerun()
-            if st.button("🔄 REINICIAR SCANNER", key="reiniciar_scanner_dashboard", use_container_width=True):
+            if st.button("🔄 REINICIAR SCANNER", key="reiniciar_scanner_dashboard", width="stretch"):
                 servicio.reiniciar_scanner()
                 st.success("Scanner reiniciado. El motor fue reconstruido correctamente.")
                 st.rerun()
@@ -1954,7 +1954,7 @@ with control_col:
                     value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
                     key="hora_fin_scanner_dashboard",
                 )
-            if st.button("💾 GUARDAR HORARIO", key="guardar_horario_dashboard", use_container_width=True):
+            if st.button("💾 GUARDAR HORARIO", key="guardar_horario_dashboard", width="stretch"):
                 servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
                 st.rerun()
             st.markdown(
@@ -1990,7 +1990,7 @@ if ES_ADMIN:
             with api_a:
                 st.toggle("Usar API del broker", value=bool(st.session_state.get("bk_api_key")), key="usar_api_broker_dashboard")
             with api_b:
-                if st.button("🔌 Probar conexión", key="probar_broker_dashboard", use_container_width=True):
+                if st.button("🔌 Probar conexión", key="probar_broker_dashboard", width="stretch"):
                     st.info("La conexión se realizará mediante el puente/webhook configurado.")
 
     with premium_col:
@@ -2064,7 +2064,7 @@ def panel_diagnostico_filtros():
                         "EMA20": round(c.get("tecnico_ema20"), 4) if c.get("tecnico_ema20") is not None else None,
                         "MACD": round(c.get("tecnico_macd"), 6) if c.get("tecnico_macd") is not None else None,
                     } for c in muestra])
-                    st.dataframe(df_tec, hide_index=True, use_container_width=True)
+                    st.dataframe(df_tec, hide_index=True, width="stretch")
             else:
                 st.markdown(
                     f"**Radar base:** {d.get('radar_base', 0)} → "
@@ -2092,7 +2092,7 @@ def panel_diagnostico_filtros():
                         "Barras": c.get("tecnico_barras", 0),
                     } for c in muestra])
                     st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos · se muestran todos, sin límite Top N.")
-                    st.dataframe(df_diag, hide_index=True, use_container_width=True)
+                    st.dataframe(df_diag, hide_index=True, width="stretch")
 
 panel_diagnostico_filtros()
 
@@ -2166,7 +2166,7 @@ def panel_resultados():
         .set_table_styles([{"selector": "th", "props": [("background-color", "#0b0b0b"), ("color", "#d4af37"), ("font-weight", "bold"), ("border-color", "#5d4b19")]}])
     )
     seleccion = st.dataframe(
-        styled, use_container_width=True, hide_index=True,
+        styled, width="stretch", hide_index=True,
         on_select="rerun", selection_mode="single-row", key="tabla_resultados",
     )
     filas_sel = seleccion.selection.rows if seleccion and seleccion.selection else []
