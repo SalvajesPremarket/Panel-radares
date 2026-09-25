@@ -1329,8 +1329,15 @@ class ServicioScanner:
             return
         series = descargar_cierres(self.data, pendientes)
         for t in pendientes:
-            cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act, macd_val, barras_count = evaluar_tecnico(series.get(t))
-            self.cache_tecnico[t] = (ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act, macd_val, barras_count, precio_prev, ema_prev, precio_act, ema_act, bb_upper, bb_dist_pct)
+            (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
+             macd_val, barras_count, precio_prev, ema_prev, precio_actual,
+             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(series.get(t))
+            self.cache_tecnico[t] = (
+                ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
+                precio_act, ema_act, macd_val, barras_count,
+                precio_prev, ema_prev, precio_actual, ema_actual,
+                bb_upper, bb_dist_pct
+            )
 
     # ---------- noticias (una sola llamada para todos) ----------
     def _noticias_recientes(self, tickers):
