@@ -79,7 +79,7 @@ BASE_FLOTACION_MAX = 50_000_000
 # 🧪 ETAPA DE DEPURACIÓN DE FILTROS
 # 1 = solo precio + EMA20 + MACD. Telegram queda APAGADO.
 # Luego podremos pasar a 2, 3, 4... agregando un filtro por vez.
-ETAPA_PRUEBA_FILTROS = 2
+ETAPA_PRUEBA_FILTROS = 3
 
 MAX_ENRIQUECER = 500                   # PRUEBA 3: ampliar temporalmente la muestra técnica; no es un filtro de trading
 
@@ -1479,7 +1479,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             float_shares = entrada.get("float")
             # En la etapa 1 no usamos float ni volumen como filtros.
             # Tampoco consultamos float en esta etapa para evitar HTTP 429 de FMP.
-            if ETAPA_PRUEBA_FILTROS >= 3 and float_shares is not None and float_shares >= BASE_FLOTACION_MAX:
+            # PRUEBA 3: se usa el mismo umbral que el resto de la app
+            # (self.filtros_dueno["flotacion_max"], 15,000,000 por defecto)
+            # en vez de BASE_FLOTACION_MAX (50,000,000), para que este
+            # conteo de diagnóstico coincida con el filtro que de verdad
+            # determina el resultado final en filtrar_resultados().
+            if ETAPA_PRUEBA_FILTROS >= 3 and float_shares is not None and float_shares >= self.filtros_dueno.get("flotacion_max", 15_000_000):
                 continue
             c["float_shares"] = float_shares
             c["float_status"] = entrada.get(
@@ -2035,7 +2040,7 @@ def panel_diagnostico_filtros():
             else:
                 st.markdown(
                     f"**Radar base:** {d.get('radar_base', 0)} → "
-                    f"**tras float:** {d.get('tras_float', 0)} → "
+                    f"**flotación ≤ {formatear_numero_grande(servicio.filtros_dueno.get('flotacion_max', 15_000_000))}:** {d.get('tras_float', 0)} → "
                     f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 15_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
                     f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
                     f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
