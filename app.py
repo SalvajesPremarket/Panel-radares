@@ -1974,9 +1974,10 @@ st.markdown("""
     div[data-testid="stTextInput"] input,
     div[data-baseweb="select"] > div,
     div[data-testid="stTimeInput"] input {
-        background:#090909 !important;
-        color:#f4f4f4 !important;
-        border-color:rgba(212,175,55,.42) !important;
+        background:#101318 !important;
+        color:#f1f1f1 !important;
+        border-color:#3a4048 !important;
+        box-shadow:none !important;
     }
     div[data-baseweb="select"] * { color:#f1f1f1 !important; }
     .stButton button {
@@ -1995,7 +1996,7 @@ st.markdown("""
     /* Header / logo */
     .dash-header {
         width:100% !important;
-        height:92px !important;
+        height:116px !important;
         box-sizing:border-box !important;
         padding:4px 10px !important;
         margin:0 0 6px !important;
@@ -2019,7 +2020,7 @@ st.markdown("""
         display:block !important;
         width:min(100%, 620px) !important;
         height:auto !important;
-        max-height:82px !important;
+        max-height:108px !important;
         object-fit:contain !important;
         object-position:center !important;
     }
@@ -2073,8 +2074,8 @@ st.markdown("""
         gap: .20rem !important;
     }
     div[data-testid="stHorizontalBlock"] {
-        gap:.35rem !important;
-        margin-bottom:2px !important;
+        gap:.18rem !important;
+        margin-bottom:1px !important;
     }
     div[data-testid="stNumberInput"],
     div[data-testid="stTextInput"],
@@ -2104,8 +2105,8 @@ st.markdown("""
     .inline-field-label + div { margin:0 !important; }
     div[data-testid="stNumberInput"] input,
     div[data-testid="stTextInput"] input {
-        height:28px !important;
-        min-height:28px !important;
+        height:25px !important;
+        min-height:25px !important;
         padding:2px 6px !important;
         font-size:10px !important;
     }
@@ -2114,9 +2115,9 @@ st.markdown("""
         height:28px !important;
     }
     div[data-baseweb="select"] > div {
-        min-height:28px !important;
-        height:28px !important;
-        font-size:10px !important;
+        min-height:25px !important;
+        height:25px !important;
+        font-size:9px !important;
     }
     @media (max-width: 900px) {
         .dash-header { height:58px !important; padding:3px 6px !important; }
@@ -2130,16 +2131,17 @@ st.markdown("""
             padding-top:.18rem !important;
         }
         .dash-header {
-            height:78px !important;
-            padding:2px 3px !important;
+            height:52px !important;
+            padding:1px 2px !important;
             border-radius:4px !important;
             margin-bottom:3px !important;
         }
         .dash-brand .logo-image {
             width:100% !important;
-            max-width:430px !important;
+            max-width:88vw !important;
+            width:88vw !important;
             height:auto !important;
-            max-height:70px !important;
+            max-height:46px !important;
             object-fit:contain !important;
         }
         .simple-title { font-size:12px !important; }
@@ -2161,19 +2163,19 @@ st.markdown("""
         div[data-testid="stNumberInput"] input,
         div[data-testid="stTextInput"] input,
         div[data-baseweb="select"] > div {
-            font-size:8px !important;
-            min-height:24px !important;
-            height:24px !important;
-            padding-left:3px !important;
+            font-size:7px !important;
+            min-height:22px !important;
+            height:22px !important;
+            padding-left:2px !important;
             padding-right:3px !important;
         }
         label, [data-testid="stWidgetLabel"] p {
-            font-size:7px !important;
+            font-size:6.5px !important;
             line-height:1 !important;
         }
         .stButton button {
-            font-size:8px !important;
-            min-height:24px !important;
+            font-size:7px !important;
+            min-height:22px !important;
             height:24px !important;
             padding:1px 4px !important;
             white-space:nowrap !important;
@@ -2194,12 +2196,6 @@ st.markdown("""
         [data-testid="stDataFrame"] {
             border-radius:4px !important;
             font-size:8px !important;
-        }
-        /* Emula la vista reducida de Finviz: todo el dashboard cabe con menos desplazamiento. */
-        .block-container {
-            zoom:0.82 !important;
-            width:121.95% !important;
-            max-width:none !important;
         }
         div[data-testid="stVerticalBlockBorderWrapper"] {
             padding:2px !important;
@@ -2269,7 +2265,7 @@ st.markdown(f"""
 # Campos compactos tipo Finviz: etiqueta a la izquierda + control corto a la derecha.
 def _campo_inline_num(parent, etiqueta, **kwargs):
     with parent:
-        lab, box = st.columns([0.82, 1.18], gap="small")
+        lab, box = st.columns([1.25, 0.75], gap="small")
         with lab:
             st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
         with box:
@@ -2277,7 +2273,7 @@ def _campo_inline_num(parent, etiqueta, **kwargs):
 
 def _campo_inline_select(parent, etiqueta, **kwargs):
     with parent:
-        lab, box = st.columns([0.82, 1.18], gap="small")
+        lab, box = st.columns([1.25, 0.75], gap="small")
         with lab:
             st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
         with box:
@@ -2285,7 +2281,7 @@ def _campo_inline_select(parent, etiqueta, **kwargs):
 
 def _campo_inline_text(parent, etiqueta, **kwargs):
     with parent:
-        lab, box = st.columns([0.82, 1.18], gap="small")
+        lab, box = st.columns([1.25, 0.75], gap="small")
         with lab:
             st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
         with box:
