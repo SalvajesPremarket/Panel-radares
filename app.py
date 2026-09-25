@@ -1995,6 +1995,53 @@ st.markdown("""
     }
     div[data-baseweb="select"] * { color:#f1f1f1 !important; box-shadow:none !important; }
 
+    /* CORRECCIÓN DEFINITIVA: eliminar el marco/fondo blanco que Streamlit/BaseWeb
+       agrega alrededor de los campos compactos. El fondo oscuro queda en el
+       elemento que realmente contiene el valor, no en la envoltura blanca. */
+    div[data-testid="stNumberInput"] > div,
+    div[data-testid="stNumberInput"] > div > div,
+    div[data-testid="stTextInput"] > div,
+    div[data-testid="stTextInput"] > div > div,
+    div[data-testid="stTimeInput"] > div,
+    div[data-testid="stTimeInput"] > div > div,
+    div[data-baseweb="input"],
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="select"],
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="select"] > div > div,
+    div[data-baseweb="select"] [role="combobox"] {
+        background:transparent !important;
+        background-color:transparent !important;
+        border-color:transparent !important;
+        box-shadow:none !important;
+        outline:none !important;
+    }
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stTimeInput"] input,
+    div[data-baseweb="input"] input,
+    div[data-baseweb="select"] [role="combobox"] {
+        background:#101318 !important;
+        background-color:#101318 !important;
+        color:#f1f1f1 !important;
+        border:1px solid #3a4048 !important;
+        box-shadow:none !important;
+        outline:none !important;
+    }
+    div[data-testid="stNumberInput"] button,
+    div[data-testid="stTimeInput"] button {
+        background:#101318 !important;
+        color:#f1f1f1 !important;
+        border-color:#3a4048 !important;
+        box-shadow:none !important;
+    }
+    div[data-testid="stNumberInput"] svg,
+    div[data-testid="stTimeInput"] svg,
+    div[data-baseweb="select"] svg {
+        fill:#d7d0bd !important;
+        color:#d7d0bd !important;
+    }
+
     /* Desplegables legibles en móvil y escritorio: menú oscuro + texto claro.
        BaseWeb/Streamlit puede renderizar el menú fuera del contenedor del select,
        por eso estas reglas también cubren el popover/listbox. */
