@@ -104,6 +104,7 @@ MINUTOS_NOTICIA_RECIENTE = 60
 
 # --- Cuadro "Eventos en vivo" (parte de abajo de la interfaz) ---
 MAX_EVENTOS = 500                      # eventos que guarda el motor en memoria
+MAX_HISTORIAL_CICLOS = 10               # ciclos recientes conservados para depuración
 EVENTOS_MOSTRAR = 40                   # filas visibles en el cuadro
 EVENTOS_ALTO_PX = 430                  # alto del cuadro (con scroll)
 
@@ -992,6 +993,9 @@ class ServicioScanner:
             "macd_positivo": 0,
             "ema_y_macd": 0,
             "resultados": 0,
+            "gap_aplicado": ETAPA_PRUEBA_FILTROS >= 4,
+            "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
+            "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
         }
 
         self.tg_msg_id = None
@@ -999,6 +1003,7 @@ class ServicioScanner:
 
         self.eventos = []                    # cuadro "Eventos en vivo" (el más nuevo primero)
         self._ultimo_precio_evento = {}
+        self.historial_ciclos = []            # últimos ciclos: permite ver cuándo entran/salen candidatos
 
         self.cache_tecnico = {}
         self.cache_fund = self._leer_cache_fundamentales()
@@ -1124,11 +1129,15 @@ class ServicioScanner:
                 "macd_positivo": 0,
                 "ema_y_macd": 0,
                 "resultados": 0,
+                "gap_aplicado": ETAPA_PRUEBA_FILTROS >= 4,
+                "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
+                "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
             }
             self.tg_msg_id = None
             self.tg_ultimo_hash = None
             self.eventos = []
             self._ultimo_precio_evento = {}
+            self.historial_ciclos = []
             self.cache_tecnico = {}
             self.fmp_pausado_hasta = 0.0
             self._ultima_peticion_fmp = 0.0
@@ -1442,6 +1451,45 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         except Exception as ex:
             print(f"⚠️ Error registrando eventos: {ex}")
 
+    def _registrar_historial_ciclo(self, enriquecidos, resultados_finales):
+        """Conserva una fotografía de los candidatos por ciclo para depuración.
+        No altera filtros ni resultados; solo guarda evidencia de entradas/salidas.
+        """
+        try:
+            ahora = datetime.now(ET)
+            finales = []
+            for c in resultados_finales:
+                finales.append({
+                    "ticker": c.get("ticker"),
+                    "precio": c.get("precio"),
+                    "cambio_pct": c.get("cambio_pct"),
+                    "volumen_dia": c.get("volumen_dia"),
+                    "ema20": c.get("tecnico_ema20"),
+                    "macd": c.get("tecnico_macd"),
+                })
+            crudos = []
+            for c in enriquecidos:
+                if c.get("cruzando_ema20") and c.get("macd_positivo"):
+                    crudos.append({
+                        "ticker": c.get("ticker"),
+                        "precio": c.get("precio"),
+                        "cambio_pct": c.get("cambio_pct"),
+                    })
+            entrada = {
+                "hora": ahora.strftime("%H:%M:%S ET"),
+                "radar_base": self.n_radar_base,
+                "tras_float": getattr(self, "n_tras_float", 0),
+                "tras_volumen": len(enriquecidos),
+                "ema_arriba": sum(1 for c in enriquecidos if c.get("cruzando_ema20")),
+                "macd_positivo": sum(1 for c in enriquecidos if c.get("macd_positivo")),
+                "ema_y_macd": len(crudos),
+                "crudos": crudos,
+                "finales": finales,
+            }
+            self.historial_ciclos = ([entrada] + list(self.historial_ciclos))[:MAX_HISTORIAL_CICLOS]
+        except Exception as ex:
+            print(f"⚠️ Error guardando historial de ciclos: {ex}")
+
     # ---------- ciclo principal ----------
     def _ciclo(self):
         inicio = time.monotonic()
@@ -1584,7 +1632,17 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "tickers_unicos": tickers_enr_unicos,
             "duplicados": len(enriquecidos) - tickers_enr_unicos,
             "resultados": len(filtrar_resultados(enriquecidos, self.filtros_dueno)),
+            "gap_aplicado": ETAPA_PRUEBA_FILTROS >= 4,
+            "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
+            "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
         }
+
+        # Guardamos una fotografía del resultado REAL de este ciclo antes de publicar
+        # la lista nueva. Esto evita perder candidatos cuando desaparecen en el siguiente ciclo.
+        p_hist = dict(self.filtros_dueno)
+        p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
+        resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
+        self._registrar_historial_ciclo(enriquecidos, resultados_finales_hist)
 
         self.resultados = enriquecidos
         self.float_pendientes = sum(
@@ -2076,6 +2134,8 @@ def panel_diagnostico_filtros():
                     f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
                     f"**resultado final:** {d.get('resultados', 0)}"
                 )
+                if not d.get('gap_aplicado', ETAPA_PRUEBA_FILTROS >= 4):
+                    st.info("ℹ️ PRUEBA actual: el filtro de subida mínima no se está aplicando al embudo (ETAPA_PRUEBA_FILTROS < 4). La etiqueta 'subida ≥ 3%' describe el radar base, pero no elimina candidatos en esta prueba.")
 
                 muestra = [c for c in servicio.resultados if c.get("cruzando_ema20") and c.get("macd_positivo")]
                 if muestra:
@@ -2093,6 +2153,21 @@ def panel_diagnostico_filtros():
                     } for c in muestra])
                     st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos · se muestran todos, sin límite Top N.")
                     st.dataframe(df_diag, hide_index=True, width="stretch")
+
+                if getattr(servicio, "historial_ciclos", None):
+                    st.markdown("**Historial de los últimos ciclos**")
+                    filas_hist = []
+                    for h in servicio.historial_ciclos:
+                        filas_hist.append({
+                            "Hora": h.get("hora"),
+                            "Radar": h.get("radar_base", 0),
+                            "Volumen": h.get("tras_volumen", 0),
+                            "EMA20": h.get("ema_arriba", 0),
+                            "MACD+": h.get("macd_positivo", 0),
+                            "EMA20+MACD": h.get("ema_y_macd", 0),
+                            "Candidatos": ", ".join(x.get("ticker", "") for x in h.get("finales", [])) or "—",
+                        })
+                    st.dataframe(pd.DataFrame(filas_hist), hide_index=True, width="stretch")
 
 panel_diagnostico_filtros()
 
