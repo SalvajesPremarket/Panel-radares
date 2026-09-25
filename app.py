@@ -993,6 +993,10 @@ class ServicioScanner:
             "macd_positivo": 0,
             "ema_y_macd": 0,
             "resultados": 0,
+            "raw_tickers": [],
+            "final_tickers_mismo_ciclo": [],
+            "eliminados_post_ema_macd": [],
+            "eliminados_post_ema_macd_count": 0,
             "gap_aplicado": ETAPA_PRUEBA_FILTROS >= 4,
             "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
             "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
@@ -1138,6 +1142,8 @@ class ServicioScanner:
             self.eventos = []
             self._ultimo_precio_evento = {}
             self.historial_ciclos = []
+            self.candidatos_ema_macd_actual = []
+            self.finales_ema_macd_actual = []
             self.cache_tecnico = {}
             self.fmp_pausado_hasta = 0.0
             self._ultima_peticion_fmp = 0.0
@@ -1642,6 +1648,20 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         p_hist = dict(self.filtros_dueno)
         p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
         resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
+
+        # PRUEBA 4B: conservar las dos listas del MISMO ciclo.
+        candidatos_raw_actual = [c for c in enriquecidos if c.get("cruzando_ema20") and c.get("macd_positivo")]
+        self.candidatos_ema_macd_actual = list(candidatos_raw_actual)
+        self.finales_ema_macd_actual = list(resultados_finales_hist)
+        raw_tickers = {c.get("ticker") for c in candidatos_raw_actual}
+        final_tickers = {c.get("ticker") for c in resultados_finales_hist}
+        eliminados_mismo_ciclo = sorted(raw_tickers - final_tickers)
+        self.diagnostico_filtros.update({
+            "raw_tickers": sorted(x for x in raw_tickers if x),
+            "final_tickers_mismo_ciclo": sorted(x for x in final_tickers if x),
+            "eliminados_post_ema_macd": eliminados_mismo_ciclo,
+            "eliminados_post_ema_macd_count": len(eliminados_mismo_ciclo),
+        })
         self._registrar_historial_ciclo(enriquecidos, resultados_finales_hist)
 
         self.resultados = enriquecidos
@@ -2137,8 +2157,9 @@ def panel_diagnostico_filtros():
                 if not d.get('gap_aplicado', ETAPA_PRUEBA_FILTROS >= 4):
                     st.info("ℹ️ PRUEBA actual: el filtro de subida mínima no se está aplicando al embudo (ETAPA_PRUEBA_FILTROS < 4). La etiqueta 'subida ≥ 3%' describe el radar base, pero no elimina candidatos en esta prueba.")
 
-                muestra = [c for c in servicio.resultados if c.get("cruzando_ema20") and c.get("macd_positivo")]
+                muestra = list(getattr(servicio, "candidatos_ema_macd_actual", []))
                 if muestra:
+                    final_tickers = set(getattr(servicio, "diagnostico_filtros", {}).get("final_tickers_mismo_ciclo", []))
                     df_diag = pd.DataFrame([{
                         "Ticker": c["ticker"],
                         "Precio ant.": round(c.get("tecnico_precio_anterior"), 4) if c.get("tecnico_precio_anterior") is not None else None,
@@ -2151,8 +2172,22 @@ def panel_diagnostico_filtros():
                         "Dist. BB %": round(c.get("bb_dist_pct"), 2) if c.get("bb_dist_pct") is not None else None,
                         "Barras": c.get("tecnico_barras", 0),
                     } for c in muestra])
-                    st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos · se muestran todos, sin límite Top N.")
+                    st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos del MISMO ciclo · se muestran todos, sin límite Top N.")
                     st.dataframe(df_diag, hide_index=True, width="stretch")
+
+                    df_4b = pd.DataFrame([{
+                        "Ticker": c.get("ticker"),
+                        "EMA20+MACD": "✅ SÍ",
+                        "Final mismo ciclo": "✅ SÍ" if c.get("ticker") in final_tickers else "❌ NO",
+                        "Estado": "Se mantiene" if c.get("ticker") in final_tickers else "ELIMINADO DESPUÉS",
+                    } for c in muestra])
+                    st.caption("PRUEBA 4B · mismo ciclo: distingue una eliminación real de un cambio natural entre ciclos.")
+                    st.dataframe(df_4b, hide_index=True, width="stretch")
+                    eliminados = getattr(servicio, "diagnostico_filtros", {}).get("eliminados_post_ema_macd", [])
+                    if eliminados:
+                        st.warning("⚠️ Eliminados después de EMA20+MACD en ESTE MISMO ciclo: " + ", ".join(eliminados))
+                    else:
+                        st.success("✅ PRUEBA 4B: ningún candidato EMA20+MACD fue eliminado después en este mismo ciclo.")
 
                 if getattr(servicio, "historial_ciclos", None):
                     st.markdown("**Historial de los últimos ciclos**")
