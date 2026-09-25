@@ -1997,13 +1997,13 @@ st.markdown("""
         width:100% !important;
         height:92px !important;
         box-sizing:border-box !important;
-        padding:8px 16px !important;
-        margin:0 0 8px !important;
+        padding:4px 10px !important;
+        margin:0 0 6px !important;
         border:1px solid rgba(212,175,55,.55) !important;
-        border-radius:8px !important;
+        border-radius:7px !important;
         overflow:hidden !important;
         background:#000 !important;
-        box-shadow:0 0 28px rgba(212,175,55,.07), inset 0 0 28px rgba(255,255,255,.015) !important;
+        box-shadow:0 0 22px rgba(212,175,55,.07), inset 0 0 22px rgba(255,255,255,.015) !important;
         display:flex !important;
         align-items:center !important;
         justify-content:center !important;
@@ -2014,15 +2014,14 @@ st.markdown("""
         display:flex !important;
         align-items:center !important;
         justify-content:center !important;
-        gap:14px !important;
     }
     .dash-brand .logo-image {
         display:block !important;
-        width:68px !important;
-        height:68px !important;
+        width:min(100%, 620px) !important;
+        height:auto !important;
+        max-height:82px !important;
         object-fit:contain !important;
         object-position:center !important;
-        flex:0 0 auto !important;
     }
     .dash-brand-copy {
         text-align:left !important;
@@ -2059,10 +2058,69 @@ st.markdown("""
         overflow:hidden !important;
     }
 
+    [data-testid="stDataFrame"] {
+        border:1px solid #303640 !important;
+        border-radius:5px !important;
+        overflow:hidden !important;
+        background:#101318 !important;
+    }
+    [data-testid="stDataFrame"] iframe {
+        background:#101318 !important;
+    }
+
+    /* Compacto tipo Finviz: poco espacio vertical y texto pequeño, pero legible. */
+    div[data-testid="stVerticalBlockBorderWrapper"] > div {
+        gap: .20rem !important;
+    }
+    div[data-testid="stHorizontalBlock"] {
+        gap:.35rem !important;
+        margin-bottom:2px !important;
+    }
+    div[data-testid="stNumberInput"],
+    div[data-testid="stTextInput"],
+    div[data-testid="stTimeInput"],
+    div[data-baseweb="select"] {
+        margin-bottom:0 !important;
+    }
+
+    .inline-field-label {
+        color:#c9c9c9 !important;
+        font-size:10px !important;
+        font-weight:700 !important;
+        line-height:1.05 !important;
+        min-height:28px !important;
+        display:flex !important;
+        align-items:center !important;
+        white-space:nowrap !important;
+    }
+    .inline-toggle-label {
+        color:#c9c9c9 !important;
+        font-size:9px !important;
+        font-weight:700 !important;
+        line-height:1 !important;
+        margin-bottom:0 !important;
+        white-space:nowrap !important;
+    }
+    .inline-field-label + div { margin:0 !important; }
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextInput"] input {
+        height:28px !important;
+        min-height:28px !important;
+        padding:2px 6px !important;
+        font-size:10px !important;
+    }
+    div[data-baseweb="select"] {
+        min-height:28px !important;
+        height:28px !important;
+    }
+    div[data-baseweb="select"] > div {
+        min-height:28px !important;
+        height:28px !important;
+        font-size:10px !important;
+    }
     @media (max-width: 900px) {
-        .dash-header { height:82px !important; }
-        .dash-brand-title { font-size:21px !important; }
-        .dash-brand .logo-image { width:58px !important; height:58px !important; }
+        .dash-header { height:58px !important; padding:3px 6px !important; }
+        .dash-brand .logo-image { width:100% !important; height:100% !important; }
     }
     @media (max-width: 640px) {
         .block-container {
@@ -2072,15 +2130,18 @@ st.markdown("""
             padding-top:.18rem !important;
         }
         .dash-header {
-            height:66px !important;
-            padding:5px 7px !important;
-            border-radius:5px !important;
-            margin-bottom:5px !important;
+            height:78px !important;
+            padding:2px 3px !important;
+            border-radius:4px !important;
+            margin-bottom:3px !important;
         }
-        .dash-brand { gap:7px !important; }
-        .dash-brand .logo-image { width:44px !important; height:44px !important; }
-        .dash-brand-title { font-size:15px !important; letter-spacing:.7px !important; }
-        .dash-brand-subtitle { font-size:7px !important; letter-spacing:2px !important; margin-top:3px !important; }
+        .dash-brand .logo-image {
+            width:100% !important;
+            max-width:430px !important;
+            height:auto !important;
+            max-height:70px !important;
+            object-fit:contain !important;
+        }
         .simple-title { font-size:12px !important; }
         .small-note { font-size:9px !important; }
         div[data-testid="stHorizontalBlock"] {
@@ -2100,26 +2161,56 @@ st.markdown("""
         div[data-testid="stNumberInput"] input,
         div[data-testid="stTextInput"] input,
         div[data-baseweb="select"] > div {
-            font-size:9px !important;
-            min-height:30px !important;
-            padding-left:4px !important;
-            padding-right:4px !important;
+            font-size:8px !important;
+            min-height:24px !important;
+            height:24px !important;
+            padding-left:3px !important;
+            padding-right:3px !important;
         }
         label, [data-testid="stWidgetLabel"] p {
-            font-size:8px !important;
-            line-height:1.05 !important;
+            font-size:7px !important;
+            line-height:1 !important;
         }
         .stButton button {
-            font-size:9px !important;
-            min-height:30px !important;
-            padding:2px 5px !important;
+            font-size:8px !important;
+            min-height:24px !important;
+            height:24px !important;
+            padding:1px 4px !important;
             white-space:nowrap !important;
         }
         div[data-testid="stVerticalBlockBorderWrapper"] {
-            padding:5px !important;
+            padding:3px !important;
+        }
+        [data-testid="stAlert"] {
+            padding:3px 6px !important;
+            margin:2px 0 !important;
+            font-size:8px !important;
+        }
+        .simple-title { margin-bottom:2px !important; }
+        div[data-testid="stHorizontalBlock"] { margin-bottom:1px !important; }
+        [data-testid="stDataFrame"] {
+            border-radius:4px !important;
         }
         [data-testid="stDataFrame"] {
             border-radius:4px !important;
+            font-size:8px !important;
+        }
+        /* Emula la vista reducida de Finviz: todo el dashboard cabe con menos desplazamiento. */
+        .block-container {
+            zoom:0.82 !important;
+            width:121.95% !important;
+            max-width:none !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            padding:2px !important;
+        }
+        .simple-title {
+            font-size:10px !important;
+            line-height:1 !important;
+        }
+        .small-note {
+            padding:3px 5px !important;
+            line-height:1.05 !important;
         }
     }
 </style>
@@ -2165,11 +2256,7 @@ st.markdown(f"""
     <div class="dash-brand">
         <img class="logo-image"
              src="data:image/png;base64,{IMG_LOGO_B64}"
-             alt="TradeScanner" />
-        <div class="dash-brand-copy">
-            <div class="dash-brand-title">TRADE SCANNER INSTITUTIONAL</div>
-            <div class="dash-brand-subtitle">RADAR · SEÑALES · PRUEBA 7</div>
-        </div>
+             alt="TradeScanner Institutional — Toro y Oso" />
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2179,62 +2266,77 @@ st.markdown(f"""
 # =========================================================
 # 1) Preferencias + control + conexión en una sola fila.
 # Los colores ya NO ocupan una columna lateral grande.
+# Campos compactos tipo Finviz: etiqueta a la izquierda + control corto a la derecha.
+def _campo_inline_num(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([0.82, 1.18], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.number_input("", label_visibility="collapsed", **kwargs)
+
+def _campo_inline_select(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([0.82, 1.18], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.selectbox("", label_visibility="collapsed", **kwargs)
+
+def _campo_inline_text(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([0.82, 1.18], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.text_input("", label_visibility="collapsed", **kwargs)
+
 with st.container(border=True):
     st.markdown('<div class="simple-title">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
     cfg = cargar_config()
 
     if ETAPA_PRUEBA_FILTROS == 1:
-        # PRUEBA 1: controles distribuidos en filas horizontales limpias.
         r1 = st.columns(4, gap="small")
-        with r1[0]:
-            PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
-        with r1[1]:
-            PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-        with r1[2]:
-            CRUCE_EMA = "Hacia arriba"
-            st.text_input("EMA20", value="Precio por encima", disabled=True, key="f_ema_prueba1")
-        with r1[3]:
-            MACD_MODO = "Positivo"
-            st.text_input("MACD", value="Positivo", disabled=True, key="f_macd_prueba1")
+        PRECIO_MIN = _campo_inline_num(r1[0], "Precio mín.", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+        PRECIO_MAX = _campo_inline_num(r1[1], "Precio máx.", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+        CRUCE_EMA = "Hacia arriba"
+        _campo_inline_text(r1[2], "EMA20", value="Precio por encima", disabled=True, key="f_ema_prueba1")
+        MACD_MODO = "Positivo"
+        _campo_inline_text(r1[3], "MACD", value="Positivo", disabled=True, key="f_macd_prueba1")
 
-        r2 = st.columns(3, gap="small")
-        with r2[0]:
-            REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
-        with r2[1]:
-            ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-        with r2[2]:
-            TOP_N = st.number_input("Top N", value=50, min_value=1, max_value=100, key="f_top")
-        AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
+        r2 = st.columns(4, gap="small")
+        REFRESCO = _campo_inline_num(r2[0], "Refresco", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+        ORDEN = _campo_inline_select(r2[1], "Ordenar", options=["Actualizado", "Cambio %", "Volumen"], key="f_orden")
+        TOP_N = _campo_inline_num(r2[2], "Top N", value=50, min_value=1, max_value=100, key="f_top")
+        with r2[3]:
+            st.markdown('<div class="inline-toggle-label">Auto</div>', unsafe_allow_html=True)
+            AUTO_ON = st.toggle("", value=True, label_visibility="collapsed", key="f_auto")
 
-        # Valores heredados solo para compatibilidad interna. La etapa 1 los ignora.
         GAP_MIN = float(cfg["gap_min"])
         GAP_MAX = float(cfg["gap_max"])
         FLOT_MAX = int(cfg["flotacion_max"])
         VOLUMEN_MIN = int(cfg["volumen_min"])
     else:
-        # Fila 1: precios y gap.
+        # Cada campo conserva el estilo compacto de Finviz: título a la izquierda y caja corta a la derecha.
         r1 = st.columns(4, gap="small")
-        with r1[0]: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
-        with r1[1]: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-        with r1[2]: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
-        with r1[3]: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
+        PRECIO_MIN = _campo_inline_num(r1[0], "Precio mín.", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+        PRECIO_MAX = _campo_inline_num(r1[1], "Precio máx.", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+        GAP_MIN = _campo_inline_num(r1[2], "Gap mín.", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
+        GAP_MAX = _campo_inline_num(r1[3], "Gap máx.", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
 
-        # Fila 2: fundamentales y refresco.
-        r2 = st.columns(3, gap="small")
-        with r2[0]: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
-        with r2[1]: VOLUMEN_MIN = st.number_input("Volumen mín. (títulos)", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
-        with r2[2]: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+        r2 = st.columns(4, gap="small")
+        FLOT_MAX = _campo_inline_num(r2[0], "Flotación", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
+        VOLUMEN_MIN = _campo_inline_num(r2[1], "Volumen mín.", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
+        REFRESCO = _campo_inline_num(r2[2], "Refresco", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+        TOP_N = _campo_inline_num(r2[3], "Top N", value=50, min_value=1, max_value=100, key="f_top")
 
-        # Fila 3: lógica de señal.
-        r3 = st.columns(3, gap="small")
-        with r3[0]: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
-        with r3[1]: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
-        with r3[2]: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-
-        # Fila 4: salida y actualización.
-        r4 = st.columns(2, gap="small")
-        with r4[0]: TOP_N = st.number_input("Top N", value=50, min_value=1, max_value=100, key="f_top")
-        with r4[1]: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
+        r3 = st.columns(4, gap="small")
+        CRUCE_EMA = _campo_inline_select(r3[0], "Cruce EMA20", options=OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
+        MACD_MODO = _campo_inline_select(r3[1], "MACD", options=OPCIONES_MACD, index=0, key="f_macd_modo")
+        ORDEN = _campo_inline_select(r3[2], "Ordenar", options=["Actualizado", "Cambio %", "Volumen"], key="f_orden")
+        with r3[3]:
+            st.markdown('<div class="inline-toggle-label">Actualización</div>', unsafe_allow_html=True)
+            AUTO_ON = st.toggle("", value=True, label_visibility="collapsed", key="f_auto")
 
 params = {
     "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
@@ -2310,6 +2412,12 @@ with control_col:
             )
         else:
             st.info("Modo usuario. El encendido/apagado y el horario solo los puede modificar el administrador.")
+
+# Espacios fijos de renderizado: el cuadro principal de activos aparece AQUÍ,
+# inmediatamente debajo de los mandos. Se rellena más abajo, después de definir
+# la función, para conservar este orden visual sin mover la lógica del motor.
+panel_resultados_slot = st.empty()
+panel_broker_slot = st.empty()
 
 if ES_ADMIN:
     with broker_col:
@@ -2650,8 +2758,29 @@ def panel_resultados():
     styled = (
         df.style
         .map(color_cambio, subset=["Cambio %"])
-        .set_properties(**{"background-color": "#080808", "color": "#eeeeee", "border-color": "#2b2512"})
-        .set_table_styles([{"selector": "th", "props": [("background-color", "#0b0b0b"), ("color", "#d4af37"), ("font-weight", "bold"), ("border-color", "#5d4b19")]}])
+        .set_properties(**{
+            "background-color": "#101318",
+            "color": "#e8edf2",
+            "border-color": "#303640",
+            "font-size": "9px",
+            "padding": "2px 4px",
+            "line-height": "1.05",
+            "white-space": "nowrap",
+        })
+        .set_table_styles([
+            {"selector": "th", "props": [
+                ("background-color", "#171b22"),
+                ("color", "#f0c75e"),
+                ("font-weight", "700"),
+                ("font-size", "9px"),
+                ("padding", "2px 4px"),
+                ("line-height", "1.0"),
+                ("border-color", "#39404b"),
+                ("white-space", "nowrap"),
+            ]},
+            {"selector": "tbody tr:nth-child(even)", "props": [("background-color", "#0d1117")]},
+            {"selector": "tbody tr:hover", "props": [("background-color", "#202733")]},
+        ])
     )
     seleccion = st.dataframe(
         styled, width="stretch", hide_index=True,
@@ -2662,10 +2791,10 @@ def panel_resultados():
         st.session_state["ticker_activo"] = df.iloc[filas_sel[0]]["Ticker"]
 
 
-panel_resultados()
+with panel_resultados_slot.container():
+    panel_resultados()
 
-# El cuadro principal queda inmediatamente debajo de todos los controles.
-# El diagnóstico técnico se mantiene debajo para no empujar la tabla de activos.
+# El diagnóstico técnico se mantiene debajo para no empujar la tabla principal.
 panel_diagnostico_filtros()
 
 
@@ -2679,7 +2808,7 @@ panel_diagnostico_filtros()
 # No coloca órdenes: solo manda el símbolo.
 # ==========================================
 
-PANEL_BROKER_ALTO_PX = 500
+PANEL_BROKER_ALTO_PX = 310
 PUENTE_LOCAL_POR_DEFECTO = "http://127.0.0.1:8765/enviar"
 BROKERS_DISPONIBLES = [
     "Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)",
@@ -2733,13 +2862,21 @@ CSS_PANEL_BROKER = (
     "font-size:13px;display:none;}"
     # --- Responsivo: celular. La tabla no se aprieta, se puede deslizar horizontal ---
     "@media (max-width:640px){"
-    "  th{font-size:12px;padding:6px 4px;}"
-    "  th.colhdr{width:28px;min-width:28px;max-width:28px;}"
-    
-    "  td{font-size:12px;height:30px;}"
-    "  td.gear{font-size:16px;}"
-    "  .swatch{width:12px;height:12px;}"
-    "  #msg{font-size:11px;}"
+    "  .tbl-wrap{overflow:hidden;}"
+    "  table{min-width:0;width:100%;table-layout:fixed;}"
+    "  th{font-size:7px;padding:3px 1px;line-height:1;}"
+    "  th.gearhdr,td.gear{width:18px;min-width:18px;max-width:18px;}"
+    "  th.colhdr,td.col{width:16px;min-width:16px;max-width:16px;}"
+    "  th:nth-child(3){width:18%;}"
+    "  th:nth-child(4){width:11%;}"
+    "  th:nth-child(5){width:12%;}"
+    "  th:nth-child(6){width:17%;}"
+    "  th:nth-child(7){width:17%;}"
+    "  th:nth-child(8){width:12%;}"
+    "  td{font-size:8px;height:21px;padding:0 1px;line-height:1;}"
+    "  td.gear{font-size:10px;}"
+    "  .swatch{width:8px;height:8px;border-radius:2px;}"
+    "  #msg{font-size:8px;margin-top:3px;padding:3px 5px;}"
     "}"
 )
 
@@ -3002,7 +3139,12 @@ def panel_broker():
             "puente": "",
             "webhooks": ["" for _ in range(len(COLORES_LAYOUT_DEFECTO))],
         }
-    st.iframe(construir_html_panel_broker(filas10, cfg, colores_layout_actuales()), height=PANEL_BROKER_ALTO_PX)
+    with panel_broker_slot.container():
+        st.components.v1.html(
+            construir_html_panel_broker(filas10, cfg, colores_layout_actuales()),
+            height=PANEL_BROKER_ALTO_PX,
+            scrolling=False,
+        )
 
 
 panel_broker()
