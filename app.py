@@ -1008,6 +1008,7 @@ class ServicioScanner:
         self.eventos = []                    # cuadro "Eventos en vivo" (el más nuevo primero)
         self._ultimo_precio_evento = {}
         self.historial_ciclos = []            # últimos ciclos: permite ver cuándo entran/salen candidatos
+        self._raw_tickers_ciclo_anterior = set()
 
         self.cache_tecnico = {}
         self.cache_fund = self._leer_cache_fundamentales()
@@ -1142,6 +1143,7 @@ class ServicioScanner:
             self.eventos = []
             self._ultimo_precio_evento = {}
             self.historial_ciclos = []
+            self._raw_tickers_ciclo_anterior = set()
             self.candidatos_ema_macd_actual = []
             self.finales_ema_macd_actual = []
             self.cache_tecnico = {}
@@ -1656,8 +1658,21 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         raw_tickers = {c.get("ticker") for c in candidatos_raw_actual}
         final_tickers = {c.get("ticker") for c in resultados_finales_hist}
         eliminados_mismo_ciclo = sorted(raw_tickers - final_tickers)
+
+        # PRUEBA 4C: comparar candidatos EMA20+MACD con el ciclo inmediatamente anterior.
+        # Esto solo diagnostica entradas/salidas naturales entre ciclos; no cambia filtros.
+        raw_anterior = set(getattr(self, "_raw_tickers_ciclo_anterior", set()))
+        mantenidos_entre_ciclos = sorted(raw_tickers & raw_anterior)
+        entraron_este_ciclo = sorted(raw_tickers - raw_anterior)
+        salieron_este_ciclo = sorted(raw_anterior - raw_tickers)
+        self._raw_tickers_ciclo_anterior = set(raw_tickers)
+
         self.diagnostico_filtros.update({
             "raw_tickers": sorted(x for x in raw_tickers if x),
+            "raw_tickers_anterior": sorted(x for x in raw_anterior if x),
+            "mantenidos_entre_ciclos": mantenidos_entre_ciclos,
+            "entraron_este_ciclo": entraron_este_ciclo,
+            "salieron_este_ciclo": salieron_este_ciclo,
             "final_tickers_mismo_ciclo": sorted(x for x in final_tickers if x),
             "eliminados_post_ema_macd": eliminados_mismo_ciclo,
             "eliminados_post_ema_macd_count": len(eliminados_mismo_ciclo),
@@ -2188,6 +2203,27 @@ def panel_diagnostico_filtros():
                         st.warning("⚠️ Eliminados después de EMA20+MACD en ESTE MISMO ciclo: " + ", ".join(eliminados))
                     else:
                         st.success("✅ PRUEBA 4B: ningún candidato EMA20+MACD fue eliminado después en este mismo ciclo.")
+
+                    # PRUEBA 4C: estabilidad entre ciclos consecutivos.
+                    mantenidos = d.get("mantenidos_entre_ciclos", [])
+                    entraron = d.get("entraron_este_ciclo", [])
+                    salieron = d.get("salieron_este_ciclo", [])
+                    st.caption("PRUEBA 4C · compara EMA20+MACD del ciclo actual contra el ciclo inmediatamente anterior.")
+                    if not d.get("raw_tickers_anterior"):
+                        st.info("ℹ️ PRUEBA 4C: esperando un ciclo anterior comparable.")
+                    else:
+                        st.markdown(
+                            f"**Se mantienen:** {len(mantenidos)} · **entraron ahora:** {len(entraron)} · **salieron ahora:** {len(salieron)}"
+                        )
+                        df_4c = pd.DataFrame([{
+                            "Ticker": t,
+                            "Estado 4C": "↔️ Se mantiene" if t in mantenidos else "🟢 Entró ahora"
+                        } for t in sorted(set(mantenidos + entraron))] + [{
+                            "Ticker": t,
+                            "Estado 4C": "🔴 Salió respecto al ciclo anterior"
+                        } for t in salieron])
+                        if not df_4c.empty:
+                            st.dataframe(df_4c, hide_index=True, width="stretch")
 
                 if getattr(servicio, "historial_ciclos", None):
                     st.markdown("**Historial de los últimos ciclos**")
