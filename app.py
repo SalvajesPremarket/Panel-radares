@@ -1979,26 +1979,80 @@ st.markdown("""
         border-color:#3a4048 !important;
         box-shadow:none !important;
     }
-    div[data-baseweb="select"] * { color:#f1f1f1 !important; }
+    /* Controles planos: sin halo ni marco blanco alrededor */
+    div[data-testid="stNumberInput"],
+    div[data-testid="stTextInput"],
+    div[data-testid="stTimeInput"],
+    div[data-baseweb="select"],
+    div[data-testid="stToggle"],
+    div[data-testid="stNumberInput"] > div,
+    div[data-testid="stTextInput"] > div,
+    div[data-testid="stTimeInput"] > div {
+        background:transparent !important;
+        box-shadow:none !important;
+        border:none !important;
+        outline:none !important;
+    }
+    div[data-baseweb="select"] * { color:#f1f1f1 !important; box-shadow:none !important; }
+
+    /* Desplegables legibles en móvil y escritorio: menú oscuro + texto claro.
+       BaseWeb/Streamlit puede renderizar el menú fuera del contenedor del select,
+       por eso estas reglas también cubren el popover/listbox. */
+    [data-baseweb="popover"],
+    [data-baseweb="menu"],
+    [role="listbox"],
+    ul[role="listbox"] {
+        background:#101318 !important;
+        color:#f1f1f1 !important;
+        border:1px solid #3a4048 !important;
+        box-shadow:none !important;
+    }
+    [data-baseweb="popover"] *,
+    [data-baseweb="menu"] *,
+    [role="listbox"] *,
+    ul[role="listbox"] * {
+        color:#f1f1f1 !important;
+        background-color:transparent !important;
+        text-shadow:none !important;
+    }
+    [role="option"] {
+        color:#f1f1f1 !important;
+        background:#101318 !important;
+        font-size:11px !important;
+        line-height:1.2 !important;
+    }
+    [role="option"]:hover,
+    [role="option"][aria-selected="true"] {
+        color:#ffffff !important;
+        background:#243142 !important;
+    }
+    /* El valor seleccionado también debe conservar contraste cuando el campo es compacto. */
+    div[data-baseweb="select"] [data-baseweb="select-value"],
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] span {
+        color:#f1f1f1 !important;
+    }
     .stButton button {
         border-radius:6px !important;
         font-weight:800 !important;
         border:1px solid rgba(212,175,55,.55) !important;
-        background:linear-gradient(180deg,#17130a,#0d0b07) !important;
+        background:#11100c !important;
         color:var(--ts-gold-bright) !important;
+        box-shadow:none !important;
+        outline:none !important;
     }
     .stButton button:hover {
         border-color:var(--ts-gold-bright) !important;
-        box-shadow:0 0 14px rgba(212,175,55,.12) !important;
+        box-shadow:none !important;
     }
     [data-testid="stMetricValue"] { color:var(--ts-gold-bright) !important; }
 
     /* Header / logo */
     .dash-header {
         width:100% !important;
-        height:116px !important;
+        height:150px !important;
         box-sizing:border-box !important;
-        padding:4px 10px !important;
+        padding:4px 14px !important;
         margin:0 0 6px !important;
         border:1px solid rgba(212,175,55,.55) !important;
         border-radius:7px !important;
@@ -2018,9 +2072,9 @@ st.markdown("""
     }
     .dash-brand .logo-image {
         display:block !important;
-        width:min(100%, 620px) !important;
+        width:min(100%, 860px) !important;
         height:auto !important;
-        max-height:108px !important;
+        max-height:142px !important;
         object-fit:contain !important;
         object-position:center !important;
     }
@@ -2105,10 +2159,20 @@ st.markdown("""
     .inline-field-label + div { margin:0 !important; }
     div[data-testid="stNumberInput"] input,
     div[data-testid="stTextInput"] input {
+        width:50% !important;
+        max-width:72px !important;
+        min-width:42px !important;
         height:25px !important;
         min-height:25px !important;
-        padding:2px 6px !important;
+        padding:2px 5px !important;
         font-size:10px !important;
+        box-shadow:none !important;
+        outline:none !important;
+    }
+    div[data-baseweb="select"] {
+        width:50% !important;
+        max-width:105px !important;
+        min-width:60px !important;
     }
     div[data-baseweb="select"] {
         min-height:28px !important;
@@ -2131,17 +2195,17 @@ st.markdown("""
             padding-top:.18rem !important;
         }
         .dash-header {
-            height:52px !important;
-            padding:1px 2px !important;
+            height:48px !important;
+            padding:1px 1px !important;
             border-radius:4px !important;
             margin-bottom:3px !important;
         }
         .dash-brand .logo-image {
             width:100% !important;
-            max-width:88vw !important;
-            width:88vw !important;
+            max-width:84vw !important;
+            width:84vw !important;
             height:auto !important;
-            max-height:46px !important;
+            max-height:43px !important;
             object-fit:contain !important;
         }
         .simple-title { font-size:12px !important; }
@@ -2161,13 +2225,33 @@ st.markdown("""
             min-width:0 !important;
         }
         div[data-testid="stNumberInput"] input,
-        div[data-testid="stTextInput"] input,
+        div[data-testid="stTextInput"] input {
+            width:50% !important;
+            max-width:48px !important;
+            min-width:30px !important;
+            font-size:7px !important;
+            min-height:21px !important;
+            height:21px !important;
+            padding-left:2px !important;
+            padding-right:2px !important;
+            box-shadow:none !important;
+        }
+        div[data-baseweb="select"] {
+            width:50% !important;
+            max-width:70px !important;
+            min-width:42px !important;
+        }
         div[data-baseweb="select"] > div {
             font-size:7px !important;
-            min-height:22px !important;
-            height:22px !important;
+            min-height:21px !important;
+            height:21px !important;
             padding-left:2px !important;
-            padding-right:3px !important;
+            padding-right:2px !important;
+        }
+        [role="option"],
+        [data-baseweb="menu"] * {
+            font-size:9px !important;
+            line-height:1.15 !important;
         }
         label, [data-testid="stWidgetLabel"] p {
             font-size:6.5px !important;
