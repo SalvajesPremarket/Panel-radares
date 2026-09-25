@@ -141,6 +141,26 @@ def cargar_config():
     return VALORES_POR_DEFECTO.copy()
 
 
+def cargar_horario_guardado():
+    """Horario automático guardado en disco (sobrevive a reinicios de la app).
+    Si no hay nada guardado, usa los valores por defecto del código."""
+    try:
+        with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return int(d["hora_inicio_auto_min"]), int(d["hora_fin_auto_min"])
+    except Exception:
+        return HORA_AUTO_INICIO_ET * 60, HORA_AUTO_FIN_ET * 60
+
+
+def guardar_horario_en_disco(inicio_min, fin_min):
+    """Guarda el horario automático en disco para que sobreviva a reinicios de la app."""
+    try:
+        with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
+            json.dump({"hora_inicio_auto_min": int(inicio_min), "hora_fin_auto_min": int(fin_min)}, f)
+    except Exception:
+        pass
+
+
 # ==========================================
 # 🔐 AUTENTICACIÓN — ADMIN + USUARIOS
 # ==========================================
@@ -954,8 +974,9 @@ class ServicioScanner:
 
         self.encendido = True
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
-        self.hora_inicio_auto_min = HORA_AUTO_INICIO_ET * 60
-        self.hora_fin_auto_min = HORA_AUTO_FIN_ET * 60
+        # El horario se carga desde disco si el administrador ya lo guardó antes;
+        # si no hay nada guardado, usa los valores por defecto del código.
+        self.hora_inicio_auto_min, self.hora_fin_auto_min = cargar_horario_guardado()
         self.resultados = []
         self.ultima_actualizacion = None
         self.duracion_ciclo = None
@@ -1069,9 +1090,11 @@ class ServicioScanner:
         return self.auto_en_horario
 
     def configurar_horario(self, inicio, fin):
-        """Actualiza el horario automático compartido por todo el scanner."""
+        """Actualiza el horario automático compartido por todo el scanner y lo guarda en disco
+        para que sobreviva a reinicios de la app (redeploy, inactividad, etc.)."""
         self.hora_inicio_auto_min = inicio.hour * 60 + inicio.minute
         self.hora_fin_auto_min = fin.hour * 60 + fin.minute
+        guardar_horario_en_disco(self.hora_inicio_auto_min, self.hora_fin_auto_min)
         self.auto_motivo = "Horario automático actualizado; esperando el próximo ciclo"
 
     def reiniciar_scanner(self):
