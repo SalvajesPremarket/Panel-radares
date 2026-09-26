@@ -3748,4 +3748,6 @@ html_aplicacion_institutional = f"""
 """
 
 # 4. INYECCIÓN RESPONSIVA EN EL LIENZO DE STREAMLIT
-components.html(html_aplicacion_institutional, height=850, scrolling=True)
+_html_institutional_final = globals().get("html_aplicacion_institutional", "")
+if _html_institutional_final:
+    components.html(_html_institutional_final, height=850, scrolling=True)
