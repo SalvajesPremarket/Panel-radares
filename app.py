@@ -2309,190 +2309,89 @@ for row in filas_reales:
 json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</", "<\\/")
 
 # 2. Construcción de la carátula rígida 2D encapsulada
-html_caratula_finviz = f"""
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<style>
-    body {{
-        background-color: #dcdcdc;
-        font-family: Verdana, Arial, sans-serif;
-        font-size: 11px;
-        color: #000000;
-        margin: 4px;
-        padding: 0;
-    }}
-    .filtros-grid {{
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        gap: 4px;
-        background-color: #ffffff;
-        border: 1px solid #999999;
-        padding: 6px;
-        margin-bottom: 8px;
-    }}
-    .filtro-item {{
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        background: #f1f1f1;
-        border: 1px solid #aaaaaa;
-        padding: 2px 5px;
-        height: 24px;
-        box-sizing: border-box;
-    }}
-    .filtro-item label {{
-        font-weight: bold;
-        color: #111111;
-        font-size: 10px;
-        white-space: nowrap;
-        margin-right: 4px;
-    }}
-    .logo-container {{
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: #e6e6e6;
-        border: 1px dashed #777777;
-        font-weight: bold;
-        color: #444444;
-        font-size: 11px;
-        height: 24px;
-        text-align: center;
-    }}
-    input, select, button {{
-        font-family: Verdana;
-        font-size: 10px;
-        height: 18px;
-        border: 1px solid #777777;
-        background-color: #ffffff;
-        border-radius: 0px;
-        box-sizing: border-box;
-        outline: none;
-    }}
-    button {{ cursor: pointer; background-color: #eaeaea; font-weight: bold; }}
-    button:active {{ background-color: #cccccc; }}
-    .table-wrapper {{
-        width: 100%;
-        overflow-x: auto;
-        background-color: #ffffff;
-    }}
-    table {{
-        width: 100%;
-        border-collapse: collapse;
-        border: 1px solid #888888;
-    }}
-    th {{
-        background-color: #cccccc;
-        color: #000000;
-        font-weight: bold;
-        padding: 4px 5px;
-        border: 1px solid #888888;
-        font-size: 10px;
-    }}
-    td {{
-        padding: 4px 5px;
-        border: 1px solid #888888;
-        font-size: 11px;
-        white-space: nowrap;
-        height: 20px;
-    }}
-    .fila-alza {{ background-color: #e2f0d9 !important; }}
-    .fila-baja {{ background-color: #fce4d6 !important; }}
-    
-    .engranaje-select {{ font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }}
-    .c-default {{ background-color: #ffffff; color: #000000; }}
-    .c-L1 {{ background-color: #ffcccc; }} .c-L2 {{ background-color: #ffe5cc; }}
-    .c-L3 {{ background-color: #ffffcc; }} .c-L4 {{ background-color: #e5ffcc; }}
-    .c-L5 {{ background-color: #ccffcc; }} .c-L6 {{ background-color: #ccffe5; }}
-    .c-L7 {{ background-color: #ccffff; }} .c-L8 {{ background-color: #cce5ff; }}
-    .c-L9 {{ background-color: #ccccff; }} .c-L10 {{ background-color: #e5ccff; }}
-    .macd-positivo {{ background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }}
-    .macd-negativo {{ background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }}
-    .macd-neutro {{ background-color: #e2e3e5 !important; text-align: center; }}
-    .num-col {{ text-align: right; }}
+# ==============================================================================
+# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ - PROCESADOR SEGURO POR PARSEO
+# ==============================================================================
 
-    @media (max-width: 768px) {{
-        body {{ margin: 2px; }}
-        .filtros-grid {{ grid-template-columns: repeat(2, 1fr); padding: 4px; gap: 3px; }}
-        td, th {{ font-size: 10px; padding: 3px 4px; }}
-        .filtro-item select, .filtro-item input {{ width: 50%; }}
-    }}
-</style>
-<script>
-    function pushConfig(actionType) {{
-        var urlParams = new URLSearchParams(window.parent.location.search);
-        urlParams.set('action', actionType);
-        if(actionType === 'update_all') {{
-            urlParams.set('c_active', document.getElementById('cfg_active').value);
-            urlParams.set('c_start', document.getElementById('cfg_start').value);
-            urlParams.set('c_end', document.getElementById('cfg_end').value);
-            urlParams.set('c_broker', document.getElementById('cfg_broker').value);
-            urlParams.set('c_cust_broker', document.getElementById('cfg_cust_broker').value);
-            urlParams.set('c_api', document.getElementById('cfg_api').value);
-            urlParams.set('c_secret', document.getElementById('cfg_secret').value);
-            urlParams.set('c_url', document.getElementById('cfg_url').value);
-            urlParams.set('c_lang', document.getElementById('cfg_lang').value);
-            urlParams.set('c_wnd', document.getElementById('cfg_wnd').value);
-            urlParams.set('f_vol', document.getElementById('txt_vol').value || 0);
-            urlParams.set('f_pre', document.getElementById('sel_pre').value);
-            urlParams.set('f_gap', document.getElementById('sel_gap').value);
-            urlParams.set('f_flt', document.getElementById('sel_flt').value);
-            urlParams.set('f_ema', document.getElementById('sel_ema').value);
-            urlParams.set('f_mac', document.getElementById('sel_mac').value);
-        }}
-        window.parent.location.search = '?' + urlParams.toString();
-    }}
-    function toggleCustomBroker() {{
-        var broker = document.getElementById('cfg_broker').value;
-        document.getElementById('cfg_cust_broker').style.display = (broker === "Otro") ? "inline-block" : "none";
-    }}
-    function cambiarLayout(ticker, selectObj) {{
-        var colorVal = selectObj.value;
-        selectObj.className = "engranaje-select c-" + (colorVal ? colorVal : "default");
-        if(colorVal !== "") {{
-            var urlParams = new URLSearchParams(window.parent.location.search);
-            urlParams.set('link_ticker', ticker);
-            urlParams.set('layout_color', colorVal);
-            window.parent.history.replaceState(null, '', '?' + urlParams.toString());
-            var targetUrl = document.getElementById('cfg_url').value || "{st.session_state.get('bk_puente', 'http://localhost:8080/layout')}";
-            if(document.getElementById('cfg_wnd').value === "Flotante") {{
-                window.open(targetUrl + "?ticker=" + ticker + "&layout=" + colorVal, "_blank", "width=400,height=300");
-            }}
-            fetch(targetUrl, {{
-                method: "POST",
-                headers: {{ "Content-Type": "application/json" }},
-                body: JSON.stringify({{ 
-                    ticker: ticker, 
-                    layout_color: colorVal,
-                    broker: document.getElementById('cfg_broker').value,
-                    api_key: document.getElementById('cfg_api').value
-                }}),
-                mode: "cors"
-            }}).catch(e => console.log("Signal dispatched."));
-        }}
-    }}
-</script>
-</head>
-<body onload="toggleCustomBroker()">
-    <div class="filtros-grid">
-        <div class="logo-container">[ LOGOTIPO ]</div>
-        <div class="filtro-item">
-            <label>MOTOR:</label>
-            <select id="cfg_active" onchange="pushConfig('update_all')" style="font-weight:bold;">
-                <option value="True" {"selected" if st.session_state.get("scanner_active", True) else ""}>🟢 ON ({_estado_txt})</option>
-                <option value="False" {"selected" if not st.session_state.get("scanner_active", True) else ""}>🔴 OFF</option>
-            </select>
-        </div>
-        <div class="filtro-item">
-            <label>LAPSO:</label>
-            <div style="display:flex; gap:2px;">
-                <input type="time" id="cfg_start" value="{st.session_state.get("start_time", "08:00")}" onchange="pushConfig('update_all')">
-                <input type="time" id="cfg_end" value="{st.session_state.get("end_time", "17:00")}" onchange="pushConfig('update_all')">
-            </div>
-        </div>
-        <div class="filtro-item">
-            <label>IDIOMA:</label>
-            <select id="cfg_lang" onchange="pushConfig('update_all')">
+try:
+    servicio._esta_en_horario_automatico()
+except Exception:
+    pass
+
+_hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
+_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
+
+filas_reales = filtrar_resultados(list(servicio.resultados), params) if "params" in locals() else list(servicio.resultados)
+
+datos_formateados = []
+for row in filas_reales:
+    datos_formateados.append({
+        "Ticker": row.get("ticker", ""),
+        "Sector": row.get("sector", "N/A"),
+        "Precio": float(row.get("precio", 0.0)),
+        "Cambio": float(row.get("cambio_pct", 0.0)),
+        "Gap": float(row.get("cambio_pct", 0.0)), 
+        "Float": float(row.get("float_shares", 0.0)) / 1_000_000 if row.get("float_shares") else 0.0,
+        "EMA20": "Por encima" if row.get("cruzando_ema20") else ("Por debajo" if row.get("cruzando_ema20_abajo") else "Sin patrón"),
+        "MACD": "Positivo" if row.get("macd_positivo") else ("Negativo" if row.get("macd_negativo") else "Neutro"),
+        "Volumen": int(row.get("volumen_dia", 0)),
+        "Noticia": bool(row.get("tiene_noticia", False))
+    })
+
+json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False)
+
+# Lectura del archivo externo
+with open("interface.html", "r", encoding="utf-8") as f:
+    html_plantilla = f.read()
+
+# Remplazo de marcadores
+html_final = (html_plantilla
+    .replace("@@JSON_ROWS_DATA@@", json_rows_reales)
+    .replace("@@ESTADO_TXT@@", _estado_txt)
+    .replace("@@START_TIME@@", st.session_state.get("start_time", "08:00"))
+    .replace("@@END_TIME@@", st.session_state.get("end_time", "17:00"))
+    .replace("@@CUSTOM_BROKER@@", st.session_state.get("custom_broker", ""))
+    .replace("@@BK_API_KEY@@", st.session_state.get("bk_api_key", ""))
+    .replace("@@BK_API_SECRET@@", st.session_state.get("bk_api_secret", ""))
+    .replace("@@BK_PUENTE_VAL@@", st.session_state.get("bk_puente", "http://127.0.0"))
+    .replace("@@TXT_VOL_VAL@@", str(v_vol) if v_vol > 0 else "")
+    .replace("@@BK_PUENTE@@", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
+    
+    .replace("@@MOTOR_ON_SEL@@", "selected" if st.session_state.get("scanner_active", True) else "")
+    .replace("@@MOTOR_OFF_SEL@@", "selected" if not st.session_state.get("scanner_active", True) else "")
+    .replace("@@LANG_ESP_SEL@@", "selected" if st.session_state.get("selected_lang")=="ESP" else "")
+    .replace("@@LANG_ENG_SEL@@", "selected" if st.session_state.get("selected_lang")=="ENG" else "")
+    .replace("@@WND_INC_SEL@@", "selected" if st.session_state.get("window_type")=="Incrustada" else "")
+    .replace("@@WND_FLO_SEL@@", "selected" if st.session_state.get("window_type")=="Flotante" else "")
+    
+    .replace("@@BRK_IB_SEL@@", "selected" if st.session_state.get("bk_nombre")=="Interactive Brokers (TWS)" else "")
+    .replace("@@BRK_TS_SEL@@", "selected" if st.session_state.get("bk_nombre")=="Tradestation" else "")
+    .replace("@@BRK_OT_SEL@@", "selected" if st.session_state.get("bk_nombre")=="Otro (webhook)" else "")
+    
+    .replace("@@PRE_CUA_SEL@@", "selected" if v_pre=="Cualquiera" else "")
+    .replace("@@PRE_U10_SEL@@", "selected" if v_pre=="under10" else "")
+    .replace("@@PRE_1050_SEL@@", "selected" if v_pre=="10to50" else "")
+    .replace("@@PRE_50200_SEL@@", "selected" if v_pre=="50to200" else "")
+    .replace("@@PRE_O200_SEL@@", "selected" if v_pre=="over200" else "")
+    
+    .replace("@@GAP_CUA_SEL@@", "selected" if v_gap=="Cualquiera" else "")
+    .replace("@@GAP_03_SEL@@", "selected" if v_gap=="0to3" else "")
+    .replace("@@GAP_46_SEL@@", "selected" if v_gap=="4to6" else "")
+    .replace("@@GAP_710_SEL@@", "selected" if v_gap=="7to10" else "")
+    
+    .replace("@@FLT_CUA_SEL@@", "selected" if v_flt=="Cualquiera" else "")
+    .replace("@@FLT_1015_SEL@@", "selected" if v_flt=="10to15" else "")
+    .replace("@@FLT_1620_SEL@@", "selected" if v_flt=="16to20" else "")
+    .replace("@@FLT_2150_SEL@@", "selected" if v_flt=="21to50" else "")
+    
+    .replace("@@EMA_CUA_SEL@@", "selected" if v_ema=="Cualquiera" else "")
+    .replace("@@EMA_PEC_SEL@@", "selected" if v_ema=="1ra Vela 1min por encima" else "")
+    .replace("@@EMA_PDC_SEL@@", "selected" if v_ema=="1ra Vela 1min por debajo" else "")
+    
+    .replace("@@MAC_CUA_SEL@@", "selected" if v_mac=="Cualquiera" else "")
+    .replace("@@MAC_POS_SEL@@", "selected" if v_mac=="Positivo" else "")
+    .replace("@@MAC_NEG_SEL@@", "selected" if v_mac=="Negativo" else "")
+    .replace("@@MAC_NEU_SEL@@", "selected" if v_mac=="Neutro" else "")
+)
+
+components.html(html_final, height=850, scrolling=True)
