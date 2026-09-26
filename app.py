@@ -2321,8 +2321,22 @@ except Exception:
 _hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
 _estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
 
-# 1. Extracción y preparación de tus datos reales filtrados por el usuario
-filas_reales = list(servicio.resultados)
+# Construcción de parámetros base seguros para evitar que colapse el motor de filtrado
+params_seguros = {
+    "precio_min": float(st.query_params.get("f_pre", 0.5)) if st.query_params.get("f_pre", "Cualquiera") != "Cualquiera" else 0.5,
+    "precio_max": 20.0,
+    "gap_min": 3.0,
+    "gap_max": 50.0,
+    "flotacion_max": 20000000,
+    "volumen_min": int(st.query_params.get("f_vol", 20000)) if st.query_params.get("f_vol", "").isdigit() else 20000,
+    "cruce_ema": st.query_params.get("f_ema", "Cualquiera"),
+    "macd": st.query_params.get("f_mac", "Cualquiera"),
+    "orden": "Actualizado",
+    "top_n": 50
+}
+
+# 1. Extracción y preparación de tus datos reales filtrados por el usuario utilizando el diccionario seguro
+filas_reales = filtrar_resultados(list(servicio.resultados), params_seguros)
 
 datos_formateados = []
 for row in filas_reales:
