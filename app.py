@@ -2362,6 +2362,7 @@ f_mac_val = st.query_params.get("f_mac", "Cualquiera")
 
 # 2. Inyección directa mediante iframes nativos sandboxed para evitar colapsar Python
 html_componente_seguro = f"""
+<<div style="max-width: 1200px; margin: 30px auto 10px auto; padding: 0 15px; box-sizing: border-box;">
 <div class="filtros-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; font-family: Verdana, sans-serif; font-size: 11px;">
     <div style="display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; height: 24px;">[ LOGOTIPO ]</div>
     <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">MOTOR:</label><select id="cfg_active" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><option value="True" {m_on}>🟢 ON ({_estado_txt})</option><option value="False" {m_off}>🔴 OFF</option></select></div>
