@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -2275,7 +2276,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 # ==============================================================================
-# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (REEMPLAZO FINAL DEFINITIVO CORREGIDO)
+# 🖥️ CARÁTULA FINVIZ — PRESENTACIÓN FINAL DEL SCANNER REAL
+#    Esta sección solo presenta/filtra los datos del motor existente.
+#    No reemplaza ni modifica el motor, sus hilos, cache, Alpaca, FMP ni pruebas.
 # ==============================================================================
 
 try:
@@ -2283,136 +2286,250 @@ try:
 except Exception:
     pass
 
-_hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
-_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
+# Valores de interfaz seguros. Se leen de query_params para que los cambios
+# realizados desde la carátula puedan sobrevivir al rerun de Streamlit.
+def _qtxt(nombre, defecto):
+    try:
+        valor = st.query_params.get(nombre, defecto)
+        if isinstance(valor, list):
+            valor = valor[0] if valor else defecto
+        return str(valor)
+    except Exception:
+        return str(defecto)
 
-# 1. Extracción y preparación de tus datos reales filtrados por el usuario
-filas_reales = filtrar_resultados(list(servicio.resultados), params) if "params" in locals() else list(servicio.resultados)
 
-# Formatear el dataset real para la inyección limpia en la cuadrícula HTML
-datos_formateados = []
-for row in filas_reales:
-    datos_formateados.append({
-        "Ticker": row.get("ticker", ""),
-        "Sector": row.get("sector", "N/A"),
-        "Precio": float(row.get("precio", 0.0)),
-        "Cambio": float(row.get("cambio_pct", 0.0)),
-        "Gap": float(row.get("cambio_pct", 0.0)), 
-        "Float": float(row.get("float_shares", 0.0)) / 1_000_000 if row.get("float_shares") else 0.0,
-        "EMA20": "Por encima" if row.get("cruzando_ema20") else ("Por debajo" if row.get("cruzando_ema20_abajo") else "Sin patrón"),
-        "MACD": "Positivo" if row.get("macd_positivo") else ("Negativo" if row.get("macd_negativo") else "Neutro"),
-        "Volumen": int(row.get("volumen_dia", 0)),
-        "Noticia": bool(row.get("tiene_noticia", False))
-    })
+def _qfloat(nombre, defecto):
+    try:
+        return float(_qtxt(nombre, defecto))
+    except Exception:
+        return float(defecto)
 
-# Conversión a JSON sanitizado para el motor de renderizado JavaScript
-json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</", "<\\/")
 
-# 2. Construcción de la carátula rígida 2D encapsulada
-# ==============================================================================
-# 🖥️ CARÁTULA BLINDADA ESTILO FINVIZ - SOLUCIÓN COMPLETA ANTI-SYNTAXERROR
-# ==============================================================================
+def _qint(nombre, defecto):
+    try:
+        return int(float(_qtxt(nombre, defecto)))
+    except Exception:
+        return int(defecto)
+
+
+precio_min_ui = _qfloat("f_price_min", 0.50)
+precio_max_ui = _qfloat("f_price_max", 20.00)
+gap_min_ui = _qfloat("f_gap_min", 3.00)
+gap_max_ui = _qfloat("f_gap_max", 50.00)
+float_max_ui = _qint("f_float_max", 20_000_000)
+volumen_min_ui = _qint("f_vol", 20_000)
+ema_ui = _qtxt("f_ema", "Hacia arriba")
+macd_ui = _qtxt("f_mac", "Positivo")
+orden_ui = _qtxt("f_order", "Actualizado")
+
+if ema_ui not in ("Hacia arriba", "Hacia abajo", "Neutro"):
+    ema_ui = "Hacia arriba"
+if macd_ui not in ("Positivo", "Negativo", "No exigir"):
+    macd_ui = "Positivo"
+if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
+    orden_ui = "Actualizado"
+
+params_ui = {
+    "precio_min": precio_min_ui,
+    "precio_max": precio_max_ui,
+    "gap_min": gap_min_ui,
+    "gap_max": gap_max_ui,
+    "flotacion_max": float_max_ui,
+    "volumen_min": volumen_min_ui,
+    "cruce_ema": ema_ui,
+    "macd": macd_ui,
+    "orden": orden_ui,
+    "top_n": 50,
+}
 
 try:
-    servicio._esta_en_horario_automatico()
+    filas_reales = filtrar_resultados(list(servicio.resultados), params_ui)
 except Exception:
-    pass
+    filas_reales = list(getattr(servicio, "resultados", []) or [])
 
-_hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
-_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
 
-# Construcción de parámetros base seguros para evitar que colapse el motor de filtrado
-_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
+def _num(v, default=0.0):
+    try:
+        if v is None or v == "":
+            return default
+        return float(v)
+    except Exception:
+        return default
 
-# Extracción directa del flujo de Alpaca libre de funciones conflictivas
-# Restauración y enlace de los parámetros dinámicos globales para el motor
-# Bloque de contingencia seguro para evitar bloqueos del motor de filtrado
+
+def _entero(v, default=0):
+    try:
+        if v is None or v == "":
+            return default
+        return int(float(v))
+    except Exception:
+        return default
+
+
+def _safe_text(v, default=""):
+    return html_escape(str(v if v is not None else default))
+
+
+def _money(v):
+    return f"${_num(v):,.2f}"
+
+
+def _pct(v):
+    return f"{_num(v):+.2f}%"
+
+
+def _big(v):
+    n = _num(v)
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.0f}K"
+    return f"{n:.0f}"
+
+
+def _row_html(row):
+    ticker = _safe_text(row.get("ticker", ""))
+    sector = _safe_text(row.get("sector", "N/A"))
+    precio = _num(row.get("precio"))
+    cambio = _num(row.get("cambio_pct"))
+    volumen = _entero(row.get("volumen_dia"))
+    flotacion = _num(row.get("float_shares")) / 1_000_000 if row.get("float_shares") else 0.0
+    ema_ok = bool(row.get("cruzando_ema20"))
+    ema_down = bool(row.get("cruzando_ema20_abajo"))
+    mac_pos = bool(row.get("macd_positivo"))
+    mac_neg = bool(row.get("macd_negativo"))
+    noticia = bool(row.get("tiene_noticia"))
+    fila = "fila-alza" if cambio > 0 else ("fila-baja" if cambio < 0 else "")
+    ema_txt = "Sobre EMA20" if ema_ok else ("Bajo EMA20" if ema_down else "Sin patrón")
+    mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
+    mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
+    news = " 🔥" if noticia else ""
+    return (
+        f"<tr class='{fila}'>"
+        f"<td><b>{ticker}</b>{news}</td>"
+        f"<td>{sector}</td>"
+        f"<td class='num-col'>{_money(precio)}</td>"
+        f"<td class='num-col'>{_pct(cambio)}</td>"
+        f"<td class='num-col'>{_big(volumen)}</td>"
+        f"<td class='num-col'>{_pct(cambio)}</td>"
+        f"<td class='num-col'>{flotacion:.2f}M</td>"
+        f"<td>{ema_txt}</td>"
+        f"<td class='{mac_cls}'>{mac_txt}</td>"
+        f"<td><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
+        f"<option value=''>⚙️ Layout</option>"
+        f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
+        f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
+        f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
+        f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
+        f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
+        f"</select></td></tr>"
+    )
+
+
+rows_html = "".join(_row_html(r) for r in filas_reales)
+if not rows_html:
+    rows_html = (
+        "<tr><td colspan='10' class='empty-row'>"
+        "Sin candidatos en este momento. El motor continúa escaneando en segundo plano."
+        "</td></tr>"
+    )
+
 try:
-    if "params" in locals() or "params" in globals():
-        filas_reales = filtrar_resultados(list(servicio.resultados), params)
-    else:
-        params_backup = {
-            "precio_min": 0.5, "precio_max": 20.0, "gap_min": 3.0, "gap_max": 50.0,
-            "flotacion_max": 20000000, "volumen_min": 20000, "cruce_ema": "Cualquiera",
-            "macd": "Cualquiera", "orden": "Actualizado", "top_n": 50
-        }
-        filas_reales = filtrar_resultados(list(servicio.resultados), params_backup)
+    hora_ini = int(servicio.hora_inicio_auto_min)
+    hora_fin = int(servicio.hora_fin_auto_min)
 except Exception:
-    filas_reales = list(servicio.resultados)
+    hora_ini, hora_fin = 240, 960
 
-datos_formateados = []
-for row in filas_reales:
-    datos_formateados.append({
-        "Ticker": str(row.get("ticker", "")),
-        "Sector": str(row.get("sector", "N/A")),
-        "Precio": float(row.get("precio", 0.0)),
-        "Cambio": float(row.get("cambio_pct", 0.0)),
-        "Gap": float(row.get("cambio_pct", 0.0)), 
-        "Float": float(row.get("float_shares", 0.0)) / 1_000_000 if row.get("float_shares") else 0.0,
-        "EMA20": "Por encima" if row.get("cruzando_ema20") else ("Por debajo" if row.get("cruzando_ema20_abajo") else "Sin patrón"),
-        "MACD": "Positivo" if row.get("macd_positivo") else ("Negativo" if row.get("macd_negativo") else "Neutro"),
-        "Volumen": int(row.get("volumen_dia", 0)),
-        "Noticia": bool(row.get("tiene_noticia", False))
-    })
+_hora_txt = f"{hora_ini//60:02d}:{hora_ini%60:02d} - {hora_fin//60:02d}:{hora_fin%60:02d} ET"
+_estado_txt = "ON" if servicio.encendido and servicio.auto_en_horario else ("OFF" if not servicio.encendido else "ESPERA")
 
-json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False)
+start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
+end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
 
-m_on = "selected" if st.session_state.get("scanner_active", True) else ""
-m_off = "selected" if not st.session_state.get("scanner_active", True) else ""
-l_esp = "selected" if st.session_state.get("selected_lang")=="ESP" else ""
-l_eng = "selected" if st.session_state.get("selected_lang")=="ENG" else ""
-w_inc = "selected" if st.session_state.get("window_type")=="Incrustada" else ""
-w_flo = "selected" if st.session_state.get("window_type")=="Flotante" else ""
-b_ib = "selected" if st.session_state.get("bk_nombre")=="Interactive Brokers (TWS)" else ""
-b_ts = "selected" if st.session_state.get("bk_nombre")=="Tradestation" else ""
-b_ot = "selected" if st.session_state.get("bk_nombre")=="Otro (webhook)" else ""
+active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
+lang_val = _qtxt("c_lang", "ESP")
+wnd_val = _qtxt("c_wnd", "Incrustada")
+broker_val = _qtxt("c_broker", st.session_state.get("bk_nombre", "Interactive Brokers"))
+bridge_val = _qtxt("c_url", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
 
-f_pre_val = st.query_params.get("f_pre", "Cualquiera")
-f_gap_val = st.query_params.get("f_gap", "Cualquiera")
-f_flt_val = st.query_params.get("f_flt", "Cualquiera")
-f_ema_val = st.query_params.get("f_ema", "Cualquiera")
-f_mac_val = st.query_params.get("f_mac", "Cualquiera")
-
-# 2. Construcción por concatenación lineal (Elimina comillas triples conflictivas)
 h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
 h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+h += "<title>TradeScanner</title>"
 h += "<style>"
-h += "body { background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }"
-h += ".main-container { max-width: 1200px; margin: 15px auto; padding: 0 10px; box-sizing: border-box; }"
-h += ".filtros-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }"
-h += ".filtro-item { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }"
-h += ".filtro-item label { font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }"
-h += ".logo-container { display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }"
-h += "input, select, button { font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }"
-h += "button { cursor: pointer; background-color: #eaeaea; font-weight: bold; }"
-h += "button:active { background-color: #cccccc; }"
-h += ".table-wrapper { width: 100%; overflow-x: auto; background-color: #ffffff; border: 1px solid #888888; }"
-h += "table { width: 100%; border-collapse: collapse; }"
-h += "th { background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; text-align: left; }"
-h += "td { padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; text-align: left; }"
-h += ".fila-alza { background-color: #e2f0d9 !important; }"
-h += ".fila-baja { background-color: #fce4d6 !important; }"
-h += ".engranaje-select { font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }"
-h += ".macd-positivo { background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }"
-h += ".macd-negativo { background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }"
-h += ".macd-neutro { background-color: #e2e3e5 !important; text-align: center; }"
-h += ".num-col { text-align: right; }"
-h += "@media (max-width: 768px) { .filtros-grid { grid-template-columns: repeat(2, 1fr); } }"
+h += "*{box-sizing:border-box;}"
+h += "body{background:#dcdcdc;font-family:Verdana,Arial,sans-serif;font-size:11px;color:#000;margin:0;padding:0;}"
+h += ".main-container{width:100%;max-width:1450px;margin:0 auto;padding:6px;}"
+h += ".topbar{background:#efefef;border:1px solid #777;padding:5px 7px;margin-bottom:5px;display:flex;align-items:center;justify-content:space-between;gap:8px;}"
+h += ".brand{font-size:17px;font-weight:900;letter-spacing:.3px;color:#111;white-space:nowrap;}.brand small{font-size:9px;font-weight:normal;color:#555;}"
+h += ".status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}"
+h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#c9c9c9;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
+h += ".tab{font-size:10px;font-weight:bold;padding:4px 9px;background:#eee;border:1px solid #777;cursor:pointer;}.tab.active{background:#fff;border-bottom:2px solid #111;}"
+h += ".filtros-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;background:#fff;border:1px solid #888;padding:5px;margin-bottom:5px;}"
+h += ".filtro-item{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:4px;background:#f1f1f1;border:1px solid #aaa;padding:3px 5px;min-height:29px;}"
+h += ".filtro-item label{font-weight:bold;color:#111;font-size:9px;white-space:nowrap;}"
+h += "input,select,button{font-family:Verdana,Arial,sans-serif;font-size:9px;height:21px;border:1px solid #777;background:#fff;color:#000;border-radius:0;outline:none;}"
+h += "input{min-width:0;width:75px;padding:1px 3px;}select{min-width:90px;max-width:150px;padding:1px 2px;}button{cursor:pointer;background:#eaeaea;font-weight:bold;padding:1px 6px;}"
+h += ".range{display:flex;gap:2px;align-items:center;}.range span{font-size:8px;color:#555;}"
+h += ".logo{display:flex;align-items:center;justify-content:center;background:#e6e6e6;border:1px dashed #777;font-weight:900;color:#222;min-height:29px;font-size:12px;}"
+h += ".engine{font-weight:bold;}.subline{background:#eee;border:1px solid #999;padding:4px 6px;margin-bottom:5px;font-size:9px;display:flex;gap:14px;flex-wrap:wrap;}"
+h += ".table-wrapper{width:100%;overflow-x:auto;background:#fff;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;}"
+h += "th{background:#c8c8c8;color:#000;font-weight:bold;padding:4px 5px;border:1px solid #888;font-size:9px;text-align:left;white-space:nowrap;}"
+h += "td{padding:4px 5px;border:1px solid #aaa;font-size:10px;white-space:nowrap;height:22px;}"
+h += ".fila-alza{background:#edf7e8}.fila-baja{background:#fceceb}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
+h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
+h += ".engranaje-select{width:105px;font-size:8px;height:18px;}"
+h += ".footer-note{margin-top:4px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:8px;}"
+h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:14px;}}"
+h += "@media(max-width:520px){.main-container{padding:3px}.filtros-grid{grid-template-columns:1fr 1fr;gap:3px}.filtro-item{min-height:27px;padding:2px 3px}.filtro-item label{font-size:7px}.filtro-item input,.filtro-item select{font-size:8px;height:20px;max-width:85px}.tabs{overflow-x:auto}.tab{font-size:8px;padding:3px 6px}.topbar{padding:4px}.brand{font-size:12px}}"
 h += "</style>"
 h += "<script>"
-h += "function pushConfig(a){var e=new URLSearchParams(window.parent.location.search);e.set('action',a);if(a==='update_all'){e.set('c_active',document.getElementById('cfg_active').value);e.set('c_start',document.getElementById('cfg_start').value);e.set('c_end',document.getElementById('cfg_end').value);e.set('c_broker',document.getElementById('cfg_broker').value);e.set('c_cust_broker',document.getElementById('cfg_cust_broker').value);e.set('c_api',document.getElementById('cfg_api').value);e.set('c_secret',document.getElementById('cfg_secret').value);e.set('c_url',document.getElementById('cfg_url').value);e.set('c_lang',document.getElementById('cfg_lang').value);e.set('c_wnd',document.getElementById('cfg_wnd').value);e.set('f_vol',document.getElementById('txt_vol').value||0);e.set('f_pre',document.getElementById('sel_pre').value);e.set('f_gap',document.getElementById('sel_gap').value);e.set('f_flt',document.getElementById('sel_flt').value);e.set('f_ema',document.getElementById('sel_ema').value);e.set('f_mac',document.getElementById('sel_mac').value)}window.parent.location.search='?'+e.toString()}"
-h += "function toggleCustomBroker(){var a=document.getElementById('cfg_broker').value;document.getElementById('cfg_cust_broker').style.display=(a==='Otro')?'inline-block':'none'}"
-h += "function cambiarLayout(a,e){var t=e.value;if(t!==''){var l=new URLSearchParams(window.parent.location.search);l.set('link_ticker',a);l.set('layout_color',t);window.parent.history.replaceState(null,'','?'+l.toString());var r=document.getElementById('cfg_url').value;fetch(r,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:a,layout_color:t,broker:document.getElementById('cfg_broker').value,api_key:document.getElementById('cfg_api').value}),mode:'cors'}).catch(o=>console.log('Signal dispatched.'))}}"
-h += "</script>"
-h += "</head><body onload='toggleCustomBroker()'><div class='main-container'><div class='filtros-grid'>"
-h += "<div class='logo-container'>[ LOGOTIPO ]</div>"
-h += "<div class='filtro-item'><label>MOTOR:</label><select id='cfg_active' onchange='pushConfig(\"update_all\")'><option value=\"True\" @@M_ON@@>🟢 ON (@@ESTADO_TXT@@)</option><option value=\"False\" @@M_OFF@@>🔴 OFF</option></select></div>"
-h += "<div class='filtro-item'><label>LAPSO:</label><div style='display:flex; gap:2px;'><input type='time' id='cfg_start' value='@@START_TIME@@' onchange='pushConfig(\"update_all\")'><input type='time' id='cfg_end' value='@@END_TIME@@' onchange='pushConfig(\"update_all\")'></div></div>"
-h += "<div class='filtro-item'><label>IDIOMA:</label><select id='cfg_lang' onchange='pushConfig(\"update_all\")'><option value=\"ESP\" @@L_ESP@@>ESP</option><option value=\"ENG\" @@L_ENG@@>ENG</option></select></div>"
-h += "<div class='filtro-item'><label>VENTANA:</label><select id='cfg_wnd' onchange='pushConfig(\"update_all\")'><option value=\"Incrustada\" @@W_INC@@>Incrustada</option><option value=\"Flotante\" @@W_FLO@@>Flotante</option></select></div>"
-h += "<div class='filtro-item'><label>BROKER:</label><select id='cfg_broker' onchange='toggleCustomBroker(); pushConfig(\"update_all\");' style='width:50%;'><option value=\"Interactive Brokers\" @@B_IB@@>Interactive Brokers</option><option value=\"Tradestation\" @@B_TS@@>Tradestation</option><option value=\"Otro\" @@B_OT@@>Otro</option></select></div>"
-h += "<div class='filtro-item'><label>API KEY:</label><input type='text' id='cfg_api' value='' style='width:60%;'></div>"
-h += "<div class='filtro-item'><label>SECRET:</label><input type='password' id='cfg_secret' value='' style='width:60%;'></div>"
-h += "<div class='filtro-item'><label>PUENTE:</label><input type='text' id='cfg_url' value='@@BK_PUENTE_VAL@@' onchange='pushConfig(\"update_all\")' style='width:60%;'></div>"
-h += "<div class='filtro-item'><label>VOLUMEN &gt;</label><input type='number' id='txt_vol' value='@@TXT_VOL_VAL@@' onchange='pushConfig(\"update_all\")' style='width:60%;'></div>"
-h += "<div class='filtro-item'><label>PRECIO ($)</label><select id='sel_pre' onchange='pushConfig(\"update_all\")'><option value=\"Cualquiera\" @@PRE_CUA@@>Cualquiera</option><option value=\"under10\" @@PRE_U10@@>&lt; $10</option><option value=\"10to50\" @@PRE_1050@@>$10 - $50</option><option value=\"50to200\" @@PRE_50200@@>$50 - $200</option><option value=\"over200\" @@PRE_O200@@>&gt; $200</option></select></div>"
+h += "function setQ(k,v){var q=new URLSearchParams(window.parent.location.search);q.set(k,v);window.parent.location.search='?'+q.toString();}"
+h += "function pushConfig(){var q=new URLSearchParams(window.parent.location.search);"
+h += "q.set('f_price_min',document.getElementById('price_min').value);q.set('f_price_max',document.getElementById('price_max').value);"
+h += "q.set('f_gap_min',document.getElementById('gap_min').value);q.set('f_gap_max',document.getElementById('gap_max').value);"
+h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_vol',document.getElementById('txt_vol').value);"
+h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
+h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
+h += "q.set('c_start',document.getElementById('cfg_start').value);q.set('c_end',document.getElementById('cfg_end').value);"
+h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);"
+h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
+h += "window.parent.location.search='?'+q.toString();}"
+h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
+h += "function tabMsg(t){document.getElementById('tab_status').textContent=t;}"
+h += "</script></head><body>"
+h += "<div class='main-container'>"
+h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
+h += f"<div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div></div>"
+h += "<div class='tabs'>"
+h += "<button class='tab active' onclick=\"tabMsg('Filtros del radar')\">RADAR</button>"
+h += "<button class='tab' onclick=\"tabMsg('Condiciones técnicas')\">TÉCNICOS</button>"
+h += "<button class='tab' onclick=\"tabMsg('Configuración del scanner')\">CONFIGURACIÓN</button>"
+h += "<button class='tab' onclick=\"tabMsg('Resultados en vivo')\">RESULTADOS</button>"
+h += "<span id='tab_status' style='padding:5px;font-size:9px;color:#555;'>Filtros del radar</span></div>"
+h += "<div class='filtros-grid'>"
+h += "<div class='logo'>TRADE SCANNER</div>"
+h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
+h += f"<div class='filtro-item'><label>HORARIO (ET)</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
+h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
+h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
+h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
+h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
+h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
+h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
+h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
+h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
+h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
+h += f"<div class='filtro-item'><label>PUENTE</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
+h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR FILTROS</button></div>"
+h += "</div>"
+h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span></div>"
+h += "<div class='table-wrapper'><table><thead><tr>"
+h += "<th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 (1 min)</th><th>MACD</th><th>Layout</th>"
+h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
+h += f"<div class='footer-note'><span>Motor real conectado · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
+h += "</div></body></html>"
+
+# La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
+# anterior de Streamlit no pueda ocultarla. El motor sigue ejecutándose fuera.
+components.html(h, height=760, scrolling=True)
