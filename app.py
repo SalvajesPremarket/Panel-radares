@@ -2310,7 +2310,7 @@ json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</
 
 # 2. Construcción de la carátula rígida 2D encapsulada
 # ==============================================================================
-# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (SISTEMA MONOLÍTICO BLINDADO)
+# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (SISTEMA DE PARSEO SEGURO MARKMOWN)
 # ==============================================================================
 
 try:
@@ -2328,8 +2328,8 @@ filas_reales = filtrar_resultados(list(servicio.resultados), params) if "params"
 datos_formateados = []
 for row in filas_reales:
     datos_formateados.append({
-        "Ticker": row.get("ticker", ""),
-        "Sector": row.get("sector", "N/A"),
+        "Ticker": str(row.get("ticker", "")),
+        "Sector": str(row.get("sector", "N/A")),
         "Precio": float(row.get("precio", 0.0)),
         "Cambio": float(row.get("cambio_pct", 0.0)),
         "Gap": float(row.get("cambio_pct", 0.0)), 
@@ -2342,120 +2342,56 @@ for row in filas_reales:
 
 json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False)
 
-# 2. Plantilla Base HTML Estática Rígida (Blindada contra SyntaxError de Python)
-html_plantilla_monolitica = """<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<style>
-    body { background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }
-    .filtros-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }
-    .filtro-item { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }
-    .filtro-item label { font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }
-    .logo-container { display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }
-    input, select, button { font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }
-    button { cursor: pointer; background-color: #eaeaea; font-weight: bold; }
-    button:active { background-color: #cccccc; }
-    .table-wrapper { width: 100%; overflow-x: auto; background-color: #ffffff; }
-    table { width: 100%; border-collapse: collapse; border: 1px solid #888888; }
-    th { background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; }
-    td { padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; }
-    .fila-alza { background-color: #e2f0d9 !important; }
-    .fila-baja { background-color: #fce4d6 !important; }
-    .engranaje-select { font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }
-    .c-default { background-color: #ffffff; color: #000000; }
-    .c-L1 { background-color: #ffcccc; } .c-L2 { background-color: #ffe5cc; }
-    .c-L3 { background-color: #ffffcc; } .c-L4 { background-color: #e5ffcc; }
-    .c-L5 { background-color: #ccffcc; } .c-L6 { background-color: #ccffe5; }
-    .c-L7 { background-color: #ccffff; } .c-L8 { background-color: #cce5ff; }
-    .c-L9 { background-color: #ccccff; } .c-L10 { background-color: #e5ccff; }
-    .macd-positivo { background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }
-    .macd-negativo { background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }
-    .macd-neutro { background-color: #e2e3e5 !important; text-align: center; }
-    .num-col { text-align: right; }
-    @media (max-width: 768px) { body { margin: 2px; } .filtros-grid { grid-template-columns: repeat(2, 1fr); padding: 4px; gap: 3px; } td, th { font-size: 10px; padding: 3px 4px; } .filtro-item select, .filtro-item input { width: 50%; } }
-</style>
-<script>
-    function pushConfig(actionType) {
-        var urlParams = new URLSearchParams(window.parent.location.search);
-        urlParams.set('action', actionType);
-        if(actionType === 'update_all') {
-            urlParams.set('c_active', document.getElementById('cfg_active').value);
-            urlParams.set('c_start', document.getElementById('cfg_start').value);
-            urlParams.set('c_end', document.getElementById('cfg_end').value);
-            urlParams.set('c_broker', document.getElementById('cfg_broker').value);
-            urlParams.set('c_cust_broker', document.getElementById('cfg_cust_broker').value);
-            urlParams.set('c_api', document.getElementById('cfg_api').value);
-            urlParams.set('c_secret', document.getElementById('cfg_secret').value);
-            urlParams.set('c_url', document.getElementById('cfg_url').value);
-            urlParams.set('c_lang', document.getElementById('cfg_lang').value);
-            urlParams.set('c_wnd', document.getElementById('cfg_wnd').value);
-            urlParams.set('f_vol', document.getElementById('txt_vol').value || 0);
-            urlParams.set('f_pre', document.getElementById('sel_pre').value);
-            urlParams.set('f_gap', document.getElementById('sel_gap').value);
-            urlParams.set('f_flt', document.getElementById('sel_flt').value);
-            urlParams.set('f_ema', document.getElementById('sel_ema').value);
-            urlParams.set('f_mac', document.getElementById('sel_mac').value);
-        }
-        window.parent.location.search = '?' + urlParams.toString();
-    }
-    function toggleCustomBroker() {
-        var broker = document.getElementById('cfg_broker').value;
-        document.getElementById('cfg_cust_broker').style.display = (broker === "Otro") ? "inline-block" : "none";
-    }
-    function cambiarLayout(ticker, selectObj) {
-        var colorVal = selectObj.value;
-        selectObj.className = "engranaje-select c-" + (colorVal ? colorVal : "default");
-        if(colorVal !== "") {
-            var urlParams = new URLSearchParams(window.parent.location.search);
-            urlParams.set('link_ticker', ticker);
-            urlParams.set('layout_color', colorVal);
-            window.parent.history.replaceState(null, '', '?' + urlParams.toString());
-            var targetUrl = document.getElementById('cfg_url').value || "@@BK_PUENTE@@";
-            if(document.getElementById('cfg_wnd').value === "Flotante") { window.open(targetUrl + "?ticker=" + ticker + "&layout=" + colorVal, "_blank", "width=400,height=300"); }
-            fetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: ticker, layout_color: colorVal, broker: document.getElementById('cfg_broker').value, api_key: document.getElementById('cfg_api').value }), mode: "cors" }).catch(e => console.log("Signal dispatched."));
-        }
-    }
-</script>
-</head>
-<body onload="toggleCustomBroker()">
-    <div class="filtros-grid">
-        <div class="logo-container">[ LOGOTIPO ]</div>
-        <div class="filtro-item">
-            <label>MOTOR:</label>
-            <select id="cfg_active" onchange="pushConfig('update_all')" style="font-weight:bold;">
-                <option value="True" @@MOTOR_ON_SEL@@>🟢 ON (@@ESTADO_TXT@@)</option>
-                <option value="False" @@MOTOR_OFF_SEL@@>🔴 OFF</option>
-            </select>
-        </div>
-        <div class="filtro-item">
-            <label>LAPSO:</label>
-            <div style="display:flex; gap:2px;">
-                <input type="time" id="cfg_start" value="@@START_TIME@@" onchange="pushConfig('update_all')">
-                <input type="time" id="cfg_end" value="@@END_TIME@@" onchange="pushConfig('update_all')">
-            </div>
-        </div>
-        <div class="filtro-item">
-            <label>IDIOMA:</label>
-            <select id="cfg_lang" onchange="pushConfig('update_all')">
-                <option value="ESP" @@LANG_ESP_SEL@@>ESP</option>
-                <option value="ENG" @@LANG_ENG_SEL@@>ENG</option>
-            </select>
-        </div>
-        <div class="filtro-item">
-            <label>VENTANA:</label>
-            <select id="cfg_wnd" onchange="pushConfig('update_all')">
-                <option value="Incrustada" @@WND_INC_SEL@@>Incrustada</option>
-                <option value="Flotante" @@WND_FLO_SEL@@>Flotante</option>
-            </select>
-        </div>
-        <div class="filtro-item">
-            <label>BROKER:</label>
-            <select id="cfg_broker" onchange="toggleCustomBroker(); pushConfig('update_all');" style="width:50%;">
-                <option value="Interactive Brokers" @@BRK_IB_SEL@@>Interactive Brokers</option>
-                <option value="Tradestation" @@BRK_TS_SEL@@>Tradestation</option>
-                <option value="Otro" @@BRK_OT_SEL@@>Otro</option>
-            </select>
-            <input type="text" id="cfg_cust_broker" value="@@CUSTOM_BROKER@@" style="width:45%; display:none;" placeholder="Nombre..." onchange="pushConfig('update_all')">
-        </div>
+# Mapeo seguro de variables de estado activas
+m_on = "selected" if st.session_state.get("scanner_active", True) else ""
+m_off = "selected" if not st.session_state.get("scanner_active", True) else ""
+l_esp = "selected" if st.session_state.get("selected_lang")=="ESP" else ""
+l_eng = "selected" if st.session_state.get("selected_lang")=="ENG" else ""
+w_inc = "selected" if st.session_state.get("window_type")=="Incrustada" else ""
+w_flo = "selected" if st.session_state.get("window_type")=="Flotante" else ""
+b_ib = "selected" if st.session_state.get("bk_nombre")=="Interactive Brokers (TWS)" else ""
+b_ts = "selected" if st.session_state.get("bk_nombre")=="Tradestation" else ""
+b_ot = "selected" if st.session_state.get("bk_nombre")=="Otro (webhook)" else ""
+
+# Parámetros de búsqueda en URL seguros
+f_pre_val = st.query_params.get("f_pre", "Cualquiera")
+f_gap_val = st.query_params.get("f_gap", "Cualquiera")
+f_flt_val = st.query_params.get("f_flt", "Cualquiera")
+f_ema_val = st.query_params.get("f_ema", "Cualquiera")
+f_mac_val = st.query_params.get("f_mac", "Cualquiera")
+
+# 2. Inyección directa mediante iframes nativos sandboxed para evitar colapsar Python
+html_componente_seguro = f"""
+<div class="filtros-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; font-family: Verdana, sans-serif; font-size: 11px;">
+    <div style="display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; height: 24px;">[ LOGOTIPO ]</div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">MOTOR:</label><select id="cfg_active" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><option value="True" {m_on}>🟢 ON ({_estado_txt})</option><option value="False" {m_off}>🔴 OFF</option></select></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">LAPSO:</label><div style="display:flex; gap:2px;"><input type="time" id="cfg_start" value="{st.session_state.get('start_time', '08:00')}" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><input type="time" id="cfg_end" value="{st.session_state.get('end_time', '17:00')}" style="font-size: 10px; height: 18px; border: 1px solid #777777;"></div></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">IDIOMA:</label><select id="cfg_lang" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><option value="ESP" {l_esp}>ESP</option><option value="ENG" {l_eng}>ENG</option></select></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">VENTANA:</label><select id="cfg_wnd" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><option value="Incrustada" {w_inc}>Incrustada</option><option value="Flotante" {w_flo}>Flotante</option></select></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">BROKER:</label><select id="cfg_broker" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:50%;"><option value="Interactive Brokers" {b_ib}>Interactive Brokers</option><option value="Tradestation" {b_ts}>Tradestation</option><option value="Otro" {b_ot}>Otro</option></select></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">PUENTE:</label><input type="text" id="cfg_url" value="{st.session_state.get('bk_puente', 'http://127.0.0')}" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:60%;"></div>
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">VOLUMEN &gt;</label><input type="number" id="txt_vol" value="{st.query_params.get('f_vol', '')}" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:60%;"></div>
+</div>
+"""
+
+# Renderizar controles superiores planos estilizados Finviz de forma segura
+st.markdown(html_componente_seguro, unsafe_allow_html=True)
+
+# 3. Renderizar la tabla de datos reales utilizando la infraestructura estructurada de DataFrames de Streamlit
+if len(datos_formateados) == 0:
+    st.info("SISTEMA INACTIVO O SIN CANDIDATOS EN ESTE CICLO.")
+else:
+    df_visual = pd.DataFrame(datos_formateados)
+    
+    # Formatear columnas numéricas al estilo institucional exacto
+    df_visual["Precio"] = df_visual["Precio"].map(lambda x: f"${x:,.2f}")
+    df_visual["Cambio"] = df_visual["Cambio"].map(lambda x: f"{'+' if x>=0 else ''}{x:,.2f}%")
+    df_visual["Gap"] = df_visual["Gap"].map(lambda x: f"{'+' if x>=0 else ''}{x:,.2f}%")
+    df_visual["Float"] = df_visual["Float"].map(lambda x: f"{x:,.1f}M")
+    df_visual["Volumen"] = df_visual["Volumen"].map(lambda x: f"{x:,}")
+    
+    # Reordenar las columnas fijas para coincidir con el diseño tabular
+    df_visual = df_visual[["Ticker", "Sector", "Precio", "Cambio", "Gap", "Float", "EMA20", "MACD", "Volumen"]]
+    
+    # Desplegar la matriz en pantalla completa de alta densidad
+    st.dataframe(df_visual, hide_index=True, use_container_width=True)
