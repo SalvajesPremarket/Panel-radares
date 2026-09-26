@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+import numpy as np
 import requests
 import streamlit as st
 from alpaca.data.historical import StockHistoricalDataClient
@@ -3275,382 +3276,212 @@ def panel_broker():
 
 
 panel_broker()
-# Puente HTTP usado ÚNICAMENTE por los botones de la vista de prueba.
-def enviar_senal_broker(ticker, layout_canal):
-    url_puente = "http://localhost:8080/layout"
-    payload = {
-        "ticker": ticker,
-        "layout_color": layout_canal,
-        "timestamp": str(datetime.now()),
-    }
-    try:
-        requests.post(url_puente, json=payload, timeout=0.1)
-    except Exception:
-        pass
 
 # ============================================================
 # 🧪 VISTA DE PRUEBA — NUEVA INTERFAZ TIPO FINVIZ
-# ------------------------------------------------------------
-# IMPORTANTE: esta sección es SOLO una demostración visual.
-# NO reemplaza ni modifica el scanner real que está arriba.
-# Los datos son simulados para probar la apariencia del screener.
+# Esta sección es SOLO una demostración visual y no reemplaza el scanner real.
 # ============================================================
-
 st.markdown("---")
+st.markdown("## 🧪 Vista de prueba — TradeScanner Pro")
+st.caption("Demostración visual tipo Finviz. Los datos de esta tabla son simulados y no modifican el motor real.")
 
 st.markdown("""
 <style>
-.ts-finviz-demo {
-    background:#f3f3f3;
-    color:#000;
-    font-family:Verdana,Arial,Tahoma,sans-serif;
-    font-size:11px;
-    padding:0;
+.ts-finviz-demo { font-family: Verdana, Arial, Tahoma, sans-serif; font-size:11px; }
+.ts-finviz-demo .finviz-shell { background:#f3f3f3; color:#000; padding:0; }
+.ts-finviz-demo .finviz-header {
+    background:#111; padding:7px 12px; display:flex; justify-content:space-between;
+    align-items:center; border-bottom:3px solid #b39212; margin-bottom:10px;
 }
-.ts-finviz-demo .demo-topbar {
-    background:#111;
-    padding:8px 12px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    border-bottom:3px solid #b39212;
-    margin-bottom:10px;
-}
-.ts-finviz-demo .demo-brand {
-    display:flex;
-    align-items:center;
-    min-width:0;
-}
-.ts-finviz-demo .demo-logo-img {
-    height:48px;
-    width:auto;
-    margin-right:10px;
-    object-fit:contain;
-}
-.ts-finviz-demo .demo-brand-title {
-    color:#f4d03f;
-    margin:0;
-    font-family:Arial Black,Impact,Arial,sans-serif;
-    font-size:21px;
-    letter-spacing:.5px;
-}
-.ts-finviz-demo .demo-brand-subtitle {
-    color:#d0d0d0;
-    margin:1px 0 0;
-    font-size:9px;
-    text-transform:uppercase;
-}
-.ts-finviz-demo .demo-status {
-    color:#fff;
-    font-size:10px;
-    text-align:right;
-}
-.ts-finviz-demo .demo-status-live { color:#00d26a; font-weight:bold; }
-.ts-finviz-demo .demo-section-title {
-    font-weight:bold;
-    color:#333;
-    font-size:12px;
-    margin:8px 0 5px;
-}
-.ts-finviz-demo .demo-grid {
-    border-top:1px solid #aaa;
-    border-left:1px solid #aaa;
-}
-.ts-finviz-demo .demo-grid-cell {
-    background:#fff;
-    border-right:1px solid #aaa;
-    border-bottom:1px solid #aaa;
-    padding:4px 6px;
-}
-.ts-finviz-demo .demo-table-head {
-    background:#d3d3d3;
-    font-weight:bold;
-    color:#444;
-    font-size:10px;
-}
-.ts-finviz-demo .demo-positive { color:#00873c; font-weight:bold; }
-.ts-finviz-demo .demo-negative { color:#d01818; font-weight:bold; }
-.ts-finviz-demo .demo-neutral { color:#666; font-weight:bold; }
-.ts-finviz-demo .stButton > button {
-    border-radius:0 !important;
-    border:1px solid #a0a0a0 !important;
-    background:#f0f0f0 !important;
-    box-shadow:none !important;
-    font-size:11px !important;
-}
-.ts-finviz-demo div[data-testid="stSelectbox"] > div,
-.ts-finviz-demo div[data-testid="stNumberInput"] > div {
-    border-radius:0 !important;
-    border:1px solid #a0a0a0 !important;
-    background:#fff !important;
-    box-shadow:none !important;
-}
-@media (max-width:640px) {
-    .ts-finviz-demo .demo-topbar { padding:6px 8px; }
-    .ts-finviz-demo .demo-logo-img { height:38px; }
-    .ts-finviz-demo .demo-brand-title { font-size:17px; }
-    .ts-finviz-demo .demo-status { display:none; }
-}
+.ts-finviz-demo .finviz-logo { width:54px; height:54px; object-fit:contain; margin-right:10px; }
+.ts-finviz-demo .finviz-title { color:#f4d03f; margin:0; font-family:Arial Black,Impact,Arial,sans-serif; font-size:22px; letter-spacing:.5px; }
+.ts-finviz-demo .finviz-subtitle { color:#ddd; margin:2px 0 0; font-size:9px; text-transform:uppercase; }
+.ts-finviz-demo .finviz-status { color:#fff; font-size:10px; text-align:right; }
+.ts-finviz-demo .finviz-status .live { color:#00d26a; font-weight:bold; }
+.ts-finviz-demo .section-title { font-weight:bold; font-size:12px; color:#333; margin:8px 0 5px; }
+.ts-finviz-demo .rule { border:0; border-top:1px solid #aaa; margin:7px 0; }
+.ts-finviz-demo .table-wrap { overflow-x:auto; }
+.ts-finviz-demo .data-table { width:100%; border-collapse:collapse; background:#fff; font-size:10px; }
+.ts-finviz-demo .data-table th { background:#d3d3d3; color:#444; border-bottom:2px solid #999; padding:5px 4px; text-align:left; white-space:nowrap; }
+.ts-finviz-demo .data-table td { border-bottom:1px solid #ddd; padding:4px; white-space:nowrap; }
+.ts-finviz-demo .data-table tr:nth-child(even) { background:#f8f8f8; }
+.ts-finviz-demo .pos { color:#00873c; font-weight:bold; }
+.ts-finviz-demo .neg { color:#d00000; font-weight:bold; }
+.ts-finviz-demo .neu { color:#666; font-weight:bold; }
+.ts-finviz-demo .layout-cell { text-align:center; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="ts-finviz-demo">', unsafe_allow_html=True)
+st.markdown('<div class="ts-finviz-demo"><div class="finviz-shell">', unsafe_allow_html=True)
 
-# 1. ENCABEZADO DE PRUEBA — USA EL MISMO LOGOTIPO REAL DEL SCANNER
+# Encabezado de la DEMO usando el mismo logotipo real del scanner.
 st.markdown(f"""
-<div class="demo-topbar">
-    <div class="demo-brand">
-        <img class="demo-logo-img"
-             src="data:image/png;base64,{IMG_LOGO_B64}"
-             alt="TradeScanner Institutional" />
-        <div>
-            <div class="demo-brand-title">TradeScanner</div>
-            <div class="demo-brand-subtitle">Stock Screener · Vista experimental tipo Finviz</div>
-        </div>
+<div class="finviz-header">
+  <div style="display:flex;align-items:center;">
+    <img class="finviz-logo" src="data:image/png;base64,{IMG_LOGO_B64}" />
+    <div>
+      <h1 class="finviz-title">TradeScanner</h1>
+      <div class="finviz-subtitle">Sistema de Escaneo de Activos Institucional</div>
     </div>
-    <div class="demo-status">
-        Language: <b>Español</b> &nbsp;|&nbsp;
-        Status: <span class="demo-status-live">● Live Connection</span>
-    </div>
+  </div>
+  <div class="finviz-status">
+    <span style="color:#aaa;">Idioma:</span> <b>Español</b><br>
+    <span style="color:#aaa;">Estado:</span> <span class="live">● Live Connection</span>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
-# Registro / idioma / ventana de prueba
-col_demo_head1, col_demo_head2, col_demo_head3 = st.columns([2.2, 1, 1])
-with col_demo_head1:
-    demo_email = st.text_input(
-        "🔑 Registro / Login",
-        placeholder="usuario@correo.com",
-        key="demo_email",
-    )
-with col_demo_head2:
-    st.selectbox(
-        "🌐 Idioma",
-        ["Español", "English"],
-        key="demo_idioma",
-    )
-with col_demo_head3:
-    st.button("🗔 Ventana Flotante", key="demo_popout")
+# 1. REGISTRO / LOGIN DE LA DEMO
+col_reg1, col_reg2, col_reg3 = st.columns([2, 1, 3])
+with col_reg1:
+    email_demo = st.text_input("🔑 Registro de Usuario (Correo)", placeholder="usuario@correo.com", key="demo_email")
+with col_reg2:
+    st.write("")
+    if st.button("Crear Cuenta / Login", key="demo_login"):
+        if email_demo.strip():
+            st.success("Registrado correctamente.")
+        else:
+            st.error("Escriba un correo.")
+with col_reg3:
+    st.caption("Esta zona pertenece únicamente a la demostración visual.")
 
-# 2. DATOS SIMULADOS DEL SCREENER
-@st.cache_data
-def generar_datos_finviz_demo():
-    tickers = [
-        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META",
-        "TSLA", "AMD", "NFLX", "BABA", "PLTR", "SOUN"
-    ]
-    sectores = [
-        "Tecnología", "Tecnología", "Tecnología", "Consumo",
-        "Tecnología", "Comunicación", "Automotriz", "Tecnología",
-        "Entretenimiento", "Consumo", "Software", "Inteligencia Artificial"
-    ]
-    precios = [187.42, 509.61, 178.32, 231.17, 246.18, 735.42,
-               337.80, 162.74, 118.23, 161.52, 39.44, 4.87]
-    cambios = [2.31, 1.18, 4.72, -1.26, 0.84, 3.41,
-               -2.18, 5.27, 1.63, 4.12, 6.24, 8.51]
-    volumen = [58_200_000, 24_700_000, 76_500_000, 31_400_000,
-               18_900_000, 12_600_000, 42_100_000, 28_700_000,
-               9_800_000, 15_300_000, 21_400_000, 34_900_000]
-    gap = [1.5, 4.2, 8.5, -2.1, 0.5, 5.1, 9.2, -0.8, 3.5, 7.1, 1.2, 4.8]
-    flotacion = [12.5, 14.2, 18.0, 19.5, 22.0, 35.0,
-                 48.0, 11.0, 15.5, 24.1, 41.3, 17.2]
-    ema20 = [
-        "1ra Vela 1min por encima", "1ra Vela 1min por debajo",
-        "1ra Vela 1min por encima", "Sin patrón",
-        "1ra Vela 1min por encima", "Sin patrón",
-        "1ra Vela 1min por debajo", "1ra Vela 1min por encima",
-        "Sin patrón", "1ra Vela 1min por encima",
-        "1ra Vela 1min por encima", "1ra Vela 1min por debajo"
-    ]
-    macd = [
-        "Positivo", "Negativo", "Positivo", "Neutro",
-        "Negativo", "Positivo", "Negativo", "Positivo",
-        "Neutro", "Negativo", "Positivo", "Positivo"
-    ]
-    return pd.DataFrame({
-        "Ticker": tickers,
-        "Sector": sectores,
-        "Precio ($)": precios,
-        "Cambio %": cambios,
-        "Volumen": volumen,
-        "Gap %": gap,
-        "Flotación (M)": flotacion,
-        "EMA20 (1 min)": ema20,
-        "MACD": macd,
-    })
-
-df_activos_demo = generar_datos_finviz_demo()
-
-# 3. PANEL DE CONTROL OPERATIVO DE PRUEBA
-st.markdown('<div class="demo-section-title">🎛️ CONTROL DEL MOTOR</div>', unsafe_allow_html=True)
+# 2. CONTROLES OPERATIVOS DE LA DEMO
+st.markdown('<div class="section-title">🎛️ CONTROL DEL MOTOR</div>', unsafe_allow_html=True)
 col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
 with col_ctrl1:
-    estado_scanner_demo = st.toggle("⚡ Alternar Scanner (On / Off)", value=True, key="demo_estado")
-    st.caption("🟢 Scanner en ejecución" if estado_scanner_demo else "🔴 Scanner pausado")
+    estado_demo = st.toggle("⚡ Alternar Scanner (On / Off)", value=True, key="demo_estado_scanner")
 with col_ctrl2:
     with st.expander("📅 Horario de Ejecución"):
-        hora_inicio_demo = st.time_input("Inicio", dt_time(9, 30), key="demo_hora_inicio")
-        hora_fin_demo = st.time_input("Cierre", dt_time(16, 0), key="demo_hora_fin")
-        st.caption(f"Activo de {hora_inicio_demo.strftime('%H:%M')} a {hora_fin_demo.strftime('%H:%M')} ET")
+        hora_inicio_demo = st.time_input("Inicio", dt_time(9, 30), key="demo_inicio")
+        hora_cierre_demo = st.time_input("Cierre", dt_time(16, 0), key="demo_cierre")
+        st.caption(f"Activo de {hora_inicio_demo.strftime('%H:%M')} a {hora_cierre_demo.strftime('%H:%M')} ET")
 with col_ctrl3:
-    with st.expander("🔌 API / Puente Broker"):
-        broker_demo = st.selectbox(
-            "Broker Target",
-            ["Interactive Brokers", "TradeStation", "MetaTrader 5", "DDE/WebSocket Bridge"],
-            key="demo_broker",
-        )
-        st.text_input("Puerto / API Key", value="localhost:7496", type="password", key="demo_api")
+    with st.expander("🔌 API Enlace Broker"):
+        broker_demo = st.selectbox("Broker Target:", ["Interactive Brokers", "TradeStation", "MetaTrader 5", "Custom Bridge"], key="demo_broker")
+        st.text_input("Puerto / API Key:", value="localhost:7496", type="password", key="demo_api")
         if st.button("Conectar", key="demo_conectar"):
-            st.success(f"Conexión de prueba: {broker_demo}")
+            st.success(f"Conectado a {broker_demo}")
 
-st.markdown("<hr style='border:0;border-top:1px solid #b0b0b0;margin:8px 0;'>", unsafe_allow_html=True)
+st.markdown('<hr class="rule">', unsafe_allow_html=True)
+
+# 3. DATOS SIMULADOS DEL SCREENER
+@st.cache_data
+def generar_datos_finviz_demo():
+    tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "BABA", "PLTR", "SOUN"]
+    sectores = ["Tecnología", "Tecnología", "Tecnología", "Consumo", "Tecnología", "Comunicación", "Automotriz", "Tecnología", "Entretenimiento", "Consumo", "Software", "Inteligencia Artificial"]
+    precios = [8.42, 18.75, 27.40, 42.10, 67.35, 89.20, 14.60, 6.85, 52.40, 11.90, 4.95, 7.25]
+    cambios = [4.8, 7.1, 9.2, 1.5, 5.4, 3.7, -2.1, 4.2, 8.5, 0.5, 5.1, 9.2]
+    volumenes = [2_450_000, 5_800_000, 8_200_000, 1_950_000, 3_700_000, 2_850_000, 6_100_000, 9_400_000, 1_250_000, 4_200_000, 7_100_000, 5_300_000]
+    gaps = [4.8, 7.1, 9.2, 1.5, 5.4, 3.7, -2.1, 4.2, 8.5, 0.5, 5.1, 9.2]
+    floats = [12.5, 14.2, 18.0, 19.5, 22.0, 35.0, 48.0, 11.0, 15.5, 24.1, 17.2, 13.8]
+    ema = ["1ra Vela 1min por encima", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"]
+    macd = ["Positivo", "Negativo", "Positivo", "Neutro", "Negativo", "Positivo", "Negativo", "Positivo", "Neutro", "Negativo", "Positivo", "Positivo"]
+    return pd.DataFrame({
+        "Ticker": tickers, "Sector": sectores, "Precio ($)": precios, "Cambio %": cambios,
+        "Volumen": volumenes, "Gap %": gaps, "Flotación (M)": floats,
+        "EMA20 (1 min)": ema, "MACD": macd,
+    })
+
+df_demo = generar_datos_finviz_demo()
 
 # 4. FILTROS TIPO FINVIZ
-st.markdown('<div class="demo-section-title">🔎 FILTROS DEL SCREENER</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">🔎 FILTROS DEL SCREENER</div>', unsafe_allow_html=True)
 col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 with col_f1:
-    f_volumen_min = st.number_input(
-        "Volumen Mínimo",
-        min_value=0,
-        value=0,
-        step=100_000,
-        key="demo_volumen_min",
-    )
-    f_precio = st.selectbox(
-        "Precio ($)",
-        ["Cualquiera", "< $10", "$10 - $50", "$50 - $200", "> $200"],
-        key="demo_precio",
-    )
+    f_volumen = st.number_input("Volumen Mínimo (Monto exacto)", min_value=0, value=0, step=50_000, key="demo_volumen")
+    f_precio = st.selectbox("Precio ($)", ["Cualquiera", "< $10", "$10 - $50", "$50 - $200", "> $200"], key="demo_precio")
 with col_f2:
-    f_gap = st.selectbox(
-        "Gap %",
-        ["Cualquiera", "De 0% a 3%", "De 4% a 6%", "De 7% a 10%"],
-        key="demo_gap",
-    )
-    f_sector = st.selectbox(
-        "Sector Activo",
-        ["Todos"] + list(df_activos_demo["Sector"].unique()),
-        key="demo_sector",
-    )
+    f_gap = st.selectbox("Gap %", ["Cualquiera", "De 0% a 3%", "De 4% a 6%", "De 7% a 10%"], key="demo_gap")
+    f_sector = st.selectbox("Sector Activo", ["Todos"] + list(df_demo["Sector"].unique()), key="demo_sector")
 with col_f3:
-    f_flotacion = st.selectbox(
-        "Flotación (Float)",
-        ["Cualquiera", "De 10M a 15M", "De 16M a 20M", "De 21M a 50M"],
-        key="demo_float",
-    )
-    f_ema20 = st.selectbox(
-        "EMA 20 Patrón",
-        ["Cualquiera", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"],
-        key="demo_ema20",
-    )
+    f_float = st.selectbox("Flotación (Float)", ["Cualquiera", "De 10M a 15M", "De 16M a 20M", "De 21M a 50M"], key="demo_float")
+    f_ema = st.selectbox("EMA 20 Patrón", ["Cualquiera", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"], key="demo_ema")
 with col_f4:
-    f_macd = st.selectbox(
-        "MACD Estado",
-        ["Cualquiera", "Positivo", "Negativo", "Neutro"],
-        key="demo_macd",
-    )
-    f_orden = st.selectbox(
-        "Ordenar",
-        ["Ticker", "Precio", "Cambio %", "Volumen", "Gap %", "Flotación (M)"],
-        key="demo_orden",
-    )
+    f_macd = st.selectbox("MACD Estado", ["Cualquiera", "Positivo", "Negativo", "Neutro"], key="demo_macd")
+    f_orden = st.selectbox("Ordenar", ["Cambio %", "Volumen", "Precio ($)", "Gap %"], key="demo_orden")
 
-# 5. APLICACIÓN DE FILTROS DE PRUEBA
-df_filtrado_demo = df_activos_demo.copy()
-
-if f_volumen_min > 0:
-    df_filtrado_demo = df_filtrado_demo[df_filtrado_demo["Volumen"] >= f_volumen_min]
+# Aplicación matemática de filtros de la DEMO.
+df_demo_filtrado = df_demo.copy()
+if f_volumen > 0:
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Volumen"] >= f_volumen]
 if f_precio == "< $10":
-    df_filtrado_demo = df_filtrado_demo[df_filtrado_demo["Precio ($)"] < 10]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Precio ($)"] < 10]
 elif f_precio == "$10 - $50":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Precio ($)"] >= 10) & (df_filtrado_demo["Precio ($)"] <= 50)]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Precio ($)"].between(10, 50)]
 elif f_precio == "$50 - $200":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Precio ($)"] >= 50) & (df_filtrado_demo["Precio ($)"] <= 200)]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Precio ($)"].between(50, 200)]
 elif f_precio == "> $200":
-    df_filtrado_demo = df_filtrado_demo[df_filtrado_demo["Precio ($)"] > 200]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Precio ($)"] > 200]
 if f_gap == "De 0% a 3%":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Gap %"] >= 0) & (df_filtrado_demo["Gap %"] <= 3)]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Gap %"].between(0, 3)]
 elif f_gap == "De 4% a 6%":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Gap %"] >= 4) & (df_filtrado_demo["Gap %"] <= 6)]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Gap %"].between(4, 6)]
 elif f_gap == "De 7% a 10%":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Gap %"] >= 7) & (df_filtrado_demo["Gap %"] <= 10)]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Gap %"].between(7, 10)]
 if f_sector != "Todos":
-    df_filtrado_demo = df_filtrado_demo[df_filtrado_demo["Sector"] == f_sector]
-if f_flotacion == "De 10M a 15M":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Flotación (M)"] >= 10) & (df_filtrado_demo["Flotación (M)"] <= 15)]
-elif f_flotacion == "De 16M a 20M":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Flotación (M)"] >= 16) & (df_filtrado_demo["Flotación (M)"] <= 20)]
-elif f_flotacion == "De 21M a 50M":
-    df_filtrado_demo = df_filtrado_demo[(df_filtrado_demo["Flotación (M)"] >= 21) & (df_filtrado_demo["Flotación (M)"] <= 50)]
-if f_ema20 != "Cualquiera":
-    df_filtrado_demo = df_filtrado_demo[df_filtrado_demo["EMA20 (1 min)"] == f_ema20]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Sector"] == f_sector]
+if f_float == "De 10M a 15M":
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Flotación (M)"].between(10, 15)]
+elif f_float == "De 16M a 20M":
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Flotación (M)"].between(16, 20)]
+elif f_float == "De 21M a 50M":
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["Flotación (M)"].between(21, 50)]
+if f_ema != "Cualquiera":
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["EMA20 (1 min)"] == f_ema]
 if f_macd != "Cualquiera":
-    df_filtrado_demo = df_filtrado_demo[df_filtrado_demo["MACD"] == f_macd]
+    df_demo_filtrado = df_demo_filtrado[df_demo_filtrado["MACD"] == f_macd]
 
-sort_map = {
-    "Ticker": ("Ticker", True),
-    "Precio": ("Precio ($)", False),
-    "Cambio %": ("Cambio %", False),
-    "Volumen": ("Volumen", False),
-    "Gap %": ("Gap %", False),
-    "Flotación (M)": ("Flotación (M)", False),
-}
-_sort_col, _sort_asc = sort_map[f_orden]
-df_filtrado_demo = df_filtrado_demo.sort_values(_sort_col, ascending=_sort_asc)
+orden_col = {"Cambio %":"Cambio %", "Volumen":"Volumen", "Precio ($)":"Precio ($)", "Gap %":"Gap %"}[f_orden]
+df_demo_filtrado = df_demo_filtrado.sort_values(orden_col, ascending=False)
 
-# 6. TABLA TIPO FINVIZ
-st.markdown('<div class="demo-section-title">📊 RESULTADOS DEL SCREENER</div>', unsafe_allow_html=True)
-
-if not estado_scanner_demo:
-    st.warning("Scanner de prueba apagado.")
-elif df_filtrado_demo.empty:
+# 5. TABLA DENSA TIPO FINVIZ + 10 LAYOUTS
+st.markdown('<div class="section-title">📊 TABLA DE RESULTADOS DE ACTIVOS</div>', unsafe_allow_html=True)
+if not estado_demo:
+    st.warning("Scanner de demostración apagado.")
+elif df_demo_filtrado.empty:
     st.info("Ningún activo cumple los criterios seleccionados.")
 else:
-    # Los 10 layouts se mantienen como prueba visual del enlace con el broker.
-    opciones_layout_demo = [
-        "⚙️ L1 (Rojo)", "⚙️ L2 (Azul)", "⚙️ L3 (Verde)", "⚙️ L4 (Amarillo)",
-        "⚙️ L5 (Morado)", "⚙️ L6 (Naranja)", "⚙️ L7 (Blanco)", "⚙️ L8 (Negro)",
-        "⚙️ L9 (Cian)", "⚙️ L10 (Rosa)"
-    ]
+    layouts = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8", "L9", "L10"]
+    colores = ["#d9534f", "#337ab7", "#5cb85c", "#f0ad4e", "#8e44ad", "#e67e22", "#ffffff", "#222222", "#00bcd4", "#e91e63"]
+    filas_html = []
+    for i, (_, row) in enumerate(df_demo_filtrado.head(10).iterrows()):
+        layout = layouts[i]
+        color = colores[i]
+        ticker = str(row["Ticker"])
+        macd_class = "pos" if row["MACD"] == "Positivo" else ("neg" if row["MACD"] == "Negativo" else "neu")
+        ema_class = "pos" if "por encima" in row["EMA20 (1 min)"] else ("neg" if "por debajo" in row["EMA20 (1 min)"] else "neu")
+        filas_html.append(f"""
+        <tr>
+          <td class="layout-cell"><span style="display:inline-block;width:14px;height:14px;background:{color};border:1px solid #777;margin-right:3px;vertical-align:middle;"></span><b>{layout}</b></td>
+          <td><b>{ticker}</b></td><td>{row['Sector']}</td><td>${row['Precio ($)']:.2f}</td>
+          <td class="{'pos' if row['Cambio %'] >= 0 else 'neg'}">{row['Cambio %']:+.2f}%</td>
+          <td>{row['Volumen']:,}</td><td>{row['Gap %']:+.2f}%</td><td>{row['Flotación (M)']:.1f}M</td>
+          <td class="{ema_class}">{row['EMA20 (1 min)']}</td><td class="{macd_class}">{row['MACD']}</td>
+        </tr>
+        """)
+    tabla = f"""
+    <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>LINK LAYOUT</th><th>TICKER</th><th>SECTOR</th><th>PRECIO</th><th>CAMBIO %</th><th>VOLUMEN</th><th>GAP %</th><th>FLOAT</th><th>EMA20 (1 MIN)</th><th>MACD</th></tr></thead>
+      <tbody>{''.join(filas_html)}</tbody>
+    </table></div>
+    """
+    st.markdown(tabla, unsafe_allow_html=True)
 
-    header_cols = st.columns([1.45, 0.75, 1.25, 0.9, 0.9, 1.15, 0.8, 1.9, 0.8])
-    headers_demo = [
-        "LINK LAYOUT", "TICKER", "SECTOR", "PRECIO", "CAMBIO %",
-        "VOLUMEN", "GAP %", "EMA20 (1 MIN)", "MACD"
-    ]
-    for col, h in zip(header_cols, headers_demo):
-        col.markdown(
-            f'<div class="demo-grid-cell demo-table-head">{h}</div>',
-            unsafe_allow_html=True,
-        )
+    # Acciones reales de prueba fuera del HTML para evitar depender de JavaScript.
+    st.caption("Layouts de demostración — cada botón envía un POST al puente configurado en http://localhost:8080/layout.")
+    cols_layout = st.columns(min(10, len(df_demo_filtrado.head(10))))
+    for i, (_, row) in enumerate(df_demo_filtrado.head(10).iterrows()):
+        with cols_layout[i]:
+            if st.button(f"⚙️ L{i+1}", key=f"demo_layout_{i}", use_container_width=True):
+                try:
+                    requests.post(
+                        "http://localhost:8080/layout",
+                        json={"ticker": str(row["Ticker"]), "layout_color": colores[i], "timestamp": str(datetime.now())},
+                        timeout=0.1,
+                    )
+                except Exception:
+                    pass
+                st.toast(f"Señal enviada: {row['Ticker']} → L{i+1}")
 
-    for idx, row in df_filtrado_demo.iterrows():
-        cols = st.columns([1.45, 0.75, 1.25, 0.9, 0.9, 1.15, 0.8, 1.9, 0.8])
-        layout = opciones_layout_demo[idx % len(opciones_layout_demo)]
-        with cols[0]:
-            if st.button(layout, key=f"demo_layout_{idx}"):
-                enviar_senal_broker(row["Ticker"], layout)
-                st.toast(f"Señal de prueba enviada: {row['Ticker']} → {layout}")
-        with cols[1]:
-            st.markdown(f'<div class="demo-grid-cell"><b>{row["Ticker"]}</b></div>', unsafe_allow_html=True)
-        with cols[2]:
-            st.markdown(f'<div class="demo-grid-cell">{row["Sector"]}</div>', unsafe_allow_html=True)
-        with cols[3]:
-            st.markdown(f'<div class="demo-grid-cell">${row["Precio ($)"]:.2f}</div>', unsafe_allow_html=True)
-        with cols[4]:
-            clase = "demo-positive" if row["Cambio %"] > 0 else "demo-negative" if row["Cambio %"] < 0 else "demo-neutral"
-            st.markdown(f'<div class="demo-grid-cell {clase}">{row["Cambio %"]:+.2f}%</div>', unsafe_allow_html=True)
-        with cols[5]:
-            st.markdown(f'<div class="demo-grid-cell">{row["Volumen"]:,}</div>', unsafe_allow_html=True)
-        with cols[6]:
-            gap_clase = "demo-positive" if row["Gap %"] > 0 else "demo-negative" if row["Gap %"] < 0 else "demo-neutral"
-            st.markdown(f'<div class="demo-grid-cell {gap_clase}">{row["Gap %"]:+.2f}%</div>', unsafe_allow_html=True)
-        with cols[7]:
-            st.markdown(f'<div class="demo-grid-cell">{row["EMA20 (1 min)"]}</div>', unsafe_allow_html=True)
-        with cols[8]:
-            macd_clase = "demo-positive" if row["MACD"] == "Positivo" else "demo-negative" if row["MACD"] == "Negativo" else "demo-neutral"
-            st.markdown(f'<div class="demo-grid-cell {macd_clase}">{row["MACD"]}</div>', unsafe_allow_html=True)
-
-st.markdown("<hr style='border:0;border-top:1px solid #b0b0b0;margin:10px 0 6px;'>", unsafe_allow_html=True)
-st.caption("TradeScanner Pro — Vista de prueba Finviz. Los datos de esta sección son simulados y no reemplazan el scanner real.")
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div></div>', unsafe_allow_html=True)
