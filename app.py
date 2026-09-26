@@ -2411,12 +2411,29 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown(f"""
-<div class="ts-statusbar">
-  <div class="ts-status-main"><span class="ts-dot"></span>INSTITUTIONAL SCANNER · {_estado_txt}</div>
-  <div class="ts-status-meta">Mercado: {_dia_txt} · Horario: {_hora_txt} · Actualización: {REFRESCO}s</div>
-</div>
-""", unsafe_allow_html=True)
+# Construimos el HTML fuera del f-string para evitar cualquier NameError
+# durante reruns de Streamlit. Todas las variables se resuelven previamente.
+try:
+    _status_main = "INSTITUTIONAL SCANNER · " + str(_estado_txt)
+    _status_meta = (
+        "Mercado: " + str(_dia_txt)
+        + " · Horario: " + str(_hora_txt)
+        + " · Actualización: " + str(REFRESCO) + "s"
+    )
+except Exception:
+    _status_main = "INSTITUTIONAL SCANNER · Scanner En espera"
+    _status_meta = "Mercado: No disponible · Horario: No disponible · Actualización: —"
+
+st.markdown(
+    "<div class=\"ts-statusbar\">"
+    + "<div class=\"ts-status-main\"><span class=\"ts-dot\"></span>"
+    + _status_main
+    + "</div>"
+    + "<div class=\"ts-status-meta\">"
+    + _status_meta
+    + "</div></div>",
+    unsafe_allow_html=True,
+)
 
 # =========================================================
 # 🧭 PANEL PRINCIPAL — diseño compacto tipo dashboard
