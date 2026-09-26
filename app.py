@@ -2395,4 +2395,5 @@ html_final = (html_plantilla
 
 )
 
-st.components.v1.html(html_final, height=850, scrolling=True)
+st.components.v1.html(html_final, height=1100, scrolling=True)
+
