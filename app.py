@@ -2347,23 +2347,62 @@ IMG_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAACHwAAALUCAIAAAD8byAGAABcZmNhQlgAAFxmanVt
 
 # ==========================================
 # ==========================================
-# 📊 RESULTADOS
+# 🔎 FILTROS / PREFERENCIAS DE BÚSQUEDA
 # ==========================================
-# Se eliminó todo el bloque superior solicitado.
-# Los resultados siguen usando los filtros internos del scanner.
-params = dict(getattr(servicio, "filtros_dueno", VALORES_POR_DEFECTO))
-params.setdefault("precio_min", BASE_PRECIO_MIN)
-params.setdefault("precio_max", BASE_PRECIO_MAX)
-params.setdefault("gap_min", BASE_GAP_MIN)
-params.setdefault("gap_max", BASE_GAP_MAX)
-params.setdefault("flotacion_max", BASE_FLOTACION_MAX)
-params.setdefault("volumen_min", 20_000)
-params.setdefault("cruce_ema", "Hacia arriba")
-params.setdefault("macd", "Positivo")
-params.setdefault("orden", "Actualizado")
-params.setdefault("top_n", 50)
-REFRESCO = max(1, int(params.get("intervalo_refresco", 5)))
-AUTO_ON = True
+def _campo_inline_num(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([1.25, 0.75], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.number_input("", label_visibility="collapsed", **kwargs)
+
+
+def _campo_inline_select(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([1.25, 0.75], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.selectbox("", label_visibility="collapsed", **kwargs)
+
+
+with st.container(border=True):
+    st.markdown('<div class="simple-title">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
+    cfg = cargar_config()
+
+    r1 = st.columns(4, gap="small")
+    PRECIO_MIN = _campo_inline_num(r1[0], "Precio mín.", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+    PRECIO_MAX = _campo_inline_num(r1[1], "Precio máx.", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+    GAP_MIN = _campo_inline_num(r1[2], "Gap mín.", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
+    GAP_MAX = _campo_inline_num(r1[3], "Gap máx.", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
+
+    r2 = st.columns(4, gap="small")
+    FLOT_MAX = _campo_inline_num(r2[0], "Flotación", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
+    VOLUMEN_MIN = _campo_inline_num(r2[1], "Volumen mín.", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
+    REFRESCO = _campo_inline_num(r2[2], "Refresco", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+    TOP_N = _campo_inline_num(r2[3], "Top N", value=50, min_value=1, max_value=100, key="f_top")
+
+    r3 = st.columns(4, gap="small")
+    CRUCE_EMA = _campo_inline_select(r3[0], "Cruce EMA20", options=OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
+    MACD_MODO = _campo_inline_select(r3[1], "MACD", options=OPCIONES_MACD, index=0, key="f_macd_modo")
+    ORDEN = _campo_inline_select(r3[2], "Ordenar", options=["Actualizado", "Cambio %", "Volumen"], key="f_orden")
+    with r3[3]:
+        st.markdown('<div class="inline-toggle-label">Actualización</div>', unsafe_allow_html=True)
+        AUTO_ON = st.toggle("", value=True, label_visibility="collapsed", key="f_auto")
+
+params = {
+    "precio_min": PRECIO_MIN,
+    "precio_max": PRECIO_MAX,
+    "gap_min": GAP_MIN,
+    "gap_max": GAP_MAX,
+    "flotacion_max": FLOT_MAX,
+    "volumen_min": VOLUMEN_MIN,
+    "cruce_ema": CRUCE_EMA,
+    "macd": MACD_MODO,
+    "orden": ORDEN,
+    "top_n": TOP_N,
+}
 
 panel_resultados_slot = st.empty()
 panel_broker_slot = st.empty()
