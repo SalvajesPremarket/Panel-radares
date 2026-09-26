@@ -3281,215 +3281,317 @@ panel_broker()
 # ============================================================
 # 🧪 VISTA DE PRUEBA — NUEVO SCREENER TIPO FINVIZ
 # Esta sección reemplaza únicamente la prueba anterior.
-# El scanner real permanece intacto.
+# El scanner real y su encabezado permanecen intactos.
 # ============================================================
 
-import numpy as np
-import streamlit.components.v1 as components
-import datetime as _demo_datetime
-from urllib.parse import parse_qs
+# 1. CAPTURA DE ACCIONES EN VIVO DESDE LA INTERFAZ HTML
+_demo_query_params = st.query_params
 
-# ------------------------------------------------------------
-# ENCABEZADO — USA EL MISMO LOGOTIPO DEL SCANNER REAL
-# ------------------------------------------------------------
-st.markdown("""
-<style>
-.ts-new-finviz-header {
-    background:#000;
-    padding:7px 12px;
-    display:flex;
-    justify-content:space-between;
-    align-items:center;
-    border-bottom:3px solid #b39212;
-    margin:0 0 10px 0;
-    font-family:Verdana,Arial,sans-serif;
-}
-.ts-new-finviz-brand { display:flex; align-items:center; min-width:0; }
-.ts-new-finviz-logo { height:50px; width:auto; max-width:95px; object-fit:contain; margin-right:10px; }
-.ts-new-finviz-title { color:#f4d03f; font-family:Arial Black,Impact,Arial,sans-serif; font-size:21px; letter-spacing:.5px; }
-.ts-new-finviz-subtitle { color:#d0d0d0; font-size:9px; text-transform:uppercase; }
-.ts-new-finviz-status { color:#fff; font-size:10px; text-align:right; }
-.ts-new-finviz-live { color:#19c37d; font-weight:bold; }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown(f"""
-<div class="ts-new-finviz-header">
-    <div class="ts-new-finviz-brand">
-        <img class="ts-new-finviz-logo"
-             src="data:image/png;base64,{IMG_LOGO_B64}"
-             alt="TradeScanner Institutional — Toro y Oso" />
-        <div>
-            <div class="ts-new-finviz-title">TradeScanner</div>
-            <div class="ts-new-finviz-subtitle">Institutional Stock Scanner · Screener Finviz</div>
-        </div>
-    </div>
-    <div class="ts-new-finviz-status">
-        <div>Language: <b>Español</b></div>
-        <div>Status: <span class="ts-new-finviz-live">Live Connection</span></div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
-# 1. ESCUCHA DE LA SEÑAL DEL ENGRANAJE DESDE EL HTML ANIDADO
-query_params = st.query_params
-if "link_ticker" in query_params and "layout_color" in query_params:
-    ticker_seleccionado = query_params["link_ticker"]
-    color_seleccionado = query_params["layout_color"]
-    url_puente = "http://localhost:8080/layout"
-    payload = {
-        "ticker": ticker_seleccionado,
-        "layout_color": color_seleccionado,
-        "timestamp": str(_demo_datetime.datetime.now()),
+# Lógica del disparador HTTP automático para el Broker al mover el engranaje
+if "link_ticker" in _demo_query_params and "layout_color" in _demo_query_params:
+    _demo_ticker_sel = _demo_query_params["link_ticker"]
+    _demo_color_sel = _demo_query_params["layout_color"]
+    _demo_url_puente = "http://localhost:8080/layout"
+    _demo_payload = {
+        "ticker": _demo_ticker_sel,
+        "layout_color": _demo_color_sel,
+        "timestamp": str(datetime.now()),
     }
     try:
-        requests.post(url_puente, json=payload, timeout=0.1)
+        requests.post(_demo_url_puente, json=_demo_payload, timeout=0.1)
     except Exception:
         pass
 
-# 2. BASE DE DATOS DEL SCANNER (Rangos exactos solicitados)
+# 2. BASE DE DATOS DE PRUEBA ESTRUCTURADA PARA MAPEAR
 @st.cache_data
-def generar_datos_finviz():
+def generar_datos_finviz_demo():
     tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "BABA", "PLTR", "SOUN"]
     sectores = ["Tecnología", "Tecnología", "Tecnología", "Consumo", "Tecnología", "Comunicación", "Automotriz", "Tecnología", "Entretenimiento", "Consumo", "Software", "Inteligencia Artificial"]
 
-    np.random.seed(42)
     return pd.DataFrame({
         "Ticker": tickers,
         "Sector": sectores,
-        "Precio ($)": np.round(np.random.uniform(5, 500, len(tickers)), 2),
-        "Cambio %": np.round(np.random.uniform(-6.0, 6.0, len(tickers)), 2),
-        "Volumen": [12500000, 18400000, 35600000, 9200000, 14800000, 22100000, 31900000, 11700000, 8900000, 16300000, 27400000, 10200000],
-        "Gap %": [1.5, 4.2, 8.5, -2.1, 0.5, 5.1, 9.2, -0.8, 3.5, 7.1, 1.2, 4.8],
-        "Flotación (M)": [12.5, 14.2, 18.0, 19.5, 22.0, 35.0, 48.0, 11.0, 15.5, 24.1, 41.3, 17.2],
-        "EMA20 (1 min)": ["1ra Vela 1min por encima", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo", "Sin patrón", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"],
-        "MACD": ["Positivo", "Positivo", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Positivo", "Neutro"],
+        "Precio": [185.40, 421.18, 136.72, 178.50, 152.30, 495.22, 175.01, 160.20, 610.45, 72.30, 24.15, 6.20],
+        "Cambio": [2.41, 1.18, 5.72, -1.31, -0.45, 3.12, -4.80, 2.15, -0.90, 1.45, 8.20, -3.10],
+        "Volumen": [1250000, 2180000, 3560000, 1840000, 970000, 2760000, 1430000, 1120000, 860000, 1980000, 3250000, 740000],
+        "Gap": [1.50, 4.20, 8.50, -2.10, 0.50, 5.10, 9.20, -0.80, 3.50, 7.10, 1.20, 4.80],
+        "Float": [12.5, 14.2, 18.0, 19.5, 22.0, 35.0, 48.0, 11.0, 15.5, 24.1, 41.3, 17.2],
+        "EMA20": ["1ra Vela 1min por encima", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo", "Sin patrón", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"],
+        "MACD": ["Positivo", "Positivo", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Positivo", "Neutro"]
     })
 
-df_activos = generar_datos_finviz()
+df_activos = generar_datos_finviz_demo()
 
-# 3. CASILLA DE REGISTRO CON CORREO ELECTRÓNICO
-col_reg1, col_reg2 = st.columns([3, 1])
-with col_reg1:
-    email_usuario = st.text_input("🔑 Registro de Usuario (Correo Electrónico):", placeholder="usuario@correo.com", key="finviz_email_usuario")
-with col_reg2:
-    st.write("<br/>", unsafe_allow_html=True)
-    st.button("Crear Cuenta / Login", key="finviz_login_btn")
+# --- RECOLECCIÓN DE VALORES ACTIVOS DE FILTROS EN LA URL ---
+try:
+    v_vol = int(_demo_query_params.get("f_vol", 0))
+except (TypeError, ValueError):
+    v_vol = 0
+v_pre = _demo_query_params.get("f_pre", "Cualquiera")
+v_gap = _demo_query_params.get("f_gap", "Cualquiera")
+v_flt = _demo_query_params.get("f_flt", "Cualquiera")
+v_ema = _demo_query_params.get("f_ema", "Cualquiera")
+v_mac = _demo_query_params.get("f_mac", "Cualquiera")
 
-# 4. MATRIZ DE FILTROS TOTALMENTE PLANOS
-st.markdown("<b style='font-size:11px; color:#444444;'>🔎 FILTROS DEL SCREENER</b>", unsafe_allow_html=True)
-col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-
-with col_f1:
-    f_volumen_min = st.number_input("Volumen Mínimo (Monto exacto)", min_value=0, value=0, step=100000, key="finviz_volumen_min")
-    f_precio = st.selectbox("Precio ($)", ["Cualquiera", "< $10", "$10 - $50", "$50 - $200", "> $200"], key="finviz_precio")
-with col_f2:
-    f_gap = st.selectbox("Gap %", ["Cualquiera", "De 0% a 3%", "De 4% a 6%", "De 7% a 10%"], key="finviz_gap")
-    f_sector = st.selectbox("Sector Activo", ["Todos"] + list(df_activos["Sector"].unique()), key="finviz_sector")
-with col_f3:
-    f_flotacion = st.selectbox("Flotación (Float)", ["Cualquiera", "De 10M a 15M", "De 16M a 20M", "De 21M a 50M"], key="finviz_float")
-    f_ema20 = st.selectbox("EMA 20 Patrón", ["Cualquiera", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"], key="finviz_ema20")
-with col_f4:
-    f_macd = st.selectbox("MACD Estado", ["Cualquiera", "Positivo", "Negativo", "Neutro"], key="finviz_macd")
-
-# --- FILTRADO MATEMÁTICO ---
+# --- PROCESAMIENTO MATEMÁTICO DE LOS FILTROS ---
 df_filtrado = df_activos.copy()
-if f_volumen_min > 0:
-    df_filtrado = df_filtrado[df_filtrado["Volumen"] >= f_volumen_min]
-if f_precio == "< $10":
-    df_filtrado = df_filtrado[df_filtrado["Precio ($)"] < 10]
-elif f_precio == "$10 - $50":
-    df_filtrado = df_filtrado[(df_filtrado["Precio ($)"] >= 10) & (df_filtrado["Precio ($)"] <= 50)]
-elif f_precio == "$50 - $200":
-    df_filtrado = df_filtrado[(df_filtrado["Precio ($)"] >= 50) & (df_filtrado["Precio ($)"] <= 200)]
-elif f_precio == "> $200":
-    df_filtrado = df_filtrado[df_filtrado["Precio ($)"] > 200]
-if f_gap == "De 0% a 3%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 0) & (df_filtrado["Gap %"] <= 3)]
-elif f_gap == "De 4% a 6%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 4) & (df_filtrado["Gap %"] <= 6)]
-elif f_gap == "De 7% a 10%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 7) & (df_filtrado["Gap %"] <= 10)]
-if f_flotacion == "De 10M a 15M":
-    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 10) & (df_filtrado["Flotación (M)"] <= 15)]
-elif f_flotacion == "De 16M a 20M":
-    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 16) & (df_filtrado["Flotación (M)"] <= 20)]
-elif f_flotacion == "De 21M a 50M":
-    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 21) & (df_filtrado["Flotación (M)"] <= 50)]
-if f_ema20 != "Cualquiera":
-    df_filtrado = df_filtrado[df_filtrado["EMA20 (1 min)"] == f_ema20]
-if f_macd != "Cualquiera":
-    df_filtrado = df_filtrado[df_filtrado["MACD"] == f_macd]
-if f_sector != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["Sector"] == f_sector]
+if v_vol > 0:
+    df_filtrado = df_filtrado[df_filtrado["Volumen"] >= v_vol]
+if v_gap == "De 0% a 3%":
+    df_filtrado = df_filtrado[(df_filtrado["Gap"] >= 0) & (df_filtrado["Gap"] <= 3)]
+elif v_gap == "De 4% a 6%":
+    df_filtrado = df_filtrado[(df_filtrado["Gap"] >= 4) & (df_filtrado["Gap"] <= 6)]
+elif v_gap == "De 7% a 10%":
+    df_filtrado = df_filtrado[(df_filtrado["Gap"] >= 7) & (df_filtrado["Gap"] <= 10)]
+if v_flt == "De 10M a 15M":
+    df_filtrado = df_filtrado[(df_filtrado["Float"] >= 10) & (df_filtrado["Float"] <= 15)]
+elif v_flt == "De 16M a 20M":
+    df_filtrado = df_filtrado[(df_filtrado["Float"] >= 16) & (df_filtrado["Float"] <= 20)]
+elif v_flt == "De 21M a 50M":
+    df_filtrado = df_filtrado[(df_filtrado["Float"] >= 21) & (df_filtrado["Float"] <= 50)]
+if v_ema != "Cualquiera":
+    df_filtrado = df_filtrado[df_filtrado["EMA20"] == v_ema]
+if v_mac != "Cualquiera":
+    df_filtrado = df_filtrado[df_filtrado["MACD"] == v_mac]
+if v_pre == "< $10":
+    df_filtrado = df_filtrado[df_filtrado["Precio"] < 10]
+elif v_pre == "$10 - $50":
+    df_filtrado = df_filtrado[(df_filtrado["Precio"] >= 10) & (df_filtrado["Precio"] <= 50)]
+elif v_pre == "$50 - $200":
+    df_filtrado = df_filtrado[(df_filtrado["Precio"] >= 50) & (df_filtrado["Precio"] <= 200)]
+elif v_pre == "> $200":
+    df_filtrado = df_filtrado[df_filtrado["Precio"] > 200]
 
-st.markdown("<br/>", unsafe_allow_html=True)
-st.markdown("<b style='font-size:11px; color:#444444;'>📊 TABLA DE RESULTADOS DE ACTIVOS (ESTILO COMPACTO FINVIZ)</b>", unsafe_allow_html=True)
-
-# 5. INYECCIÓN DEL CÓDIGO HTML BLINDADO (TABLA CON LÍNEAS VERTICALES Y HORIZONTALES REALES)
-html_codigo = """
+# 3. CONSTRUCCIÓN DE LA APLICACIÓN INTEGRAL EN HTML ENCAPSULADO
+html_aplicacion = f"""
+<!DOCTYPE html>
+<html>
+<head>
 <style>
-    table { width: 100%; border-collapse: collapse; font-family: Verdana, Arial; font-size: 11px; color: #000000; }
-    th { background-color: #d3d3d3; color: #444444; font-weight: bold; padding: 5px; border: 1px solid #a0a0a0; text-align: left;}
-    td { padding: 4px 6px; border: 1px solid #a0a0a0; background-color: #ffffff; text-align: left; vertical-align: middle; }
-    tr:nth-child(even) td { background-color: #f9f9f9; }
-    select { font-family: Verdana; font-size: 10px; border: 1px solid #777777; border-radius: 0px; background: #fff; height: 18px; width: 100%; }
+    body {{
+        background-color: #f3f3f3;
+        font-family: Verdana, Arial, Tahoma, sans-serif;
+        font-size: 11px;
+        color: #000000;
+        margin: 5px;
+        padding: 0;
+    }}
+    .registro-bar {{
+        background-color: #ffffff;
+        border: 1px solid #a0a0a0;
+        padding: 8px;
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }}
+    .registro-bar input {{
+        font-size: 11px;
+        font-family: Verdana;
+        padding: 3px;
+        border: 1px solid #777777;
+        width: 220px;
+    }}
+    .registro-bar button {{
+        font-size: 11px;
+        font-family: Verdana;
+        background-color: #f0f0f0;
+        border: 1px solid #777777;
+        cursor: pointer;
+        padding: 3px 10px;
+    }}
+    .filtros-grid {{
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        background-color: #ffffff;
+        border: 1px solid #a0a0a0;
+        padding: 10px;
+        margin-bottom: 15px;
+    }}
+    .filtro-item {{
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+    }}
+    .filtro-item label {{
+        font-weight: bold;
+        color: #333333;
+    }}
+    .filtro-item select, .filtro-item input {{
+        font-family: Verdana;
+        font-size: 11px;
+        height: 22px;
+        border: 1px solid #777777;
+        background-color: #ffffff;
+        padding: 2px;
+        box-shadow: none;
+        outline: none;
+    }}
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        background-color: #ffffff;
+        border: 1px solid #a0a0a0;
+    }}
+    th {{
+        background-color: #d3d3d3;
+        color: #444444;
+        font-weight: bold;
+        padding: 5px;
+        border: 1px solid #a0a0a0;
+        text-align: left;
+    }}
+    td {{
+        padding: 5px 6px;
+        border: 1px solid #a0a0a0;
+        text-align: left;
+        vertical-align: middle;
+        height: 25px;
+    }}
+    tr:nth-child(even) td {{
+        background-color: #f9f9f9;
+    }}
+    .engranaje-select {{
+        font-family: Verdana;
+        font-size: 10px;
+        border: 1px solid #777777;
+        background: #ffffff;
+        height: 20px;
+        width: 100%;
+    }}
 </style>
-
 <script>
-    function cambiarLayout(ticker, colorVal) {
-        window.parent.location.search = '?link_ticker=' + encodeURIComponent(ticker) + '&layout_color=' + encodeURIComponent(colorVal);
-    }
+    function aplicarFiltros() {{
+        var vol = document.getElementById('txt_vol').value;
+        var pre = document.getElementById('sel_pre').value;
+        var gap = document.getElementById('sel_gap').value;
+        var flt = document.getElementById('sel_flt').value;
+        var ema = document.getElementById('sel_ema').value;
+        var mac = document.getElementById('sel_mac').value;
+        window.parent.location.search = '?f_vol='+encodeURIComponent(vol)+'&f_pre='+encodeURIComponent(pre)+'&f_gap='+encodeURIComponent(gap)+'&f_flt='+encodeURIComponent(flt)+'&f_ema='+encodeURIComponent(ema)+'&f_mac='+encodeURIComponent(mac);
+    }}
+    function cambiarLayout(ticker, colorVal) {{
+        if(colorVal !== "") {{
+            var urlParams = new URLSearchParams(window.parent.location.search);
+            urlParams.set('link_ticker', ticker);
+            urlParams.set('layout_color', colorVal);
+            window.parent.location.search = '?' + urlParams.toString();
+        }}
+    }}
 </script>
-
-<table>
-    <thead>
-        <tr>
-            <th style="width: 140px;">LINK LAYOUT (API)</th>
-            <th>TICKER</th>
-            <th>SECTOR</th>
-            <th>PRECIO</th>
-            <th>CAMBIO %</th>
-            <th>VOLUMEN</th>
-            <th>GAP %</th>
-            <th>EMA20 (1 MIN)</th>
-            <th>MACD</th>
-        </tr>
-    </thead>
-    <tbody>
+</head>
+<body>
+    <div class="registro-bar">
+        <label>🔑 <b>Registro de Usuario:</b></label>
+        <input type="email" id="user_email" placeholder="usuario@correo.com">
+        <button type="button" onclick="alert('Correo guardado en el sistema.')">Crear Cuenta / Login</button>
+    </div>
+    <div class="filtros-grid">
+        <div class="filtro-item">
+            <label>Volumen Mínimo (Monto exacto)</label>
+            <input type="number" id="txt_vol" value="{v_vol}" onchange="aplicarFiltros()">
+        </div>
+        <div class="filtro-item">
+            <label>Gap %</label>
+            <select id="sel_gap" onchange="aplicarFiltros()">
+                <option value="Cualquiera" {"selected" if v_gap=="Cualquiera" else ""}>Cualquiera</option>
+                <option value="De 0% a 3%" {"selected" if v_gap=="De 0% a 3%" else ""}>De 0% a 3%</option>
+                <option value="De 4% a 6%" {"selected" if v_gap=="De 4% a 6%" else ""}>De 4% a 6%</option>
+                <option value="De 7% a 10%" {"selected" if v_gap=="De 7% a 10%" else ""}>De 7% a 10%</option>
+            </select>
+        </div>
+        <div class="filtro-item">
+            <label>Flotación (Float)</label>
+            <select id="sel_flt" onchange="aplicarFiltros()">
+                <option value="Cualquiera" {"selected" if v_flt=="Cualquiera" else ""}>Cualquiera</option>
+                <option value="De 10M a 15M" {"selected" if v_flt=="De 10M a 15M" else ""}>De 10M a 15M</option>
+                <option value="De 16M a 20M" {"selected" if v_flt=="De 16M a 20M" else ""}>De 16M a 20M</option>
+                <option value="De 21M a 50M" {"selected" if v_flt=="De 21M a 50M" else ""}>De 21M a 50M</option>
+            </select>
+        </div>
+        <div class="filtro-item">
+            <label>MACD Estado</label>
+            <select id="sel_mac" onchange="aplicarFiltros()">
+                <option value="Cualquiera" {"selected" if v_mac=="Cualquiera" else ""}>Cualquiera</option>
+                <option value="Positivo" {"selected" if v_mac=="Positivo" else ""}>Positivo</option>
+                <option value="Negativo" {"selected" if v_mac=="Negativo" else ""}>Negativo</option>
+                <option value="Neutro" {"selected" if v_mac=="Neutro" else ""}>Neutro</option>
+            </select>
+        </div>
+        <div class="filtro-item">
+            <label>Precio ($)</label>
+            <select id="sel_pre" onchange="aplicarFiltros()">
+                <option value="Cualquiera" {"selected" if v_pre=="Cualquiera" else ""}>Cualquiera</option>
+                <option value="< $10" {"selected" if v_pre=="< $10" else ""}>&lt; $10</option>
+                <option value="$10 - $50" {"selected" if v_pre=="$10 - $50" else ""}>$10 - $50</option>
+                <option value="$50 - $200" {"selected" if v_pre=="$50 - $200" else ""}>$50 - $200</option>
+                <option value="> $200" {"selected" if v_pre=="> $200" else ""}>&gt; $200</option>
+            </select>
+        </div>
+        <div class="filtro-item">
+            <label>EMA 20 Patrón</label>
+            <select id="sel_ema" onchange="aplicarFiltros()">
+                <option value="Cualquiera" {"selected" if v_ema=="Cualquiera" else ""}>Cualquiera</option>
+                <option value="1ra Vela 1min por encima" {"selected" if v_ema=="1ra Vela 1min por encima" else ""}>1ra Vela 1min por encima</option>
+                <option value="1ra Vela 1min por debajo" {"selected" if v_ema=="1ra Vela 1min por debajo" else ""}>1ra Vela 1min por debajo</option>
+            </select>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th style="width: 155px;">LINK LAYOUT (API)</th>
+                <th>TICKER</th>
+                <th>SECTOR</th>
+                <th>PRECIO</th>
+                <th>CAMBIO %</th>
+                <th>VOLUMEN</th>
+                <th>GAP %</th>
+                <th>EMA20 (1 MIN)</th>
+                <th>MACD</th>
+            </tr>
+        </thead>
+        <tbody>
 """
 
 for idx, row in df_filtrado.iterrows():
-    color_pct = "#00873c" if row["Cambio %"] >= 0 else "#eb0f29"
-    color_macd = "#00873c" if row["MACD"] == "Positivo" else ("#eb0f29" if row["MACD"] == "Negativo" else "#555555")
-    select_html = f"""
-    <select onchange="cambiarLayout('{row['Ticker']}', this.value)">
-        <option value="">⚙️ Vincular Layout...</option>
-        <option value="🔴 L1 (Rojo)">🔴 L1 (Rojo)</option>
-        <option value="🔵 L2 (Azul)">🔵 L2 (Azul)</option>
-        <option value="🟢 L3 (Verde)">🟢 L3 (Verde)</option>
-        <option value="🟡 L4 (Amarillo)">🟡 L4 (Amarillo)</option>
-        <option value="🟣 L5 (Morado)">🟣 L5 (Morado)</option>
-        <option value="🟠 L6 (Naranja)">🟠 L6 (Naranja)</option>
-        <option value="⚪ L7 (Blanco)">⚪ L7 (Blanco)</option>
-        <option value="⚫ L8 (Negro)">⚫ L8 (Negro)</option>
-        <option value="🔷 L9 (Cian)">🔷 L9 (Cian)</option>
-        <option value="🌸 L10 (Rosa)">🌸 L10 (Rosa)</option>
-    </select>
-    """
-    html_codigo += f"""
-    <tr>
-        <td>{select_html}</td>
-        <td><b style="color:#0000ff;">{row['Ticker']}</b></td>
-        <td>{row['Sector']}</td>
-        <td>${row['Precio ($)']}</td>
-        <td style="color:{color_pct}; font-weight:bold;">{row['Cambio %']}%</td>
-        <td>{row['Volumen']:,}</td>
-        <td>{row['Gap %']}%</td>
-        <td style="font-size:10px; color:#333;">{row['EMA20 (1 min)']}</td>
-        <td style="color:{color_macd}; font-weight:bold;">{row['MACD']}</td>
-    </tr>
+    c_pct = "#00873c" if row["Cambio"] >= 0 else "#eb0f29"
+    c_mac = "#00873c" if row["MACD"] == "Positivo" else ("#eb0f29" if row["MACD"] == "Negativo" else "#555555")
+    html_aplicacion += f"""
+            <tr>
+                <td>
+                    <select class="engranaje-select" onchange="cambiarLayout('{row['Ticker']}', this.value)">
+                        <option value="">⚙️ Enlazar Color...</option>
+                        <option value="🔴 L1 (Rojo)">🔴 L1 (Rojo)</option>
+                        <option value="🔵 L2 (Azul)">🔵 L2 (Azul)</option>
+                        <option value="🟢 L3 (Verde)">🟢 L3 (Verde)</option>
+                        <option value="🟡 L4 (Amarillo)">🟡 L4 (Amarillo)</option>
+                        <option value="🟣 L5 (Morado)">🟣 L5 (Morado)</option>
+                        <option value="🟠 L6 (Naranja)">🟠 L6 (Naranja)</option>
+                        <option value="⚪ L7 (Blanco)">⚪ L7 (Blanco)</option>
+                        <option value="⚫ L8 (Negro)">⚫ L8 (Negro)</option>
+                        <option value="🔷 L9 (Cian)">🔷 L9 (Cian)</option>
+                        <option value="🌸 L10 (Rosa)">🌸 L10 (Rosa)</option>
+                    </select>
+                </td>
+                <td><b style="color:#0000ff;">{row['Ticker']}</b></td>
+                <td>{row['Sector']}</td>
+                <td>${row['Precio']:.2f}</td>
+                <td style="color:{c_pct}; font-weight:bold;">{row['Cambio']}%</td>
+                <td>{row['Volumen']:,}</td>
+                <td>{row['Gap']}%</td>
+                <td style="font-size:10px;">{row['EMA20']}</td>
+                <td style="color:{c_mac}; font-weight:bold;">{row['MACD']}</td>
+            </tr>
     """
 
-html_codigo += "</tbody></table>"
-components.html(html_codigo, height=500, scrolling=True)
+html_aplicacion += """
+        </tbody>
+    </table>
+</body>
+</html>
+"""
+
+# 4. DESPLIEGUE FINAL — Altura fija de 650px
+components.html(html_aplicacion, height=650, scrolling=True)
