@@ -2310,7 +2310,7 @@ json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</
 
 # 2. Construcción de la carátula rígida 2D encapsulada
 # ==============================================================================
-# 🖥️ CARÁTULA BLINDADA ESTILO FINVIZ - SOLUCIÓN MONOLÍTICA POR PARSEO SEGURO
+# 🖥️ CARÁTULA BLINDADA ESTILO FINVIZ - SOLUCIÓN COMPLETA ANTI-SYNTAXERROR
 # ==============================================================================
 
 try:
@@ -2324,7 +2324,6 @@ _estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else 
 # 1. Extracción y preparación de tus datos reales filtrados por el usuario
 filas_reales = filtrar_resultados(list(servicio.resultados), params) if "params" in locals() else list(servicio.resultados)
 
-# Formatear el dataset real para la inyección limpia en la cuadrícula HTML
 datos_formateados = []
 for row in filas_reales:
     datos_formateados.append({
@@ -2342,7 +2341,6 @@ for row in filas_reales:
 
 json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False)
 
-# Mapeo seguro de variables de estado activas para el HTML
 m_on = "selected" if st.session_state.get("scanner_active", True) else ""
 m_off = "selected" if not st.session_state.get("scanner_active", True) else ""
 l_esp = "selected" if st.session_state.get("selected_lang")=="ESP" else ""
@@ -2359,85 +2357,46 @@ f_flt_val = st.query_params.get("f_flt", "Cualquiera")
 f_ema_val = st.query_params.get("f_ema", "Cualquiera")
 f_mac_val = st.query_params.get("f_mac", "Cualquiera")
 
-# 2. Plantilla estática pura (Sin f inicial - Inmune a errores de f-string)
-html_caratula_completa = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<style>
-    body { background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }
-    .main-container { max-width: 1200px; margin: 15px auto; padding: 0 10px; box-sizing: border-box; }
-    .filtros-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }
-    .filtro-item { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }
-    .filtro-item label { font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }
-    .logo-container { display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }
-    input, select, button { font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }
-    button { cursor: pointer; background-color: #eaeaea; font-weight: bold; }
-    button:active { background-color: #cccccc; }
-    .table-wrapper { width: 100%; overflow-x: auto; background-color: #ffffff; border: 1px solid #888888; }
-    table { width: 100%; border-collapse: collapse; }
-    th { background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; text-align: left; }
-    td { padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; text-align: left; }
-    .fila-alza { background-color: #e2f0d9 !important; }
-    .fila-baja { background-color: #fce4d6 !important; }
-    .engranaje-select { font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }
-    .macd-positivo { background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }
-    .macd-negativo { background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }
-    .macd-neutro { background-color: #e2e3e5 !important; text-align: center; }
-    .num-col { text-align: right; }
-    @media (max-width: 768px) { .filtros-grid { grid-template-columns: repeat(2, 1fr); } }
-</style>
-<script>
-    function pushConfig(actionType) {
-        var urlParams = new URLSearchParams(window.parent.location.search);
-        urlParams.set('action', actionType);
-        if(actionType === 'update_all') {
-            urlParams.set('c_active', document.getElementById('cfg_active').value);
-            urlParams.set('c_start', document.getElementById('cfg_start').value);
-            urlParams.set('c_end', document.getElementById('cfg_end').value);
-            urlParams.set('c_broker', document.getElementById('cfg_broker').value);
-            urlParams.set('c_cust_broker', document.getElementById('cfg_cust_broker').value);
-            urlParams.set('c_api', document.getElementById('cfg_api').value);
-            urlParams.set('c_secret', document.getElementById('cfg_secret').value);
-            urlParams.set('c_url', document.getElementById('cfg_url').value);
-            urlParams.set('c_lang', document.getElementById('cfg_lang').value);
-            urlParams.set('c_wnd', document.getElementById('cfg_wnd').value);
-            urlParams.set('f_vol', document.getElementById('txt_vol').value || 0);
-            urlParams.set('f_pre', document.getElementById('sel_pre').value);
-            urlParams.set('f_gap', document.getElementById('sel_gap').value);
-            urlParams.set('f_flt', document.getElementById('sel_flt').value);
-            urlParams.set('f_ema', document.getElementById('sel_ema').value);
-            urlParams.set('f_mac', document.getElementById('sel_mac').value);
-        }
-        window.parent.location.search = '?' + urlParams.toString();
-    }
-    function toggleCustomBroker() {
-        var broker = document.getElementById('cfg_broker').value;
-        document.getElementById('cfg_cust_broker').style.display = (broker === "Otro") ? "inline-block" : "none";
-    }
-    function cambiarLayout(ticker, selectObj) {
-        var colorVal = selectObj.value;
-        if(colorVal !== "") {
-            var urlParams = new URLSearchParams(window.parent.location.search);
-            urlParams.set('link_ticker', ticker);
-            urlParams.set('layout_color', colorVal);
-            window.parent.history.replaceState(null, '', '?' + urlParams.toString());
-            var targetUrl = document.getElementById('cfg_url').value;
-            fetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: ticker, layout_color: colorVal, broker: document.getElementById('cfg_broker').value, api_key: document.getElementById('cfg_api').value }), mode: "cors" }).catch(e => console.log("Signal dispatched."));
-        }
-    }
-</script>
-</head>
-<body onload="toggleCustomBroker()">
-    <div class="main-container">
-        <div class="filtros-grid">
-            <div class="logo-container">[ LOGOTIPO ]</div>
-            <div class="filtro-item"><label>MOTOR:</label><select id="cfg_active" onchange="pushConfig('update_all')"><option value="True" @@M_ON@@>🟢 ON (@@ESTADO_TXT@@)</option><option value="False" @@M_OFF@@>🔴 OFF</option></select></div>
-            <div class="filtro-item"><label>LAPSO:</label><div style="display:flex; gap:2px;"><input type="time" id="cfg_start" value="@@START_TIME@@" onchange="pushConfig('update_all')"><input type="time" id="cfg_end" value="@@END_TIME@@" onchange="pushConfig('update_all')"></div></div>
-            <div class="filtro-item"><label>IDIOMA:</label><select id="cfg_lang" onchange="pushConfig('update_all')"><option value="ESP" @@L_ESP@@>ESP</option><option value="ENG" @@L_ENG@@>ENG</option></select></div>
-            <div class="filtro-item"><label>VENTANA:</label><select id="cfg_wnd" onchange="pushConfig('update_all')"><option value="Incrustada" @@W_INC@@>Incrustada</option><option value="Flotante" @@W_FLO@@>Flotante</option></select></div>
-            <div class="filtro-item"><label>BROKER:</label><select id="cfg_broker" onchange="toggleCustomBroker(); pushConfig('update_all');" style="width:50%;"><option value="Interactive Brokers" @@B_IB@@>Interactive Brokers</option><option value="Tradestation" @@B_TS@@>Tradestation</option><option value="Otro" @@B_OT@@>Otro</option></select></div>
-            <div class="filtro-item"><label>API KEY:</label><input type="text" id="cfg_api" value="" style="width:60%;"></div>
-            <div class="filtro-item"><label>SECRET:</label><input type="password" id="cfg_secret" value="" style="width:60%;"></div>
+# 2. Construcción por concatenación lineal (Elimina comillas triples conflictivas)
+h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+h += "<style>"
+h += "body { background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }"
+h += ".main-container { max-width: 1200px; margin: 15px auto; padding: 0 10px; box-sizing: border-box; }"
+h += ".filtros-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }"
+h += ".filtro-item { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }"
+h += ".filtro-item label { font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }"
+h += ".logo-container { display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }"
+h += "input, select, button { font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }"
+h += "button { cursor: pointer; background-color: #eaeaea; font-weight: bold; }"
+h += "button:active { background-color: #cccccc; }"
+h += ".table-wrapper { width: 100%; overflow-x: auto; background-color: #ffffff; border: 1px solid #888888; }"
+h += "table { width: 100%; border-collapse: collapse; }"
+h += "th { background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; text-align: left; }"
+h += "td { padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; text-align: left; }"
+h += ".fila-alza { background-color: #e2f0d9 !important; }"
+h += ".fila-baja { background-color: #fce4d6 !important; }"
+h += ".engranaje-select { font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }"
+h += ".macd-positivo { background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }"
+h += ".macd-negativo { background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }"
+h += ".macd-neutro { background-color: #e2e3e5 !important; text-align: center; }"
+h += ".num-col { text-align: right; }"
+h += "@media (max-width: 768px) { .filtros-grid { grid-template-columns: repeat(2, 1fr); } }"
+h += "</style>"
+h += "<script>"
+h += "function pushConfig(a){var e=new URLSearchParams(window.parent.location.search);e.set('action',a);if(a==='update_all'){e.set('c_active',document.getElementById('cfg_active').value);e.set('c_start',document.getElementById('cfg_start').value);e.set('c_end',document.getElementById('cfg_end').value);e.set('c_broker',document.getElementById('cfg_broker').value);e.set('c_cust_broker',document.getElementById('cfg_cust_broker').value);e.set('c_api',document.getElementById('cfg_api').value);e.set('c_secret',document.getElementById('cfg_secret').value);e.set('c_url',document.getElementById('cfg_url').value);e.set('c_lang',document.getElementById('cfg_lang').value);e.set('c_wnd',document.getElementById('cfg_wnd').value);e.set('f_vol',document.getElementById('txt_vol').value||0);e.set('f_pre',document.getElementById('sel_pre').value);e.set('f_gap',document.getElementById('sel_gap').value);e.set('f_flt',document.getElementById('sel_flt').value);e.set('f_ema',document.getElementById('sel_ema').value);e.set('f_mac',document.getElementById('sel_mac').value)}window.parent.location.search='?'+e.toString()}"
+h += "function toggleCustomBroker(){var a=document.getElementById('cfg_broker').value;document.getElementById('cfg_cust_broker').style.display=(a==='Otro')?'inline-block':'none'}"
+h += "function cambiarLayout(a,e){var t=e.value;if(t!==''){var l=new URLSearchParams(window.parent.location.search);l.set('link_ticker',a);l.set('layout_color',t);window.parent.history.replaceState(null,'','?'+l.toString());var r=document.getElementById('cfg_url').value;fetch(r,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:a,layout_color:t,broker:document.getElementById('cfg_broker').value,api_key:document.getElementById('cfg_api').value}),mode:'cors'}).catch(o=>console.log('Signal dispatched.'))}}"
+h += "</script>"
+h += "</head><body onload='toggleCustomBroker()'><div class='main-container'><div class='filtros-grid'>"
+h += "<div class='logo-container'>[ LOGOTIPO ]</div>"
+h += "<div class='filtro-item'><label>MOTOR:</label><select id='cfg_active' onchange='pushConfig(\"update_all\")'><option value=\"True\" @@M_ON@@>🟢 ON (@@ESTADO_TXT@@)</option><option value=\"False\" @@M_OFF@@>🔴 OFF</option></select></div>"
+h += "<div class='filtro-item'><label>LAPSO:</label><div style='display:flex; gap:2px;'><input type='time' id='cfg_start' value='@@START_TIME@@' onchange='pushConfig(\"update_all\")'><input type='time' id='cfg_end' value='@@END_TIME@@' onchange='pushConfig(\"update_all\")'></div></div>"
+h += "<div class='filtro-item'><label>IDIOMA:</label><select id='cfg_lang' onchange='pushConfig(\"update_all\")'><option value=\"ESP\" @@L_ESP@@>ESP</option><option value=\"ENG\" @@L_ENG@@>ENG</option></select></div>"
+h += "<div class='filtro-item'><label>VENTANA:</label><select id='cfg_wnd' onchange='pushConfig(\"update_all\")'><option value=\"Incrustada\" @@W_INC@@>Incrustada</option><option value=\"Flotante\" @@W_FLO@@>Flotante</option></select></div>"
+h += "<div class='filtro-item'><label>BROKER:</label><select id='cfg_broker' onchange='toggleCustomBroker(); pushConfig(\"update_all\");' style='width:50%;'><option value=\"Interactive Brokers\" @@B_IB@@>Interactive Brokers</option><option value=\"Tradestation\" @@B_TS@@>Tradestation</option><option value=\"Otro\" @@B_OT@@>Otro</option></select></div>"
+h += "<div class='filtro-item'><label>API KEY:</label><input type='text' id='cfg_api' value='' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>SECRET:</label><input type='password' id='cfg_secret' value='' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>PUENTE:</label><input type='text' id='cfg_url' value='@@BK_PUENTE_VAL@@' onchange='pushConfig(\"update_all\")' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>VOLUMEN &gt;</label><input type='number' id='txt_vol' value='@@TXT_VOL_VAL@@' onchange='pushConfig(\"update_all\")' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>PRECIO ($)</label><select id='sel_pre' onchange='pushConfig(\"update_all\")'><option value=\"Cualquiera\" @@PRE_CUA@@>Cualquiera</option><option value=\"under10\" @@PRE_U10@@>&lt; $10</option><option value=\"10to50\" @@PRE_1050@@>$10 - $50</option><option value=\"50to200\" @@PRE_50200@@>$50 - $200</option><option value=\"over200\" @@PRE_O200@@>&gt; $200</option></select></div>"
