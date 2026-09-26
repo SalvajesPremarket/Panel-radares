@@ -2275,7 +2275,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 # ==============================================================================
-# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (REEMPLAZO FINAL QUIRÚRGICO)
+# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (REEMPLAZO FINAL DEFINITIVO CORREGIDO)
 # ==============================================================================
 
 # Sincronización de traducciones y textos rápidos según el estado del motor real
@@ -2403,7 +2403,7 @@ html_caratula_finviz = f"""
     .fila-alza {{ background-color: #e2f0d9 !important; }}
     .fila-baja {{ background-color: #fce4d6 !important; }}
     
-    .engranaje-select {{ font-size: 9px; font-weight: bold; height: 16px; width: 100%; }}
+    .engranaje-select {{ font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }}
     .c-default {{ background-color: #ffffff; color: #000000; }}
     .c-L1 {{ background-color: #ffcccc; }} .c-L2 {{ background-color: #ffe5cc; }}
     .c-L3 {{ background-color: #ffffcc; }} .c-L4 {{ background-color: #e5ffcc; }}
@@ -2494,4 +2494,3 @@ html_caratula_finviz = f"""
                 <input type="time" id="cfg_end" value="{st.session_state.get("end_time", "17:00")}" onchange="pushConfig('update_all')">
             </div>
         </div>
-        <div class="filtro-item">
