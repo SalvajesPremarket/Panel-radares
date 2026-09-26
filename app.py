@@ -2310,7 +2310,7 @@ json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</
 
 # 2. Construcción de la carátula rígida 2D encapsulada
 # ==============================================================================
-# 🖥️ CARÁTULA BLINDADA ESTILO FINVIZ DE ALTA DENSIDAD (SOLUCIÓN COMPLETA DE UNA PIEZA)
+# 🖥️ CARÁTULA BLINDADA ESTILO FINVIZ - SOLUCIÓN MONOLÍTICA POR PARSEO SEGURO
 # ==============================================================================
 
 try:
@@ -2342,7 +2342,7 @@ for row in filas_reales:
 
 json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False)
 
-# Mapeo seguro de variables de estado activas
+# Mapeo seguro de variables de estado activas para el HTML
 m_on = "selected" if st.session_state.get("scanner_active", True) else ""
 m_off = "selected" if not st.session_state.get("scanner_active", True) else ""
 l_esp = "selected" if st.session_state.get("selected_lang")=="ESP" else ""
@@ -2353,48 +2353,47 @@ b_ib = "selected" if st.session_state.get("bk_nombre")=="Interactive Brokers (TW
 b_ts = "selected" if st.session_state.get("bk_nombre")=="Tradestation" else ""
 b_ot = "selected" if st.session_state.get("bk_nombre")=="Otro (webhook)" else ""
 
-# Parámetros de búsqueda en URL seguros
 f_pre_val = st.query_params.get("f_pre", "Cualquiera")
 f_gap_val = st.query_params.get("f_gap", "Cualquiera")
 f_flt_val = st.query_params.get("f_flt", "Cualquiera")
 f_ema_val = st.query_params.get("f_ema", "Cualquiera")
 f_mac_val = st.query_params.get("f_mac", "Cualquiera")
 
-# 2. Lienzo Monolítico de Aislamiento Absoluto (Filtros en 4 columnas y Tabla Fija Completa)
-html_caratula_completa = f"""
+# 2. Plantilla estática pura (Sin f inicial - Inmune a errores de f-string)
+html_caratula_completa = """
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
-    body {{ background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }}
-    .main-container {{ max-width: 1200px; margin: 15px auto; padding: 0 10px; box-sizing: border-box; }}
-    .filtros-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }}
-    .filtro-item {{ display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }}
-    .filtro-item label {{ font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }}
-    .logo-container {{ display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }}
-    input, select, button {{ font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }}
-    button {{ cursor: pointer; background-color: #eaeaea; font-weight: bold; }}
-    button:active {{ background-color: #cccccc; }}
-    .table-wrapper {{ width: 100%; overflow-x: auto; background-color: #ffffff; border: 1px solid #888888; }}
-    table {{ width: 100%; border-collapse: collapse; }}
-    th {{ background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; text-align: left; }}
-    td {{ padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; text-align: left; }}
-    .fila-alza {{ background-color: #e2f0d9 !important; }}
-    .fila-baja {{ background-color: #fce4d6 !important; }}
-    .engranaje-select {{ font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }}
-    .macd-positivo {{ background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }}
-    .macd-negativo {{ background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }}
-    .macd-neutro {{ background-color: #e2e3e5 !important; text-align: center; }}
-    .num-col {{ text-align: right; }}
-    @media (max-width: 768px) {{ .filtros-grid {{ grid-template-columns: repeat(2, 1fr); }} }}
+    body { background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }
+    .main-container { max-width: 1200px; margin: 15px auto; padding: 0 10px; box-sizing: border-box; }
+    .filtros-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }
+    .filtro-item { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }
+    .filtro-item label { font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }
+    .logo-container { display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }
+    input, select, button { font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }
+    button { cursor: pointer; background-color: #eaeaea; font-weight: bold; }
+    button:active { background-color: #cccccc; }
+    .table-wrapper { width: 100%; overflow-x: auto; background-color: #ffffff; border: 1px solid #888888; }
+    table { width: 100%; border-collapse: collapse; }
+    th { background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; text-align: left; }
+    td { padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; text-align: left; }
+    .fila-alza { background-color: #e2f0d9 !important; }
+    .fila-baja { background-color: #fce4d6 !important; }
+    .engranaje-select { font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }
+    .macd-positivo { background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }
+    .macd-negativo { background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }
+    .macd-neutro { background-color: #e2e3e5 !important; text-align: center; }
+    .num-col { text-align: right; }
+    @media (max-width: 768px) { .filtros-grid { grid-template-columns: repeat(2, 1fr); } }
 </style>
 <script>
-    function pushConfig(actionType) {{
+    function pushConfig(actionType) {
         var urlParams = new URLSearchParams(window.parent.location.search);
         urlParams.set('action', actionType);
-        if(actionType === 'update_all') {{
+        if(actionType === 'update_all') {
             urlParams.set('c_active', document.getElementById('cfg_active').value);
             urlParams.set('c_start', document.getElementById('cfg_start').value);
             urlParams.set('c_end', document.getElementById('cfg_end').value);
@@ -2411,33 +2410,34 @@ html_caratula_completa = f"""
             urlParams.set('f_flt', document.getElementById('sel_flt').value);
             urlParams.set('f_ema', document.getElementById('sel_ema').value);
             urlParams.set('f_mac', document.getElementById('sel_mac').value);
-        }}
+        }
         window.parent.location.search = '?' + urlParams.toString();
-    }}
-    function toggleCustomBroker() {{
+    }
+    function toggleCustomBroker() {
         var broker = document.getElementById('cfg_broker').value;
         document.getElementById('cfg_cust_broker').style.display = (broker === "Otro") ? "inline-block" : "none";
-    }}
-    function cambiarLayout(ticker, selectObj) {{
+    }
+    function cambiarLayout(ticker, selectObj) {
         var colorVal = selectObj.value;
-        if(colorVal !== "") {{
+        if(colorVal !== "") {
             var urlParams = new URLSearchParams(window.parent.location.search);
             urlParams.set('link_ticker', ticker);
             urlParams.set('layout_color', colorVal);
             window.parent.history.replaceState(null, '', '?' + urlParams.toString());
             var targetUrl = document.getElementById('cfg_url').value;
-            fetch(targetUrl, {{ method: "POST", headers: {{ "Content-Type": "application/json" }}, body: JSON.stringify({{ ticker: ticker, layout_color: colorVal, broker: document.getElementById('cfg_broker').value, api_key: document.getElementById('cfg_api').value }}), mode: "cors" }}).catch(e => console.log("Signal dispatched."));
-        }}
-    }}
+            fetch(targetUrl, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticker: ticker, layout_color: colorVal, broker: document.getElementById('cfg_broker').value, api_key: document.getElementById('cfg_api').value }), mode: "cors" }).catch(e => console.log("Signal dispatched."));
+        }
+    }
 </script>
 </head>
-<body>
+<body onload="toggleCustomBroker()">
     <div class="main-container">
         <div class="filtros-grid">
             <div class="logo-container">[ LOGOTIPO ]</div>
-            <div class="filtro-item"><label>MOTOR:</label><select id="cfg_active" onchange="pushConfig('update_all')"><option value="True" {m_on}>🟢 ON ({_estado_txt})</option><option value="False" {m_off}>🔴 OFF</option></select></div>
-            <div class="filtro-item"><label>LAPSO:</label><div style="display:flex; gap:2px;"><input type="time" id="cfg_start" value="{st.session_state.get('start_time', '08:00')}" onchange="pushConfig('update_all')"><input type="time" id="cfg_end" value="{st.session_state.get('end_time', '17:00')}" onchange="pushConfig('update_all')"></div></div>
-            <div class="filtro-item"><label>IDIOMA:</label><select id="cfg_lang" onchange="pushConfig('update_all')"><option value="ESP" {l_esp}>ESP</option><option value="ENG" {l_eng}>ENG</option></select></div>
-            <div class="filtro-item"><label>VENTANA:</label><select id="cfg_wnd" onchange="pushConfig('update_all')"><option value="Incrustada" {w_inc}>Incrustada</option><option value="Flotante" {w_flo}>Flotante</option></select></div>
-            <div class="filtro-item"><label>BROKER:</label><select id="cfg_broker" onchange="toggleCustomBroker(); pushConfig('update_all');" style="width:50%;"><option value="Interactive Brokers" {b_ib}>Interactive Brokers</option><option value="Tradestation" {b_ts}>Tradestation</option><option value="Otro" {b_ot}>Otro</option></select></div>
+            <div class="filtro-item"><label>MOTOR:</label><select id="cfg_active" onchange="pushConfig('update_all')"><option value="True" @@M_ON@@>🟢 ON (@@ESTADO_TXT@@)</option><option value="False" @@M_OFF@@>🔴 OFF</option></select></div>
+            <div class="filtro-item"><label>LAPSO:</label><div style="display:flex; gap:2px;"><input type="time" id="cfg_start" value="@@START_TIME@@" onchange="pushConfig('update_all')"><input type="time" id="cfg_end" value="@@END_TIME@@" onchange="pushConfig('update_all')"></div></div>
+            <div class="filtro-item"><label>IDIOMA:</label><select id="cfg_lang" onchange="pushConfig('update_all')"><option value="ESP" @@L_ESP@@>ESP</option><option value="ENG" @@L_ENG@@>ENG</option></select></div>
+            <div class="filtro-item"><label>VENTANA:</label><select id="cfg_wnd" onchange="pushConfig('update_all')"><option value="Incrustada" @@W_INC@@>Incrustada</option><option value="Flotante" @@W_FLO@@>Flotante</option></select></div>
+            <div class="filtro-item"><label>BROKER:</label><select id="cfg_broker" onchange="toggleCustomBroker(); pushConfig('update_all');" style="width:50%;"><option value="Interactive Brokers" @@B_IB@@>Interactive Brokers</option><option value="Tradestation" @@B_TS@@>Tradestation</option><option value="Otro" @@B_OT@@>Otro</option></select></div>
             <div class="filtro-item"><label>API KEY:</label><input type="text" id="cfg_api" value="" style="width:60%;"></div>
+            <div class="filtro-item"><label>SECRET:</label><input type="password" id="cfg_secret" value="" style="width:60%;"></div>
