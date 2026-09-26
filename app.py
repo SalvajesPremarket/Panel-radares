@@ -2477,6 +2477,51 @@ if _q.get("link_ticker") and _q.get("layout_color"):
     _q.pop("link_ticker", None)
     _q.pop("layout_color", None)
 
+# Registro / prueba gratuita desde la ventana final.
+# El botón de la nueva interfaz abre este panel nativo de Streamlit sin alterar
+# los filtros ni el motor del scanner.
+if _q.get("abrir_registro") == "1":
+    st.markdown("""
+    <style>
+    .registro-final-card {
+        border:1px solid #d4af37; border-radius:10px; padding:14px 18px;
+        background:#0d1118; color:#fff; margin:4px 0 10px 0;
+    }
+    .registro-final-card h3 { color:#d4af37; margin:0 0 4px 0; }
+    .registro-final-card p { color:#c8cdd6; margin:3px 0; font-size:13px; }
+    </style>
+    <div class="registro-final-card">
+      <h3>🎁 30 DÍAS GRATIS — TRADE SCANNER INSTITUTIONAL</h3>
+      <p>Prueba el scanner durante 1 mes sin costo. Al finalizar el período podrás continuar con tu cuenta registrada.</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    with st.expander("📝 CREAR / REGISTRAR CUENTA", expanded=True):
+        with st.form("form_registro_desde_scanner"):
+            _reg_email_final = st.text_input("Correo electrónico", placeholder="tu@email.com", key="registro_final_email")
+            _reg_pw_final = st.text_input("Contraseña", type="password", key="registro_final_password")
+            _reg_pw2_final = st.text_input("Repetir contraseña", type="password", key="registro_final_password_2")
+            _reg_submit_final = st.form_submit_button("🎁 CREAR CUENTA", width="stretch")
+
+        if _reg_submit_final:
+            if _reg_pw_final != _reg_pw2_final:
+                st.error("❌ Las contraseñas no coinciden.")
+            else:
+                _reg_data_final, _reg_error_final = registrar_usuario(_reg_email_final, _reg_pw_final)
+                if _reg_error_final:
+                    st.error(f"❌ {_reg_error_final}")
+                elif _reg_data_final and _reg_data_final.get("access_token"):
+                    _guardar_usuario_auth(_reg_data_final, tipo="usuario")
+                    st.success("✅ Cuenta creada correctamente. Tu período de prueba comienza ahora.")
+                    _q.pop("abrir_registro", None)
+                    st.rerun()
+                else:
+                    st.success("✅ Cuenta creada. Revisa tu correo para confirmar la cuenta y después inicia sesión.")
+
+    if st.button("✕ CERRAR REGISTRO", key="cerrar_registro_final", width="stretch"):
+        _q.pop("abrir_registro", None)
+        st.rerun()
+
 # Si el usuario nunca ha abierto la nueva interfaz, sincronizamos los defaults
 # con el horario real del motor una sola vez.
 if not st.session_state.get("final_synced", False):
@@ -2553,8 +2598,8 @@ def _render_final_ui():
 <style>
 body{{background:#dcdcdc;font-family:Verdana,Arial,sans-serif;font-size:11px;color:#000;margin:4px;padding:0;}}
 .window{{border:1px solid #777;background:#f3f3f3;box-shadow:0 1px 3px rgba(0,0,0,.25);}}
-.brand{{height:64px;background:#000;border:2px solid #d4af37;box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;}}
-.brand img{{height:58px;width:auto;max-width:100%;object-fit:contain;display:block;}}
+.brand{{height:122px;background:#000;border:1px solid rgba(212,175,55,.55);box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:8px;box-shadow:0 0 28px rgba(212,175,55,.07), inset 0 0 28px rgba(255,255,255,.015);margin:0 0 8px;}}
+.brand img{{display:block;width:100%;height:100%;object-fit:cover;object-position:center;}}
 .filtros-grid{{display:grid;grid-template-columns:repeat(5,minmax(150px,1fr));gap:3px;padding:4px;background:#dcdcdc;}}
 .filtro-item{{background:#ededed;border:1px solid #999;min-height:25px;height:25px;display:flex;align-items:center;gap:4px;padding:1px 4px;box-sizing:border-box;white-space:nowrap;overflow:hidden;}}
 .filtro-item label{{font-weight:bold;font-size:9px;}}
@@ -2572,8 +2617,8 @@ td{{padding:4px 5px;border:1px solid #888;font-size:10px;white-space:nowrap;}}
 .macd-positivo{{background:#a9d08e!important;color:#155724;font-weight:bold;text-align:center;}} .macd-negativo{{background:#f4b084!important;color:#721c24;font-weight:bold;text-align:center;}} .macd-neutro{{background:#e2e3e5!important;text-align:center;}}
 .num-col{{text-align:right;}} .empty{{text-align:center;color:#555;padding:14px;background:#fff;}}
 .status{{padding:3px 6px;background:#222;color:#fff;font-size:9px;border-top:1px solid #777;}}
-@media(max-width:900px){{.filtros-grid{{grid-template-columns:repeat(3,minmax(130px,1fr));}}.brand{{height:52px}}.brand img{{height:48px}}}}
-@media(max-width:640px){{body{{margin:2px}}.filtros-grid{{grid-template-columns:repeat(2,1fr);padding:3px;gap:2px}}.filtro-item{{height:24px;min-height:24px}}.filtro-item label{{font-size:7px}}.filtro-item input,.filtro-item select{{font-size:7px;height:18px}}td,th{{font-size:8px;padding:3px 4px}}.brand{{height:46px}}.brand img{{height:42px;max-width:94vw}}button{{font-size:7px}}}}
+@media(max-width:900px){{.filtros-grid{{grid-template-columns:repeat(3,minmax(130px,1fr));}}.brand{{height:96px}}}}
+@media(max-width:640px){{body{{margin:2px}}.filtros-grid{{grid-template-columns:repeat(2,1fr);padding:3px;gap:2px}}.filtro-item{{height:24px;min-height:24px}}.filtro-item label{{font-size:7px}}.filtro-item input,.filtro-item select{{font-size:7px;height:18px}}td,th{{font-size:8px;padding:3px 4px}}.brand{{height:70px;border-radius:5px}}.filtro-item button{{font-size:7px}}button{{font-size:7px}}}}
 </style></head><body>
 <div class='window'>
 <div class='brand'><img src='data:image/png;base64,{IMG_LOGO_B64}' alt='TradeScanner'></div>
@@ -2594,7 +2639,11 @@ td{{padding:4px 5px;border:1px solid #888;font-size:10px;white-space:nowrap;}}
 <div class='filtro-item'><label>{labels['macd']}:</label><select id='f_mac'><option value='Positivo' {'selected' if st.session_state['final_macd']=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if st.session_state['final_macd']=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if st.session_state['final_macd']=='No exigir' else ''}>Cualquiera</option></select></div>
 <div class='filtro-item'><label>ORDEN:</label><select id='f_orden'><option {'selected' if st.session_state['final_orden']=='Actualizado' else ''}>Actualizado</option><option {'selected' if st.session_state['final_orden']=='Cambio %' else ''}>Cambio %</option><option {'selected' if st.session_state['final_orden']=='Volumen' else ''}>Volumen</option></select></div>
 <div class='filtro-item'><label>TOP:</label><input type='number' id='f_top' value='{int(st.session_state['final_top'])}' min='1' max='100'></div>
-<div class='filtro-item' style='justify-content:space-around;'><button type='button' style='background:#fff2cc' onclick='pushConfig("update_all")'>{labels['guardar']}</button><button type='button' style='background:#fce4d6;color:red' onclick='pushConfig("reset")'>{labels['reset']}</button></div>
+<div class='filtro-item' style='justify-content:space-around;'>
+<button type='button' style='background:#e2f0d9;color:#155724' onclick='abrirRegistro()'>🎁 30 DÍAS / REGISTRO</button>
+<button type='button' style='background:#fff2cc' onclick='pushConfig("update_all")'>{labels['guardar']}</button>
+<button type='button' style='background:#fce4d6;color:red' onclick='pushConfig("reset")'>{labels['reset']}</button>
+</div>
 </div>
 <div class='status'>{'🟢 SCANNER ACTIVO' if active else '🔴 SCANNER APAGADO'} · {len(rows)} resultados mostrados · Motor real cada {INTERVALO_ESCANEO_SEGUNDOS}s · Horario ET {start}–{end}</div>
 <div class='table-wrapper'><table><thead><tr><th>{labels['layout']}</th><th>{labels['ticker']}</th><th>{labels['sector']}</th><th>PRECIO ($)</th><th>{labels['cambio']}</th><th>GAP %</th><th>FLOAT</th><th>EMA 20 INTRADÍA</th><th>MACD</th><th>{labels['volumen']}</th></tr></thead><tbody id='tbody'></tbody></table></div>
@@ -2608,6 +2657,11 @@ function pushConfig(action){{
   const names=['c_active','c_start','c_end','c_broker','c_api','c_secret','c_url','c_lang','c_wnd','f_vol','f_pmin','f_pmax','f_gmin','f_gmax','f_float','f_ema','f_macd','f_orden','f_top'];
   ids.forEach((id,i)=>u.set(names[i],document.getElementById(id).value));
  }}
+ window.parent.location.search='?'+u.toString();
+}}
+function abrirRegistro(){{
+ const u=new URLSearchParams(window.parent.location.search);
+ u.set('abrir_registro','1');
  window.parent.location.search='?'+u.toString();
 }}
 function cambiarLayout(ticker,sel){{
@@ -2629,6 +2683,111 @@ else DATA.forEach(r=>{{
  tr.innerHTML=`<td><select class="engranaje-select c-default" onchange="cambiarLayout('${{r.Ticker}}',this)"><option value="">⚙️ --</option><option value="L1">L1</option><option value="L2">L2</option><option value="L3">L3</option><option value="L4">L4</option><option value="L5">L5</option><option value="L6">L6</option><option value="L7">L7</option><option value="L8">L8</option><option value="L9">L9</option><option value="L10">L10</option></select></td><td style="font-weight:bold;color:#0000cc">${{r.Ticker}}</td><td>${{r.Sector}}</td><td class="num-col" style="font-weight:bold">${{r.Precio.toFixed(2)}}</td><td class="num-col" style="color:${{ch}};font-weight:bold">${{r.Cambio>=0?'+':''}}${{r.Cambio.toFixed(2)}}%</td><td class="num-col" style="color:${{gp}}">${{r.Gap>=0?'+':''}}${{r.Gap.toFixed(2)}}%</td><td class="num-col">${{r.Float===null?'Sin dato':r.Float.toFixed(1)+'M'}}</td><td>${{r.EMA20}}</td><td class="${{mac}}">${{r.MACD}}</td><td class="num-col">${{r.Volumen.toLocaleString()}}</td>`;tbody.appendChild(tr);
 }});
 </script></body></html>"""
-    components.html(html, height=690, scrolling=True)
+    components.html(html, height=560, scrolling=True)
 
 _render_final_ui()
+
+
+# ============================================================
+# PANEL INFERIOR ORIGINAL — SE CONSERVA DEBAJO DE LA NUEVA VENTANA
+# No sustituye el motor ni la tabla principal. Solo restaura la
+# información inferior que estaba en el scanner original.
+# ============================================================
+
+_COLORES_PANEL_FINAL = [
+    ("Rojo", "#e53935"), ("Naranja", "#fb8c00"),
+    ("Amarillo", "#fdd835"), ("Verde", "#43a047"),
+    ("Turquesa", "#00acc1"), ("Azul", "#1e88e5"),
+    ("Morado", "#8e24aa"), ("Rosa", "#ec407a"),
+    ("Marrón", "#8d6e63"), ("Gris", "#9e9e9e"),
+]
+
+@st.fragment(run_every=f"{max(1, int(st.session_state.get('final_refresh', 5)))}s")
+def _render_panel_inferior_original():
+    p = {
+        "precio_min": float(st.session_state.get("final_pmin", 0.50)),
+        "precio_max": float(st.session_state.get("final_pmax", 20.00)),
+        "gap_min": float(st.session_state.get("final_gmin", 3.00)),
+        "gap_max": float(st.session_state.get("final_gmax", 50.00)),
+        "flotacion_max": int(st.session_state.get("final_floatmax", 20_000_000)),
+        "volumen_min": int(st.session_state.get("final_vol", 20_000)),
+        "cruce_ema": st.session_state.get("final_ema", "Hacia arriba"),
+        "macd": st.session_state.get("final_macd", "Positivo"),
+        "orden": st.session_state.get("final_orden", "Actualizado"),
+        "top_n": int(st.session_state.get("final_top", 50)),
+    }
+    try:
+        filas = filtrar_resultados(list(servicio.resultados), p)[:10]
+    except Exception:
+        filas = list(servicio.resultados)[:10]
+
+    dirs = {}
+    for ev in list(getattr(servicio, "eventos", [])):
+        try:
+            dirs.setdefault(ev.get("ticker"), bool(ev.get("subiendo", True)))
+        except Exception:
+            pass
+
+    cuerpo = []
+    for i, (nombre, bg) in enumerate(_COLORES_PANEL_FINAL):
+        if i < len(filas):
+            c = filas[i]
+            ticker = html_escape(str(c.get("ticker", "")))
+            precio = float(c.get("precio") or 0)
+            cambio = float(c.get("cambio_pct") or 0)
+            volumen = formatear_numero_grande(c.get("volumen_dia") or 0)
+            flot = (
+                formatear_numero_grande(c.get("float_shares"))
+                if c.get("float_shares") is not None else
+                ("Pendiente" if c.get("float_status") == "pending" else "Sin dato")
+            )
+            volrel = float(c.get("volumen_relativo") or 0)
+            noticia = " 🔥" if c.get("tiene_noticia") else ""
+            clase = "sube" if dirs.get(c.get("ticker"), cambio >= 0) else "baja"
+            cuerpo.append(
+                f"<tr class='{clase}'>"
+                f"<td class='gear'>🔗</td>"
+                f"<td><span class='swatch' style='background:{bg}'></span></td>"
+                f"<td class='sym'>{ticker}{noticia}</td>"
+                f"<td>{precio:.2f}</td>"
+                f"<td>{cambio:+.1f}%</td>"
+                f"<td>{volumen}</td>"
+                f"<td>{flot}</td>"
+                f"<td>{volrel:.2f}</td></tr>"
+            )
+        else:
+            cuerpo.append(
+                f"<tr><td class='gear'>🔗</td><td><span class='swatch' style='background:{bg}'></span></td>"
+                "<td colspan='6'></td></tr>"
+            )
+
+    html_panel = f"""
+    <!DOCTYPE html><html><head><meta charset='utf-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1'>
+    <style>
+      body{{margin:0;background:#dcdcdc;font-family:Verdana,Arial,sans-serif;font-size:10px;color:#000;}}
+      .panel{{border:1px solid #777;background:#f3f3f3;}}
+      .panel-title{{background:#cfcfcf;border-bottom:1px solid #888;padding:4px 6px;font-weight:bold;font-size:10px;}}
+      .wrap{{overflow-x:auto;background:#fff;}}
+      table{{width:100%;border-collapse:collapse;min-width:700px;}}
+      th{{background:#cfcfcf;border:1px solid #888;padding:4px;font-size:9px;white-space:nowrap;}}
+      td{{border:1px solid #888;padding:4px 5px;white-space:nowrap;height:21px;}}
+      .gear{{width:24px;text-align:center;}}
+      .swatch{{display:inline-block;width:12px;height:12px;border:1px solid #555;vertical-align:middle;}}
+      .sym{{font-weight:bold;color:#0000cc;}}
+      .sube{{background:#e2f0d9;}} .baja{{background:#fce4d6;}}
+      .msg{{padding:4px 6px;background:#222;color:#fff;font-size:9px;}}
+      @media(max-width:640px){{table{{min-width:620px}}td,th{{font-size:8px;padding:3px}}}}
+    </style></head><body>
+    <div class='panel'>
+      <div class='panel-title'>🔗 PANEL DE ACTIVOS / LAYOUT · RESULTADOS DEL SCANNER</div>
+      <div class='wrap'><table>
+        <thead><tr><th>LINK</th><th>LAYOUT</th><th>SÍMBOLO / NOTICIA</th><th>PRECIO</th><th>CAMBIO %</th><th>VOLUMEN</th><th>FLOTACIÓN</th><th>VOL. RELATIVO</th></tr></thead>
+        <tbody>{''.join(cuerpo)}</tbody>
+      </table></div>
+      <div class='msg'>Los resultados de este panel son los mismos del motor real; no se genera una segunda lista de datos.</div>
+    </div></body></html>
+    """
+    components.html(html_panel, height=330, scrolling=False)
+
+_render_panel_inferior_original()
