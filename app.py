@@ -3328,6 +3328,7 @@ if "tsdemo_action" in _demo_query_params:
     ]:
         _demo_query_params.pop(_key, None)
     st.rerun()
+    st.stop()
 
 # Despachador HTTP POST al broker local
 if st.session_state["tsdemo_scanner_active"]:
@@ -3351,9 +3352,8 @@ if st.session_state["tsdemo_scanner_active"]:
         except Exception:
             pass
 
-# 2. BASE DE DATOS DE ACTIVOS (Dataset con volúmenes corregidos)
+# 2. BASE DE DATOS DE ACTIVOS (Dataset con volumen válido)
 @st.cache_data
-
 def generar_datos_finviz_institutional():
     tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "BABA", "PLTR", "SOUN"]
     sectores = ["Tecnología", "Tecnología", "Tecnología", "Consumo", "Tecnología", "Comunicación", "Automotriz", "Tecnología", "Entretenimiento", "Consumo", "Software", "Inteligencia Artificial"]
@@ -3415,7 +3415,7 @@ else:
 
 json_rows_institutional = df_filtrado_institutional.to_json(orient="records")
 
-# 3. CONSTRUCCIÓN DE LA APLICACIÓN INTEGRAL EN HTML (GRID EXPANDIDO RESPONSIVO)
+# 3. CONSTRUCCIÓN DE LA APLICACIÓN INTEGRAL EN HTML
 html_aplicacion_institutional = f"""
 <!DOCTYPE html>
 <html>
@@ -3570,7 +3570,7 @@ html_aplicacion_institutional = f"""
                 method: "POST",
                 headers: {{ "Content-Type": "application/json" }},
                 body: JSON.stringify({{ 
-                    ticker: ticker, 
+                    ticker: ticker,
                     layout_color: colorVal,
                     broker: document.getElementById('cfg_broker').value,
                     api_key: document.getElementById('cfg_api').value
@@ -3705,11 +3705,14 @@ html_aplicacion_institutional = f"""
             dataset.forEach(row => {{
                 let tr = document.createElement("tr");
                 tr.className = row.Cambio >= 0 ? "fila-alza" : "fila-baja";
+
                 let macdStyle = "macd-neutro";
                 if(row.MACD === "Positivo") macdStyle = "macd-positivo";
                 if(row.MACD === "Negativo") macdStyle = "macd-negativo";
+
                 let cambioColor = row.Cambio >= 0 ? "green" : "red";
                 let gapColor = row.Gap >= 0 ? "green" : "red";
+
                 tr.innerHTML = `
                     <td style="text-align:center; padding: 1px;">
                         <select class="engranaje-select c-default" onchange="cambiarLayout('${{row.Ticker}}', this)">
