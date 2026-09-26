@@ -2517,8 +2517,8 @@ h += ".fila-alza{background:#edf7e8}.fila-baja{background:#fceceb}.fila-vacia{ba
 h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
 h += ".layout-col{width:120px;text-align:center;background:#f1f1f1;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
 h += ".footer-note{margin-top:4px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:8px;}"
-h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;}}"
-h += "@media(max-width:520px){.main-container{padding:3px}.filtros-grid{grid-template-columns:1fr 1fr;gap:3px}.filtro-item{min-height:30px;padding:3px}.filtro-item label{font-size:8px}.filtro-item input,.filtro-item select{font-size:8px;height:21px;max-width:100px}.tabs{overflow-x:auto}.tab{font-size:8px;padding:3px 6px}.topbar{padding:5px}.brand{font-size:13px}.status{font-size:8px}}"
+h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
+h += "@media(max-width:520px){.main-container{padding:3px;width:100%;}.topbar{min-height:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:4px;padding:7px 6px;}.brand{font-size:16px;white-space:normal;line-height:1.15;width:100%;}.brand small{font-size:8px;}.status{font-size:9px;white-space:normal;text-align:left;width:100%;line-height:1.2;}.tabs{overflow-x:auto;width:100%;}.tab{font-size:8px;padding:4px 7px;flex:0 0 auto;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}}"
 h += "</style>"
 h += "<script>"
 h += "function setQ(k,v){var q=new URLSearchParams(window.parent.location.search);q.set(k,v);window.parent.location.search='?'+q.toString();}"
@@ -2571,4 +2571,4 @@ h += "</div></body></html>"
 
 # La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
 # anterior de Streamlit no pueda ocultarla. El motor sigue ejecutándose fuera.
-components.html(h, height=760, scrolling=False)
+components.html(h, height=1120, scrolling=False)
