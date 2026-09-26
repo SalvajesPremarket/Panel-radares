@@ -81,7 +81,7 @@ BASE_FLOTACION_MAX = 20_000_000
 # Luego podremos pasar a 2, 3, 4... agregando un filtro por vez.
 ETAPA_PRUEBA_FILTROS = 4
 
-# PRUEBA 7: medir alcanzabilidad de objetivos sobre la misma señal.
+# Medición de alcanzabilidad de objetivos sobre la misma señal.
 PRUEBA7_OBJETIVOS_PCT = (0.25, 0.50, 1.00)
 
 MAX_ENRIQUECER = 500                   # PRUEBA 3: ampliar temporalmente la muestra técnica; no es un filtro de trading
@@ -1590,7 +1590,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 if precio_actual is not None:
                     obs["max_precio"] = max(float(obs["max_precio"]), float(precio_actual))
 
-                # PRUEBA 7: registrar la primera vez que el MFE alcanza cada objetivo.
+                # Registrar la primera vez que el MFE alcanza cada objetivo.
                 precio_senal_obs = float(obs.get("precio_senal") or 0)
                 if precio_senal_obs > 0:
                     mfe_actual_pct = (float(obs["max_precio"]) - precio_senal_obs) / precio_senal_obs * 100.0
@@ -1770,7 +1770,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         macd_calculable = sum(1 for c in enriquecidos if c.get("tecnico_macd") is not None)
         tickers_enr_unicos = len({c.get("ticker") for c in enriquecidos})
         # Conteo bruto que cumple EMA20 + MACD antes del límite de presentación.
-        # En PRUEBA 4 top_n=50, por lo que el resultado final podrá mostrar hasta 50.
+        # En esta etapa top_n=50, por lo que el resultado final podrá mostrar hasta 50.
         candidatos_ema_macd_brutos = sum(
             1 for c in enriquecidos
             if c.get("cruzando_ema20") and c.get("macd_positivo")
@@ -1805,7 +1805,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Esto se ejecuta antes de publicar el resultado y no modifica ningún filtro.
         self._actualizar_prueba6(enriquecidos, snapshots)
 
-        # PRUEBA 4B: conservar las dos listas del MISMO ciclo.
+        # Conservar las dos listas del MISMO ciclo.
         candidatos_raw_actual = [c for c in enriquecidos if c.get("cruzando_ema20") and c.get("macd_positivo")]
         self.candidatos_ema_macd_actual = list(candidatos_raw_actual)
         self.finales_ema_macd_actual = list(resultados_finales_hist)
@@ -1813,7 +1813,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         final_tickers = {c.get("ticker") for c in resultados_finales_hist}
         eliminados_mismo_ciclo = sorted(raw_tickers - final_tickers)
 
-        # PRUEBA 4C: comparar candidatos EMA20+MACD con el ciclo inmediatamente anterior.
+        # Comparar candidatos EMA20+MACD con el ciclo inmediatamente anterior.
         # Esto solo diagnostica entradas/salidas naturales entre ciclos; no cambia filtros.
         raw_anterior = set(getattr(self, "_raw_tickers_ciclo_anterior", set()))
         mantenidos_entre_ciclos = sorted(raw_tickers & raw_anterior)
@@ -2559,11 +2559,6 @@ elif ETAPA_PRUEBA_FILTROS == 2:
     st.info("🧪 PRUEBA 2: Precio + Volumen + EMA20 + MACD.")
 elif ETAPA_PRUEBA_FILTROS == 3:
     st.info("🧪 PRUEBA 3: Precio + Volumen + Float + EMA20 + MACD.")
-elif ETAPA_PRUEBA_FILTROS >= 4:
-    st.info("🧪 PRUEBA 4: Precio + Subida + Volumen + Float + EMA20 + MACD.")
-
-st.success("🚀 PRUEBA 7 ACTIVA: mide si cada señal alcanza +0.25%, +0.50% o +1.00% dentro de la ventana de 10 minutos. Los filtros de entrada no cambian.")
-
 # 2) Control del scanner + conexión API/broker
 # Los controles internos de operación y las credenciales del broker
 # solo se muestran al administrador. El usuario mantiene únicamente
