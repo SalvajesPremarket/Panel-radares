@@ -3471,10 +3471,12 @@ html_aplicacion_institutional = f"""
     }}
     .logo-container img {{
         display: block;
-        max-width: 100%;
+        max-width: 200%;
         width: auto;
-        height: 20px;
+        height: 40px;
         object-fit: contain;
+        transform: scale(1);
+        transform-origin: center center;
     }}
     input, select, button {{
         font-family: Verdana;
