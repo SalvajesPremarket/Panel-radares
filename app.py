@@ -2575,7 +2575,6 @@ def _campo_inline_text(parent, etiqueta, **kwargs):
 with st.container(border=True):
     st.markdown(f'<div class="simple-title">{_ui("prefs")}</div>', unsafe_allow_html=True)
     cfg = cargar_config()
-
     if ETAPA_PRUEBA_FILTROS == 1:
         r1 = st.columns(4, gap="small")
         PRECIO_MIN = _campo_inline_num(r1[0], _ui("price_min"), value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
@@ -2602,11 +2601,11 @@ with st.container(border=True):
         r1 = st.columns(4, gap="small")
         PRECIO_MIN = _campo_inline_num(r1[0], _ui("price_min"), value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
         PRECIO_MAX = _campo_inline_num(r1[1], _ui("price_max"), value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-        GAP_MIN = _campo_inline_num(r1[2], _ui("gap_min"), value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
+        GAP_MIN = _campo_inline_num(r1[2], _ui("gap_min"), value=float(cfg["gap_min"]), min_value=0.0, step=1.0, key="f_gmin")
         GAP_MAX = _campo_inline_num(r1[3], _ui("gap_max"), value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
 
         r2 = st.columns(4, gap="small")
-        FLOT_MAX = _campo_inline_num(r2[0], _ui("float"), value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
+        FLOT_MAX = _campo_inline_num(r2[0], _ui("float"), value=int(cfg["flotacion_max"]), min_value=0, step=1_000_000, key="f_flt")
         VOLUMEN_MIN = _campo_inline_num(r2[1], _ui("volume"), value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
         REFRESCO = _campo_inline_num(r2[2], _ui("refresh"), value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
         TOP_N = _campo_inline_num(r2[3], _ui("top"), value=50, min_value=1, max_value=100, key="f_top")
