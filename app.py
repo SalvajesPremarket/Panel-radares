@@ -3463,12 +3463,18 @@ html_aplicacion_institutional = f"""
         align-items: center;
         justify-content: center;
         background-color: #e6e6e6;
-        border: 1px dashed #777777;
-        font-weight: bold;
-        color: #444444;
-        font-size: 11px;
+        border: 1px solid #999999;
         height: 24px;
-        text-align: center;
+        min-height: 24px;
+        overflow: hidden;
+        box-sizing: border-box;
+    }}
+    .logo-container img {{
+        display: block;
+        max-width: 100%;
+        width: auto;
+        height: 20px;
+        object-fit: contain;
     }}
     input, select, button {{
         font-family: Verdana;
@@ -3584,7 +3590,7 @@ html_aplicacion_institutional = f"""
 </head>
 <body onload="toggleCustomBroker()">
     <div class="filtros-grid">
-        <div class="logo-container">[ LOGOTIPO ]</div>
+        <div class="logo-container"><img src="data:image/png;base64,{IMG_LOGO_B64}" alt="TradeScanner" /></div>
         <div class="filtro-item">
             <label>MOTOR:</label>
             <select id="cfg_active" onchange="pushConfig('update_all')" style="font-weight:bold;">
