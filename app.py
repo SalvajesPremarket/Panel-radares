@@ -2391,10 +2391,7 @@ def panel_resultados():
     if servicio.ultimo_error:
         st.warning(f"Aviso del motor: {servicio.ultimo_error}")
 
-    st.markdown(f"**{len(filas)} resultados** · el motor escanea cada {INTERVALO_ESCANEO_SEGUNDOS}s")
-
     if not filas:
-        st.info("Sin candidatos que cumplan los filtros en este momento.")
         return
 
     df = pd.DataFrame([
@@ -2419,13 +2416,21 @@ def panel_resultados():
         for i, c in enumerate(filas)
     ])
 
+    # Presentación original de la tabla de prueba:
+    # fondo negro, encabezado dorado y valores positivos/negativos en verde/rojo.
+    st.markdown(
+        "<div style=\"font-size:13px;font-weight:800;color:#d4af37;"
+        "margin:4px 0 3px 0;letter-spacing:.3px;\">OVERVIEW</div>",
+        unsafe_allow_html=True,
+    )
+
     styled = (
         df.style
         .map(color_cambio, subset=["Cambio %"])
         .set_properties(**{
-            "background-color": "#101318",
-            "color": "#e8edf2",
-            "border-color": "#303640",
+            "background-color": "#080808",
+            "color": "#eeeeee",
+            "border-color": "#2b2512",
             "font-size": "9px",
             "padding": "2px 4px",
             "line-height": "1.05",
@@ -2433,17 +2438,17 @@ def panel_resultados():
         })
         .set_table_styles([
             {"selector": "th", "props": [
-                ("background-color", "#171b22"),
-                ("color", "#f0c75e"),
-                ("font-weight", "700"),
+                ("background-color", "#0b0b0b"),
+                ("color", "#d4af37"),
+                ("font-weight", "bold"),
                 ("font-size", "9px"),
                 ("padding", "2px 4px"),
                 ("line-height", "1.0"),
-                ("border-color", "#39404b"),
+                ("border-color", "#5d4b19"),
                 ("white-space", "nowrap"),
             ]},
-            {"selector": "tbody tr:nth-child(even)", "props": [("background-color", "#0d1117")]},
-            {"selector": "tbody tr:hover", "props": [("background-color", "#202733")]},
+            {"selector": "tbody tr:nth-child(even)", "props": [("background-color", "#080808")]},
+            {"selector": "tbody tr:hover", "props": [("background-color", "#151515")]},
         ])
     )
     seleccion = st.dataframe(
@@ -2471,6 +2476,18 @@ with panel_resultados_slot.container():
 # ==========================================
 
 PANEL_BROKER_ALTO_PX = 310
+
+# Paleta base del panel broker. Se conserva aunque se haya eliminado la casilla
+# visible de configuración de colores/layout. El panel inferior sigue dependiendo
+# internamente de estas 10 posiciones.
+COLORES_LAYOUT = [
+    ("Rojo", "#e53935", "#ffffff"), ("Naranja", "#fb8c00", "#000000"),
+    ("Amarillo", "#fdd835", "#000000"), ("Verde", "#43a047", "#ffffff"),
+    ("Turquesa", "#00acc1", "#ffffff"), ("Azul", "#1e88e5", "#ffffff"),
+    ("Morado", "#8e24aa", "#ffffff"), ("Rosa", "#ec407a", "#ffffff"),
+    ("Marrón", "#8d6e63", "#ffffff"), ("Gris", "#9e9e9e", "#000000"),
+]
+COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
 PUENTE_LOCAL_POR_DEFECTO = "http://127.0.0.1:8765/enviar"
 BROKERS_DISPONIBLES = [
     "Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)",
