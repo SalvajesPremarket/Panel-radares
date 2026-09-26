@@ -2079,6 +2079,78 @@ st.markdown("""
     div[data-baseweb="select"] span {
         color:#f1f1f1 !important;
     }
+    /* Horario: controles legibles en celular. */
+    div[data-testid="stTimeInput"] label,
+    div[data-testid="stTimeInput"] label p {
+        color:#ffffff !important;
+        font-weight:800 !important;
+        font-size:13px !important;
+    }
+    div[data-testid="stTimeInput"] input {
+        color:#ffffff !important;
+        background:#101318 !important;
+        border-color:rgba(212,175,55,.65) !important;
+        font-weight:800 !important;
+    }
+    @media (max-width:640px) {
+        div[data-testid="stTimeInput"] input {
+            font-size:15px !important;
+            min-height:42px !important;
+        }
+    }
+
+    /* Desplegables: menú siempre legible en celular. Streamlit/BaseWeb puede
+       montar el menú en un portal fuera del contenedor del select. */
+    div[data-baseweb="popover"],
+    div[data-baseweb="popover"] > div,
+    div[data-baseweb="popover"] [data-baseweb="menu"],
+    div[data-baseweb="popover"] ul[role="listbox"],
+    div[data-baseweb="menu"] {
+        background-color:#101318 !important;
+        color:#ffffff !important;
+        opacity:1 !important;
+        z-index:2147483647 !important;
+    }
+    div[data-baseweb="popover"] [role="option"],
+    div[data-baseweb="menu"] [role="option"],
+    ul[role="listbox"] [role="option"] {
+        background-color:#101318 !important;
+        color:#ffffff !important;
+        font-size:14px !important;
+        font-weight:600 !important;
+        line-height:1.35 !important;
+        min-height:36px !important;
+        padding:8px 12px !important;
+        opacity:1 !important;
+        white-space:normal !important;
+    }
+    div[data-baseweb="popover"] [role="option"] *,
+    div[data-baseweb="menu"] [role="option"] *,
+    ul[role="listbox"] [role="option"] * {
+        color:#ffffff !important;
+        opacity:1 !important;
+        visibility:visible !important;
+    }
+    @media (max-width:640px) {
+        /* Cruce EMA20, MACD y Ordenar: al abrir, las opciones se leen
+           claramente incluso en pantallas pequeñas. */
+        div[data-baseweb="popover"] {
+            min-width:180px !important;
+            max-width:calc(100vw - 20px) !important;
+        }
+        div[data-baseweb="popover"] [role="option"],
+        div[data-baseweb="menu"] [role="option"],
+        ul[role="listbox"] [role="option"] {
+            font-size:15px !important;
+            line-height:1.4 !important;
+            min-height:40px !important;
+            padding:9px 13px !important;
+        }
+        div[data-baseweb="select"] [role="combobox"] {
+            font-size:12px !important;
+        }
+    }
+
     .stButton button {
         border-radius:6px !important;
         font-weight:800 !important;
@@ -2564,7 +2636,7 @@ elif ETAPA_PRUEBA_FILTROS == 3:
 # solo se muestran al administrador. El usuario mantiene únicamente
 # el acceso al scanner y sus filtros de búsqueda.
 if ES_ADMIN:
-    control_col, broker_col, premium_col = st.columns([1.15, 1.55, 0.72], gap="small")
+    control_col, broker_col, premium_col = st.columns([1.35, 1.65, 0.85], gap="small")
 else:
     control_col = st.container()
     broker_col = None
@@ -2591,17 +2663,17 @@ with control_col:
                     servicio.reiniciar_scanner()
                     st.success("Scanner reiniciado. El motor fue reconstruido correctamente.")
                     st.rerun()
-            st.markdown("**Horario de funcionamiento (ET)**")
+            st.markdown("**Horario (ET)**")
             h1,h2,h3 = st.columns([1,1,1], gap="small")
             with h1:
                 hora_inicio_ui = st.time_input(
-                    "Inicio",
+                    "Inicio (ET)",
                     value=dt_time(servicio.hora_inicio_auto_min // 60, servicio.hora_inicio_auto_min % 60),
                     key="hora_inicio_scanner_dashboard",
                 )
             with h2:
                 hora_fin_ui = st.time_input(
-                    "Cierre",
+                    "Fin (ET)",
                     value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
                     key="hora_fin_scanner_dashboard",
                 )
@@ -2655,9 +2727,13 @@ if ES_ADMIN:
     with premium_col:
         with st.container(border=True):
             st.markdown('<div class="simple-title">🔐 Modalidades</div>', unsafe_allow_html=True)
-            st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
-            st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
-            st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
+            mod1, mod2, mod3 = st.columns(3, gap="small")
+            with mod1:
+                st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
+            with mod2:
+                st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
+            with mod3:
+                st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
 
 # 3) Colores: accesibles, pero sin el bloque vertical gigante de la izquierda.
 if ES_ADMIN:
