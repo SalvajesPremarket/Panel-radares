@@ -12,10 +12,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 import streamlit as st
-try:
-    import websocket
-except ImportError:
-    websocket = None
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -73,22 +69,20 @@ TAMANO_LOTE_SNAPSHOT = 500             # tickers por petición de snapshot
 WORKERS_SNAPSHOT = 4                   # peticiones de snapshot en paralelo
 PAUSA_MIN_ENTRE_PETICIONES = 0.33      # ~180 peticiones/min a Alpaca (límite: 200/min)
 
-# Streaming real de trades Alpaca (Basic = IEX y hasta 30 símbolos suscritos).
-STREAM_URL = "wss://stream.data.alpaca.markets/v2/iex"
-STREAM_MAX_SYMBOLS = 30
-STREAM_RECONNECT_SEGUNDOS = 5
-
 # Radar base: rango AMPLIO que el motor enriquece. Cada usuario filtra su vista dentro de este rango.
 BASE_PRECIO_MIN = 0.5
 BASE_PRECIO_MAX = 20.0
 BASE_GAP_MIN = 3.0
-BASE_GAP_MAX = 1000.0
-BASE_FLOTACION_MAX = 50_000_000
+BASE_GAP_MAX = 50.0
+BASE_FLOTACION_MAX = 20_000_000
 
 # 🧪 ETAPA DE DEPURACIÓN DE FILTROS
 # 1 = solo precio + EMA20 + MACD. Telegram queda APAGADO.
 # Luego podremos pasar a 2, 3, 4... agregando un filtro por vez.
-ETAPA_PRUEBA_FILTROS = 3
+ETAPA_PRUEBA_FILTROS = 4
+
+# PRUEBA 7: medir alcanzabilidad de objetivos sobre la misma señal.
+PRUEBA7_OBJETIVOS_PCT = (0.25, 0.50, 1.00)
 
 MAX_ENRIQUECER = 500                   # PRUEBA 3: ampliar temporalmente la muestra técnica; no es un filtro de trading
 
@@ -109,6 +103,9 @@ TTL_CALENDARIO_MERCADO = 12 * 3600
 TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker más seguido que esto
 VENTANA_CRUCE_EMA_MINUTOS = 1
 MARGEN_PROXIMIDAD_EMA = 0.05
+# PRUEBA 6: ventana fija de observación posterior a la detección.
+# Es diagnóstico únicamente; no modifica ningún filtro ni resultado.
+VENTANA_PRUEBA6_MINUTOS = 10
 MINUTOS_NOTICIA_RECIENTE = 60
 
 # --- Cuadro "Eventos en vivo" (parte de abajo de la interfaz) ---
@@ -121,7 +118,7 @@ EVENTOS_ALTO_PX = 430                  # alto del cuadro (con scroll)
 MOSTRAR_BOTON_ENCENDIDO_A_TODOS = True  # True: lo ve cualquier usuario con licencia. False: solo el administrador
 
 # --- Opciones de los filtros técnicos (la primera es la que viene por defecto) ---
-OPCIONES_CRUCE_EMA = ["Hacia arriba", "Hacia abajo", "Neutro"]
+OPCIONES_CRUCE_EMA = ["Vela nueva sobre EMA20 + HH/HL", "Hacia abajo", "Neutro"]
 OPCIONES_MACD = ["Positivo", "Negativo", "No exigir"]
 
 NOMBRE_ARCHIVO_HTML = "radar.html"
@@ -131,9 +128,9 @@ RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
 VALORES_POR_DEFECTO = {
     "precio_min": 0.5,
     "precio_max": 20.0,
-    "gap_min": 5.0,
-    "gap_max": 500.0,
-    "flotacion_max": 15_000_000,
+    "gap_min": 3.0,
+    "gap_max": 50.0,
+    "flotacion_max": 20_000_000,
     "volumen_min": 20_000,
     "intervalo_refresco": 5,
     # Valores técnicos usados por el motor compartido/diagnóstico.
@@ -807,58 +804,93 @@ def formatear_numero_grande(numero):
     return f"{numero:.0f}"
 
 
-def evaluar_tecnico(cierres, entrada_actual=None):
-    """Calcula EMA20, MACD y Bollinger sobre cierres de 1 minuto.
+def evaluar_tecnico(velas):
+    """Calcula EMA20/MACD/Bollinger sobre velas de 1 minuto.
 
-    La señal EMA20 de entrada se evalúa en el nacimiento de la vela actual,
-    no al cierre: apertura_actual > EMA20 y apertura_actual > mínimo_de_la_vela_anterior.
-    El máximo de la vela actual nunca participa en esta condición.
+    Señal EMA20 solicitada:
+      1) la vela actual NACE (abre) por encima de la EMA20 de la vela anterior;
+      2) su máximo es mayor que el máximo de la vela anterior;
+      3) su mínimo es mayor que el mínimo de la vela anterior.
+
+    La EMA20 se calcula sobre cierres. Para evitar que la EMA "se mueva"
+    durante la vela que nace, se compara el OPEN actual contra la EMA20
+    calculada hasta la vela anterior.
     """
-    if cierres is None or len(cierres) < 40:
+    if velas is None or len(velas) < 40:
         return (False, False, False, False, None, None, None, 0,
                 None, None, None, None, None, None)
-    barras_count = int(len(cierres))
-    ema20 = cierres.ewm(span=20, adjust=False).mean()
-    macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
-    precio_act = float(cierres.iloc[-1]); precio_prev = float(cierres.iloc[-2])
-    ema_act = float(ema20.iloc[-1]); ema_prev = float(ema20.iloc[-2])
-    macd_actual = macd_line.iloc[-1]
-    macd_val = float(macd_actual) if not pd.isna(macd_actual) else None
-    bb_mid = cierres.rolling(20).mean(); bb_std = cierres.rolling(20).std()
-    bb_upper = bb_mid.iloc[-1] + 2 * bb_std.iloc[-1]
-    bb_upper_val = float(bb_upper) if not pd.isna(bb_upper) else None
-    if pd.isna(ema_act) or ema_act <= 0:
-        return (False, False, False, False, precio_act, None, macd_val, barras_count,
-                precio_prev, ema_prev, precio_act, ema_act, bb_upper_val, None)
-    # ENTRADA EMA20: se decide al nacer la vela actual.
-    # No se usa el máximo de la vela actual porque todavía no terminó.
-    if entrada_actual is not None:
-        apertura_actual = entrada_actual.get("open")
-        minimo_anterior = entrada_actual.get("low_anterior")
-        ema_entrada = entrada_actual.get("ema20", ema_act)
-        cruzo_arriba = bool(
-            apertura_actual is not None
-            and minimo_anterior is not None
-            and ema_entrada is not None
-            and apertura_actual > ema_entrada
-            and apertura_actual > minimo_anterior
+
+    try:
+        velas = velas.sort_index()
+        cierres = velas["close"].astype(float).dropna()
+        if len(cierres) < 40:
+            return (False, False, False, False, None, None, None, 0,
+                    None, None, None, None, None, None)
+
+        # Aseguramos que OHLC y cierres correspondan a las últimas dos velas.
+        if not all(col in velas.columns for col in ("open", "high", "low", "close")):
+            return (False, False, False, False, None, None, None, 0,
+                    None, None, None, None, None, None)
+
+        vela_prev = velas.iloc[-2]
+        vela_act = velas.iloc[-1]
+        ema20 = cierres.ewm(span=20, adjust=False).mean()
+        macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
+
+        precio_act = float(vela_act["close"])
+        precio_prev = float(vela_prev["close"])
+        ema_act = float(ema20.iloc[-1])
+        ema_prev = float(ema20.iloc[-2])
+        macd_actual = macd_line.iloc[-1]
+        macd_val = float(macd_actual) if not pd.isna(macd_actual) else None
+
+        bb_mid = cierres.rolling(20).mean()
+        bb_std = cierres.rolling(20).std()
+        bb_upper = bb_mid.iloc[-1] + 2 * bb_std.iloc[-1]
+        bb_upper_val = float(bb_upper) if not pd.isna(bb_upper) else None
+
+        open_act = float(vela_act["open"])
+        high_act = float(vela_act["high"])
+        low_act = float(vela_act["low"])
+        high_prev = float(vela_prev["high"])
+        low_prev = float(vela_prev["low"])
+
+        if pd.isna(ema_act) or ema_act <= 0 or pd.isna(ema_prev) or ema_prev <= 0:
+            return (False, False, False, False, precio_act, None, macd_val, len(cierres),
+                    precio_prev, ema_prev, precio_act, ema_act, bb_upper_val, None)
+
+        # EMA20 NUEVA: vela naciendo por encima + máximo y mínimo superiores.
+        estructura_alcista = bool(
+            open_act > ema_prev and
+            high_act > high_prev and
+            low_act > low_prev
         )
-    elif ETAPA_PRUEBA_FILTROS == 1:
-        cruzo_arriba = precio_act > ema_act
-    else:
-        # Respaldo para llamadas antiguas: cruce por cierre.
-        cruzo_arriba = bool(precio_prev <= ema_prev and precio_act > ema_act)
-    cruzo_abajo = bool(precio_prev >= ema_prev and precio_act < ema_act)
-    macd_positivo = bool(macd_val is not None and macd_val > 0)
-    macd_negativo = bool(macd_val is not None and macd_val < 0)
-    bb_dist_pct = ((bb_upper_val - precio_act) / precio_act * 100.0) if bb_upper_val is not None and precio_act > 0 else None
-    return (cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo,
-            precio_act, ema_act, macd_val, barras_count, precio_prev, ema_prev,
-            precio_act, ema_act, bb_upper_val, bb_dist_pct)
+
+        # La señal de bajada conserva una lógica simétrica para no romper
+        # el selector existente de la interfaz.
+        estructura_bajista = bool(
+            open_act < ema_prev and
+            high_act < high_prev and
+            low_act < low_prev
+        )
+
+        cruzo_arriba = estructura_alcista
+        cruzo_abajo = estructura_bajista
+        macd_positivo = bool(macd_val is not None and macd_val > 0)
+        macd_negativo = bool(macd_val is not None and macd_val < 0)
+        bb_dist_pct = ((bb_upper_val - precio_act) / precio_act * 100.0) if bb_upper_val is not None and precio_act > 0 else None
+
+        return (cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo,
+                precio_act, ema_act, macd_val, len(cierres), precio_prev, ema_prev,
+                precio_act, ema_act, bb_upper_val, bb_dist_pct)
+    except Exception as e:
+        print(f"⚠️ Error evaluando EMA20/velas: {e}")
+        return (False, False, False, False, None, None, None, 0,
+                None, None, None, None, None, None)
 
 
 def descargar_cierres(data_client, tickers):
-    """Velas de 1 minuto de Alpaca para EMA20/MACD, sin depender de Yahoo Finance."""
+    """Descarga OHLC de velas de 1 minuto de Alpaca para EMA20/MACD."""
     salida = {}
     if not tickers:
         return salida
@@ -866,10 +898,9 @@ def descargar_cierres(data_client, tickers):
     for i in range(0, len(tickers), 50):
         lote = tickers[i:i + 50]
         try:
-            # En el plan Basic de Alpaca, las consultas históricas que llegan
-            # hasta el presente quedan limitadas por el acceso en tiempo real.
-            # Pedimos el histórico hasta 20 minutos atrás para que Alpaca
-            # entregue las velas históricas completas disponibles.
+            # En Alpaca Basic conservamos el retraso histórico de ~20 minutos
+            # que ya utilizaba la aplicación. La condición EMA20 se evalúa
+            # sobre la última vela disponible de ese histórico.
             inicio = datetime.now(timezone.utc) - timedelta(days=2)
             fin = datetime.now(timezone.utc) - timedelta(minutes=20)
             solicitud = StockBarsRequest(
@@ -882,8 +913,7 @@ def descargar_cierres(data_client, tickers):
             barras = data_client.get_stock_bars(solicitud)
             datos = getattr(barras, "df", None)
         except Exception as e:
-            self_error = str(e)
-            print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {self_error}")
+            print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {e}")
             continue
 
         if datos is None or datos.empty:
@@ -893,21 +923,20 @@ def descargar_cierres(data_client, tickers):
             if isinstance(datos.index, pd.MultiIndex):
                 for ticker in lote:
                     try:
-                        serie = datos.xs(ticker, level=0)["close"].dropna()
+                        marco = datos.xs(ticker, level=0)[["open", "high", "low", "close"]].dropna()
+                        marco = marco.sort_index()
                     except Exception:
                         continue
-                    if len(serie) >= 40:
-                        salida[ticker] = serie
+                    if len(marco) >= 40:
+                        salida[ticker] = marco
             else:
-                # Caso excepcional de un solo ticker.
-                if "close" in datos.columns and len(lote) == 1:
-                    serie = datos["close"].dropna()
-                    if len(serie) >= 40:
-                        salida[lote[0]] = serie
+                if all(col in datos.columns for col in ("open", "high", "low", "close")) and len(lote) == 1:
+                    marco = datos[["open", "high", "low", "close"]].dropna().sort_index()
+                    if len(marco) >= 40:
+                        salida[lote[0]] = marco
         except Exception:
             continue
     return salida
-
 
 def filtrar_resultados(filas, p):
     resultado = []
@@ -920,7 +949,7 @@ def filtrar_resultados(filas, p):
             if not (p["gap_min"] <= c["cambio_pct"] <= p["gap_max"]):
                 continue
         if ETAPA_PRUEBA_FILTROS >= 3:
-            if c["float_shares"] is not None and c["float_shares"] >= p["flotacion_max"]:
+            if c["float_shares"] is not None and c["float_shares"] > p["flotacion_max"]:
                 continue
         if ETAPA_PRUEBA_FILTROS >= 2:
             if c.get("volumen_dia", 0) < p.get("volumen_min", 20_000):
@@ -932,7 +961,7 @@ def filtrar_resultados(filas, p):
             macd = "Positivo"
         else:
             cruce = p.get("cruce_ema", "Neutro")
-            if cruce == "Hacia arriba" and not c["cruzando_ema20"]:
+            if cruce in ("Hacia arriba", "Vela nueva sobre EMA20 + HH/HL") and not c["cruzando_ema20"]:
                 continue
             if cruce == "Hacia abajo" and not c["cruzando_ema20_abajo"]:
                 continue
@@ -966,7 +995,7 @@ def filtrar_eventos(eventos, p):
             continue
         if not (p["gap_min"] <= e["cambio_pct"] <= p["gap_max"]):
             continue
-        if e["float_shares"] is not None and e["float_shares"] >= p["flotacion_max"]:
+        if e["float_shares"] is not None and e["float_shares"] > p["flotacion_max"]:
             continue
         if e.get("volumen_dia", 0) < p.get("volumen_min", 20_000):
             continue
@@ -1035,24 +1064,13 @@ class ServicioScanner:
         self.historial_ciclos = []            # últimos ciclos: permite ver cuándo entran/salen candidatos
         self._raw_tickers_ciclo_anterior = set()
 
+        # PRUEBA 6: seguimiento temporal de señales EMA20+MACD.
+        # Cada señal se observa durante una ventana fija y se conserva
+        # el máximo precio visto para calcular MFE. No afecta filtros.
+        self.prueba6_activos = {}
+        self.prueba6_completadas = []
+
         self.cache_tecnico = {}
-        self.cache_series_tecnico = {}  # ticker -> (timestamp, serie de cierres históricos)
-        # Estado intraminuto para detectar el nacimiento de la vela de entrada:
-        # ticker -> minuto actual, apertura actual y mínimo acumulado de esa vela.
-        self._velas_intraminuto = {}
-
-        # WebSocket real: los trades alimentan la vela actual sin esperar al snapshot.
-        self._stream_lock = threading.RLock()
-        self._stream_stop = threading.Event()
-        self._stream_ws = None
-        self._stream_thread = None
-        self._stream_tickers_deseados = set()
-        self._stream_tickers_activos = set()
-        self._stream_trades = {}
-        self._stream_estado = "iniciando"
-        self._stream_autenticado = False
-        self._iniciar_stream()
-
         self.cache_fund = self._leer_cache_fundamentales()
         # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
         self.fmp_pausado_hasta = 0.0
@@ -1066,146 +1084,6 @@ class ServicioScanner:
         self._lock_reinicio = threading.Lock()
         self._hilo = threading.Thread(target=self._bucle, daemon=True)
         self._hilo.start()
-
-    # ---------- streaming real Alpaca ----------
-    def _iniciar_stream(self):
-        """Inicia un WebSocket persistente para trades IEX.
-        El plan Basic permite streaming en tiempo real IEX y hasta 30 símbolos.
-        """
-        if websocket is None:
-            self._stream_estado = "websocket-client no instalado"
-            return
-        if self._stream_thread is not None and self._stream_thread.is_alive():
-            return
-        self._stream_stop.clear()
-        self._stream_thread = threading.Thread(target=self._stream_loop, daemon=True, name="alpaca-trades-stream")
-        self._stream_thread.start()
-
-    def _stream_on_open(self, ws):
-        with self._stream_lock:
-            self._stream_ws = ws
-            self._stream_autenticado = False
-            self._stream_estado = "autenticando"
-        try:
-            ws.send(json.dumps({"action": "auth", "key": self.api_key, "secret": self.secret_key}))
-        except Exception as e:
-            self._stream_estado = f"error autenticando: {e}"
-
-    def _stream_on_message(self, ws, raw):
-        try:
-            mensajes = json.loads(raw)
-            if isinstance(mensajes, dict):
-                mensajes = [mensajes]
-            for msg in mensajes if isinstance(mensajes, list) else []:
-                if not isinstance(msg, dict):
-                    continue
-                if msg.get("T") == "error":
-                    self._stream_estado = f"Alpaca stream: {msg.get('msg', msg)}"
-                    continue
-                if msg.get("T") == "success" and msg.get("msg") == "authenticated":
-                    with self._stream_lock:
-                        self._stream_autenticado = True
-                        self._stream_estado = "autenticado"
-                        tickers = sorted(self._stream_tickers_deseados)[:STREAM_MAX_SYMBOLS]
-                        ws_actual = self._stream_ws
-                    if ws_actual is not None and tickers:
-                        ws_actual.send(json.dumps({"action": "subscribe", "trades": tickers}))
-                        with self._stream_lock:
-                            self._stream_tickers_activos = set(tickers)
-                    continue
-                if msg.get("T") != "t":
-                    continue
-                ticker = msg.get("S")
-                precio = msg.get("p")
-                ts_raw = msg.get("t")
-                if not ticker or precio is None or not ts_raw:
-                    continue
-                precio = float(precio)
-                ts = pd.Timestamp(ts_raw).to_pydatetime()
-                if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
-                minuto = ts.replace(second=0, microsecond=0)
-                with self._stream_lock:
-                    self._stream_trades[ticker] = {"price": precio, "timestamp": ts}
-                    estado = self._velas_intraminuto.get(ticker)
-                    if estado is None or estado.get("minuto") != minuto:
-                        low_anterior = estado.get("low") if estado else None
-                        self._velas_intraminuto[ticker] = {
-                            "minuto": minuto,
-                            "open": precio,
-                            "high": precio,
-                            "low": precio,
-                            "low_anterior": low_anterior,
-                        }
-                    else:
-                        estado["high"] = max(float(estado.get("high", precio)), precio)
-                        estado["low"] = min(float(estado.get("low", precio)), precio)
-        except Exception as e:
-            print(f"⚠️ Error procesando trade WebSocket: {e}")
-
-    def _stream_on_error(self, ws, error):
-        self._stream_estado = f"stream error: {error}"
-        print(f"⚠️ Alpaca WebSocket: {error}")
-
-    def _stream_on_close(self, ws, close_status_code, close_msg):
-        with self._stream_lock:
-            self._stream_ws = None
-            self._stream_autenticado = False
-            self._stream_tickers_activos = set()
-        if not self._stream_stop.is_set():
-            self._stream_estado = "desconectado; reconectando"
-
-    def _stream_loop(self):
-        while not self._stream_stop.is_set():
-            try:
-                ws = websocket.WebSocketApp(
-                    STREAM_URL,
-                    on_open=self._stream_on_open,
-                    on_message=self._stream_on_message,
-                    on_error=self._stream_on_error,
-                    on_close=self._stream_on_close,
-                )
-                ws.run_forever(ping_interval=20, ping_timeout=10)
-            except Exception as e:
-                self._stream_estado = f"stream detenido: {e}"
-                print(f"⚠️ Error WebSocket Alpaca: {e}")
-            if not self._stream_stop.is_set():
-                self._stream_stop.wait(STREAM_RECONNECT_SEGUNDOS)
-
-    def _actualizar_stream_tickers(self, tickers):
-        """Mantiene suscritos los 30 candidatos con mayor volumen del ciclo."""
-        if websocket is None:
-            return
-        deseados = set(tickers[:STREAM_MAX_SYMBOLS])
-        with self._stream_lock:
-            self._stream_tickers_deseados = deseados
-            ws = self._stream_ws
-            autenticado = self._stream_autenticado
-            activos = set(self._stream_tickers_activos)
-        if ws is None or not autenticado:
-            return
-        agregar = sorted(deseados - activos)
-        quitar = sorted(activos - deseados)
-        try:
-            if agregar:
-                ws.send(json.dumps({"action": "subscribe", "trades": agregar}))
-            if quitar:
-                ws.send(json.dumps({"action": "unsubscribe", "trades": quitar}))
-            with self._stream_lock:
-                self._stream_tickers_activos = deseados
-        except Exception as e:
-            self._stream_estado = f"error actualizando stream: {e}"
-
-    def detener_stream(self):
-        self._stream_stop.set()
-        with self._stream_lock:
-            ws = self._stream_ws
-            self._stream_ws = None
-        if ws is not None:
-            try:
-                ws.close()
-            except Exception:
-                pass
 
     # ---------- utilidades ----------
     def _esperar_turno(self):
@@ -1289,7 +1167,6 @@ class ServicioScanner:
         with self._lock_reinicio:
             hilo_anterior = self._hilo
             self._detener_hilo.set()
-            self.detener_stream()
 
             # Espera brevemente a que el hilo anterior termine su ciclo actual.
             if hilo_anterior is not None and hilo_anterior.is_alive() and hilo_anterior is not threading.current_thread():
@@ -1328,16 +1205,10 @@ class ServicioScanner:
             self.historial_ciclos = []
             self._raw_tickers_ciclo_anterior = set()
             self.candidatos_ema_macd_actual = []
+            self.prueba6_activos = {}
+            self.prueba6_completadas = []
             self.finales_ema_macd_actual = []
             self.cache_tecnico = {}
-            self.cache_series_tecnico = {}
-            self._velas_intraminuto = {}
-            with self._stream_lock:
-                self._stream_tickers_deseados = set()
-                self._stream_tickers_activos = set()
-                self._stream_trades = {}
-            self._stream_stop.clear()
-            self._iniciar_stream()
             self.fmp_pausado_hasta = 0.0
             self._ultima_peticion_fmp = 0.0
             self._ultima_peticion = 0.0
@@ -1440,9 +1311,7 @@ class ServicioScanner:
             ahora = time.time()
             espera_fmp = self._ultima_peticion_fmp + FMP_MIN_INTERVAL_SEGUNDOS - ahora
             if espera_fmp > 0:
-                # El scanner nunca debe quedar dormido esperando FMP.
-                # Se intentará en un ciclo posterior cuando venza el intervalo.
-                return None
+                time.sleep(espera_fmp)
             self._ultima_peticion_fmp = time.time()
             respuesta = requests.get(
                 FMP_API_URL,
@@ -1529,85 +1398,19 @@ class ServicioScanner:
         self._guardar_cache_fundamentales()
 
     # ---------- EMA20 / MACD ----------
-    def _asegurar_tecnico(self, tickers, snapshots=None):
-        """Motor técnico híbrido y no bloqueante.
-
-        1) El histórico de cierres para EMA20/MACD se cachea y solo se renueva
-           cuando vence TTL_TECNICO_SEGUNDOS.
-        2) La vela intraminuto se evalúa en CADA ciclo usando el snapshot actual,
-           sin esperar a que termine la vela.
-        3) Así, una consulta histórica lenta no impide detectar el nacimiento
-           de una vela de entrada. Esta separación permite migrar después a
-           WebSocket sin cambiar la lógica del motor.
-        """
+    def _asegurar_tecnico(self, tickers):
         ahora = time.time()
-        snapshots = snapshots or {}
-
-        # Histórico: solo descargamos lo que realmente venció.
-        pendientes_hist = []
-        for t in tickers:
-            e = self.cache_series_tecnico.get(t)
-            if e is None or ahora - float(e.get("ts", 0)) > TTL_TECNICO_SEGUNDOS:
-                pendientes_hist.append(t)
-
-        series_nuevas = descargar_cierres(self.data, pendientes_hist) if pendientes_hist else {}
-        for t, serie in series_nuevas.items():
-            self.cache_series_tecnico[t] = {"ts": ahora, "serie": serie}
-
-        for t in tickers:
-            cache_serie = self.cache_series_tecnico.get(t, {})
-            serie = cache_serie.get("serie")
-            entrada_actual = None
-
-            # Primero usamos el trade real del WebSocket. El snapshot queda como
-            # respaldo para los símbolos que todavía no tengan tick recibido.
-            with self._stream_lock:
-                stream_trade = dict(self._stream_trades.get(t, {}))
-                estado_stream = dict(self._velas_intraminuto.get(t, {}))
-            snap = snapshots.get(t)
-            trade = getattr(snap, "latest_trade", None) if snap is not None else None
-            if stream_trade.get("price") is not None and stream_trade.get("timestamp") is not None:
-                precio = float(stream_trade["price"])
-                estado = estado_stream
-                entrada_actual = {
-                    "open": estado.get("open"),
-                    "low_anterior": estado.get("low_anterior"),
-                    "ema20": None,
-                }
-            elif trade is not None and getattr(trade, "price", None) is not None and getattr(trade, "timestamp", None) is not None:
-                try:
-                    precio = float(trade.price)
-                    ts = trade.timestamp
-                    minuto = ts.replace(second=0, microsecond=0)
-                    estado = self._velas_intraminuto.get(t)
-
-                    if estado is None or estado.get("minuto") != minuto:
-                        # Fallback: snapshot. El WebSocket será la fuente principal.
-                        low_anterior = estado.get("low") if estado else None
-                        self._velas_intraminuto[t] = {
-                            "minuto": minuto, "open": precio, "high": precio,
-                            "low": precio, "low_anterior": low_anterior,
-                        }
-                    else:
-                        estado["high"] = max(float(estado.get("high", precio)), precio)
-                        estado["low"] = min(float(estado.get("low", precio)), precio)
-
-                    estado = self._velas_intraminuto[t]
-                    entrada_actual = {
-                        "open": estado.get("open"),
-                        "low_anterior": estado.get("low_anterior"),
-                        "ema20": None,
-                    }
-                    if serie is not None and len(serie) >= 40:
-                        ema20 = serie.ewm(span=20, adjust=False).mean()
-                        entrada_actual["ema20"] = float(ema20.iloc[-1]) if not pd.isna(ema20.iloc[-1]) else None
-                except Exception as ex:
-                    print(f"⚠️ Error formando vela intraminuto {t}: {ex}")
-
+        pendientes = [
+            t for t in tickers
+            if t not in self.cache_tecnico or ahora - self.cache_tecnico[t][0] > TTL_TECNICO_SEGUNDOS
+        ]
+        if not pendientes:
+            return
+        series = descargar_cierres(self.data, pendientes)
+        for t in pendientes:
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
-             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(serie, entrada_actual)
-
+             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(series.get(t))
             self.cache_tecnico[t] = (
                 ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
                 precio_act, ema_act, macd_val, barras_count,
@@ -1757,6 +1560,94 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         except Exception as ex:
             print(f"⚠️ Error guardando historial de ciclos: {ex}")
 
+    # ---------- PRUEBA 6: MFE posterior a la señal ----------
+    def _actualizar_prueba6(self, candidatos, snapshots=None):
+        """Observa el máximo precio posterior a cada señal EMA20+MACD.
+
+        La ventana es fija (VENTANA_PRUEBA6_MINUTOS) y el cálculo es
+        exclusivamente diagnóstico. No elimina ni modifica candidatos.
+        La señal se toma en el momento en que el scanner la detecta.
+        """
+        try:
+            ahora = datetime.now(ET)
+            ahora_ts = ahora.timestamp()
+            candidatos_validos = {
+                c.get("ticker"): c for c in candidatos
+                if c.get("ticker") and c.get("cruzando_ema20") and c.get("macd_positivo")
+            }
+
+            # Actualizar señales ya abiertas con el precio de mercado actual,
+            # incluso si el ticker dejó de cumplir EMA20+MACD en este ciclo.
+            # Así medimos realmente el recorrido posterior y no solo el tiempo
+            # durante el cual el candidato permanece visible.
+            for ticker, obs in list(self.prueba6_activos.items()):
+                precio_actual = None
+                snap = (snapshots or {}).get(ticker)
+                if snap is not None and getattr(snap, "latest_trade", None):
+                    precio_actual = getattr(snap.latest_trade, "price", None)
+                if precio_actual is None:
+                    precio_actual = candidatos_validos.get(ticker, {}).get("precio")
+                if precio_actual is not None:
+                    obs["max_precio"] = max(float(obs["max_precio"]), float(precio_actual))
+
+                # PRUEBA 7: registrar la primera vez que el MFE alcanza cada objetivo.
+                precio_senal_obs = float(obs.get("precio_senal") or 0)
+                if precio_senal_obs > 0:
+                    mfe_actual_pct = (float(obs["max_precio"]) - precio_senal_obs) / precio_senal_obs * 100.0
+                    alcanzados = obs.setdefault("objetivos", {})
+                    for objetivo in PRUEBA7_OBJETIVOS_PCT:
+                        clave = f"{objetivo:.2f}"
+                        if clave not in alcanzados and mfe_actual_pct >= objetivo:
+                            alcanzados[clave] = ahora_ts - obs["inicio_ts"]
+
+                transcurridos = ahora_ts - obs["inicio_ts"]
+                if transcurridos >= VENTANA_PRUEBA6_MINUTOS * 60:
+                    precio_senal = float(obs["precio_senal"])
+                    max_precio = float(obs["max_precio"])
+                    mfe_pct = ((max_precio - precio_senal) / precio_senal * 100.0) if precio_senal > 0 else None
+                    obs_final = dict(obs)
+                    objetivos = dict(obs.get("objetivos", {}))
+                    obs_final.update({
+                        "fin_hora": ahora.strftime("%H:%M:%S ET"),
+                        "mfe_pct": mfe_pct,
+                        "duracion_min": transcurridos / 60.0,
+                        "objetivos": objetivos,
+                        "alcanza_025": "0.25" in objetivos,
+                        "alcanza_050": "0.50" in objetivos,
+                        "alcanza_100": "1.00" in objetivos,
+                        "tiempo_025_min": (objetivos.get("0.25") / 60.0) if "0.25" in objetivos else None,
+                        "tiempo_050_min": (objetivos.get("0.50") / 60.0) if "0.50" in objetivos else None,
+                        "tiempo_100_min": (objetivos.get("1.00") / 60.0) if "1.00" in objetivos else None,
+                    })
+                    self.prueba6_completadas.insert(0, obs_final)
+                    self.prueba6_completadas = self.prueba6_completadas[:100]
+                    del self.prueba6_activos[ticker]
+
+            # Abrir una observación nueva solo para una señal detectada que
+            # todavía no esté siendo observada.
+            for ticker, c in candidatos_validos.items():
+                if ticker in self.prueba6_activos:
+                    continue
+                precio_senal = c.get("tecnico_precio_actual")
+                if precio_senal is None:
+                    precio_senal = c.get("precio")
+                if precio_senal is None or float(precio_senal) <= 0:
+                    continue
+                bb_upper = c.get("bb_upper")
+                bb_dist = c.get("bb_dist_pct")
+                self.prueba6_activos[ticker] = {
+                    "ticker": ticker,
+                    "inicio_ts": ahora_ts,
+                    "inicio_hora": ahora.strftime("%H:%M:%S ET"),
+                    "precio_senal": float(precio_senal),
+                    "bb_upper_senal": float(bb_upper) if bb_upper is not None else None,
+                    "bb_dist_inicial": float(bb_dist) if bb_dist is not None else None,
+                    "max_precio": float(c.get("precio") if c.get("precio") is not None else precio_senal),
+                    "objetivos": {},
+                }
+        except Exception as ex:
+            print(f"⚠️ Error en PRUEBA 6: {ex}")
+
     # ---------- ciclo principal ----------
     def _ciclo(self):
         inicio = time.monotonic()
@@ -1816,11 +1707,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # En la etapa 1 no usamos float ni volumen como filtros.
             # Tampoco consultamos float en esta etapa para evitar HTTP 429 de FMP.
             # PRUEBA 3: se usa el mismo umbral que el resto de la app
-            # (self.filtros_dueno["flotacion_max"], 15,000,000 por defecto)
+            # (self.filtros_dueno["flotacion_max"], 20,000,000 por defecto)
             # en vez de BASE_FLOTACION_MAX (50,000,000), para que este
             # conteo de diagnóstico coincida con el filtro que de verdad
             # determina el resultado final en filtrar_resultados().
-            if ETAPA_PRUEBA_FILTROS >= 3 and float_shares is not None and float_shares >= self.filtros_dueno.get("flotacion_max", 15_000_000):
+            if ETAPA_PRUEBA_FILTROS >= 3 and float_shares is not None and float_shares > self.filtros_dueno.get("flotacion_max", 20_000_000):
                 continue
             c["float_shares"] = float_shares
             c["float_status"] = entrada.get(
@@ -1839,12 +1730,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["volumen_relativo"] = c["cambio_pct"]
             enriquecidos.append(c)
 
-        # El snapshot encuentra candidatos; el WebSocket los sigue tick a tick.
-        enriquecidos.sort(key=lambda c: c.get("volumen_dia", 0), reverse=True)
-        self._actualizar_stream_tickers([c["ticker"] for c in enriquecidos])
-
         tickers_enr = [c["ticker"] for c in enriquecidos]
-        self._asegurar_tecnico(tickers_enr, snapshots)
+        self._asegurar_tecnico(tickers_enr)
         con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in enriquecidos:
@@ -1913,6 +1800,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         p_hist = dict(self.filtros_dueno)
         p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
         resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
+
+        # PRUEBA 6: iniciar/actualizar observaciones posteriores a la señal.
+        # Esto se ejecuta antes de publicar el resultado y no modifica ningún filtro.
+        self._actualizar_prueba6(enriquecidos, snapshots)
 
         # PRUEBA 4B: conservar las dos listas del MISMO ciclo.
         candidatos_raw_actual = [c for c in enriquecidos if c.get("cruzando_ema20") and c.get("macd_positivo")]
@@ -2083,43 +1974,176 @@ st.markdown("""
     div[data-testid="stTextInput"] input,
     div[data-baseweb="select"] > div,
     div[data-testid="stTimeInput"] input {
-        background:#090909 !important;
-        color:#f4f4f4 !important;
-        border-color:rgba(212,175,55,.42) !important;
+        background:#101318 !important;
+        color:#f1f1f1 !important;
+        border-color:#3a4048 !important;
+        box-shadow:none !important;
     }
-    div[data-baseweb="select"] * { color:#f1f1f1 !important; }
+    /* Controles planos: sin halo ni marco blanco alrededor */
+    div[data-testid="stNumberInput"],
+    div[data-testid="stTextInput"],
+    div[data-testid="stTimeInput"],
+    div[data-baseweb="select"],
+    div[data-testid="stToggle"],
+    div[data-testid="stNumberInput"] > div,
+    div[data-testid="stTextInput"] > div,
+    div[data-testid="stTimeInput"] > div {
+        background:transparent !important;
+        box-shadow:none !important;
+        border:none !important;
+        outline:none !important;
+    }
+    div[data-baseweb="select"] * { color:#f1f1f1 !important; box-shadow:none !important; }
+
+    /* CORRECCIÓN DEFINITIVA: eliminar el marco/fondo blanco que Streamlit/BaseWeb
+       agrega alrededor de los campos compactos. El fondo oscuro queda en el
+       elemento que realmente contiene el valor, no en la envoltura blanca. */
+    div[data-testid="stNumberInput"] > div,
+    div[data-testid="stNumberInput"] > div > div,
+    div[data-testid="stTextInput"] > div,
+    div[data-testid="stTextInput"] > div > div,
+    div[data-testid="stTimeInput"] > div,
+    div[data-testid="stTimeInput"] > div > div,
+    div[data-baseweb="input"],
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="select"],
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="select"] > div > div,
+    div[data-baseweb="select"] [role="combobox"] {
+        background:transparent !important;
+        background-color:transparent !important;
+        border-color:transparent !important;
+        box-shadow:none !important;
+        outline:none !important;
+    }
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stTimeInput"] input,
+    div[data-baseweb="input"] input,
+    div[data-baseweb="select"] [role="combobox"] {
+        background:#101318 !important;
+        background-color:#101318 !important;
+        color:#f1f1f1 !important;
+        border:1px solid #3a4048 !important;
+        box-shadow:none !important;
+        outline:none !important;
+    }
+    div[data-testid="stNumberInput"] button,
+    div[data-testid="stTimeInput"] button {
+        background:#101318 !important;
+        color:#f1f1f1 !important;
+        border-color:#3a4048 !important;
+        box-shadow:none !important;
+    }
+    div[data-testid="stNumberInput"] svg,
+    div[data-testid="stTimeInput"] svg,
+    div[data-baseweb="select"] svg {
+        fill:#d7d0bd !important;
+        color:#d7d0bd !important;
+    }
+
+    /* Desplegables legibles en móvil y escritorio: menú oscuro + texto claro.
+       BaseWeb/Streamlit puede renderizar el menú fuera del contenedor del select,
+       por eso estas reglas también cubren el popover/listbox. */
+    [data-baseweb="popover"],
+    [data-baseweb="menu"],
+    [role="listbox"],
+    ul[role="listbox"] {
+        background:#101318 !important;
+        color:#f1f1f1 !important;
+        border:1px solid #3a4048 !important;
+        box-shadow:none !important;
+    }
+    [data-baseweb="popover"] *,
+    [data-baseweb="menu"] *,
+    [role="listbox"] *,
+    ul[role="listbox"] * {
+        color:#f1f1f1 !important;
+        background-color:transparent !important;
+        text-shadow:none !important;
+    }
+    [role="option"] {
+        color:#f1f1f1 !important;
+        background:#101318 !important;
+        font-size:11px !important;
+        line-height:1.2 !important;
+    }
+    [role="option"]:hover,
+    [role="option"][aria-selected="true"] {
+        color:#ffffff !important;
+        background:#243142 !important;
+    }
+    /* El valor seleccionado también debe conservar contraste cuando el campo es compacto. */
+    div[data-baseweb="select"] [data-baseweb="select-value"],
+    div[data-baseweb="select"] input,
+    div[data-baseweb="select"] span {
+        color:#f1f1f1 !important;
+    }
     .stButton button {
         border-radius:6px !important;
         font-weight:800 !important;
         border:1px solid rgba(212,175,55,.55) !important;
-        background:linear-gradient(180deg,#17130a,#0d0b07) !important;
+        background:#11100c !important;
         color:var(--ts-gold-bright) !important;
+        box-shadow:none !important;
+        outline:none !important;
     }
     .stButton button:hover {
         border-color:var(--ts-gold-bright) !important;
-        box-shadow:0 0 14px rgba(212,175,55,.12) !important;
+        box-shadow:none !important;
     }
     [data-testid="stMetricValue"] { color:var(--ts-gold-bright) !important; }
 
     /* Header / logo */
     .dash-header {
         width:100% !important;
-        height:122px !important;
+        height:150px !important;
         box-sizing:border-box !important;
-        padding:0 !important;
-        margin:0 0 8px !important;
+        padding:4px 14px !important;
+        margin:0 0 6px !important;
         border:1px solid rgba(212,175,55,.55) !important;
-        border-radius:8px !important;
+        border-radius:7px !important;
         overflow:hidden !important;
         background:#000 !important;
-        box-shadow:0 0 28px rgba(212,175,55,.07), inset 0 0 28px rgba(255,255,255,.015) !important;
+        box-shadow:0 0 22px rgba(212,175,55,.07), inset 0 0 22px rgba(255,255,255,.015) !important;
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
     }
-    .dash-header .logo-image {
-        display:block !important;
+    .dash-brand {
         width:100% !important;
         height:100% !important;
-        object-fit:cover !important;
+        display:flex !important;
+        align-items:center !important;
+        justify-content:center !important;
+    }
+    .dash-brand .logo-image {
+        display:block !important;
+        width:min(100%, 860px) !important;
+        height:auto !important;
+        max-height:142px !important;
+        object-fit:contain !important;
         object-position:center !important;
+    }
+    .dash-brand-copy {
+        text-align:left !important;
+        line-height:1.05 !important;
+    }
+    .dash-brand-title {
+        color:var(--ts-gold-bright) !important;
+        font-family:Arial,Helvetica,sans-serif !important;
+        font-size:25px !important;
+        font-weight:900 !important;
+        letter-spacing:1.5px !important;
+        white-space:nowrap !important;
+    }
+    .dash-brand-subtitle {
+        color:#b8b8b8 !important;
+        font-size:10px !important;
+        font-weight:700 !important;
+        letter-spacing:3px !important;
+        margin-top:5px !important;
+        white-space:nowrap !important;
     }
 
     /* Alertas */
@@ -2136,212 +2160,186 @@ st.markdown("""
         overflow:hidden !important;
     }
 
+    [data-testid="stDataFrame"] {
+        border:1px solid #303640 !important;
+        border-radius:5px !important;
+        overflow:hidden !important;
+        background:#101318 !important;
+    }
+    [data-testid="stDataFrame"] iframe {
+        background:#101318 !important;
+    }
+
+    /* Compacto tipo Finviz: poco espacio vertical y texto pequeño, pero legible. */
+    div[data-testid="stVerticalBlockBorderWrapper"] > div {
+        gap: .20rem !important;
+    }
+    div[data-testid="stHorizontalBlock"] {
+        gap:.18rem !important;
+        margin-bottom:1px !important;
+    }
+    div[data-testid="stNumberInput"],
+    div[data-testid="stTextInput"],
+    div[data-testid="stTimeInput"],
+    div[data-baseweb="select"] {
+        margin-bottom:0 !important;
+    }
+
+    .inline-field-label {
+        color:#c9c9c9 !important;
+        font-size:10px !important;
+        font-weight:700 !important;
+        line-height:1.05 !important;
+        min-height:28px !important;
+        display:flex !important;
+        align-items:center !important;
+        white-space:nowrap !important;
+    }
+    .inline-toggle-label {
+        color:#c9c9c9 !important;
+        font-size:9px !important;
+        font-weight:700 !important;
+        line-height:1 !important;
+        margin-bottom:0 !important;
+        white-space:nowrap !important;
+    }
+    .inline-field-label + div { margin:0 !important; }
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stTextInput"] input {
+        width:50% !important;
+        max-width:72px !important;
+        min-width:42px !important;
+        height:25px !important;
+        min-height:25px !important;
+        padding:2px 5px !important;
+        font-size:10px !important;
+        box-shadow:none !important;
+        outline:none !important;
+    }
+    div[data-baseweb="select"] {
+        width:50% !important;
+        max-width:105px !important;
+        min-width:60px !important;
+    }
+    div[data-baseweb="select"] {
+        min-height:28px !important;
+        height:28px !important;
+    }
+    div[data-baseweb="select"] > div {
+        min-height:25px !important;
+        height:25px !important;
+        font-size:9px !important;
+    }
     @media (max-width: 900px) {
-        .dash-header { height:96px !important; }
+        .dash-header { height:58px !important; padding:3px 6px !important; }
+        .dash-brand .logo-image { width:100% !important; height:100% !important; }
     }
     @media (max-width: 640px) {
         .block-container {
             max-width:100% !important;
-            padding-left:.25rem !important;
-            padding-right:.25rem !important;
+            padding-left:.18rem !important;
+            padding-right:.18rem !important;
+            padding-top:.18rem !important;
         }
         .dash-header {
-            height:70px !important;
-            border-radius:5px !important;
+            height:48px !important;
+            padding:1px 1px !important;
+            border-radius:4px !important;
+            margin-bottom:3px !important;
         }
-        .simple-title { font-size:13px !important; }
-        .small-note { font-size:10px !important; }
-        div[data-testid="stHorizontalBlock"] { gap:.35rem !important; }
+        .dash-brand .logo-image {
+            width:100% !important;
+            max-width:84vw !important;
+            width:84vw !important;
+            height:auto !important;
+            max-height:43px !important;
+            object-fit:contain !important;
+        }
+        .simple-title { font-size:12px !important; }
+        .small-note { font-size:9px !important; }
+        div[data-testid="stHorizontalBlock"] {
+            gap:.18rem !important;
+            flex-wrap:nowrap !important;
+            align-items:flex-end !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div {
+            min-width:0 !important;
+        }
+        div[data-testid="stNumberInput"],
+        div[data-testid="stTextInput"],
+        div[data-baseweb="select"],
+        div[data-testid="stToggle"] {
+            min-width:0 !important;
+        }
         div[data-testid="stNumberInput"] input,
-        div[data-testid="stTextInput"] input { font-size:12px !important; }
+        div[data-testid="stTextInput"] input {
+            width:50% !important;
+            max-width:48px !important;
+            min-width:30px !important;
+            font-size:7px !important;
+            min-height:21px !important;
+            height:21px !important;
+            padding-left:2px !important;
+            padding-right:2px !important;
+            box-shadow:none !important;
+        }
+        div[data-baseweb="select"] {
+            width:50% !important;
+            max-width:70px !important;
+            min-width:42px !important;
+        }
+        div[data-baseweb="select"] > div {
+            font-size:7px !important;
+            min-height:21px !important;
+            height:21px !important;
+            padding-left:2px !important;
+            padding-right:2px !important;
+        }
+        [role="option"],
+        [data-baseweb="menu"] * {
+            font-size:9px !important;
+            line-height:1.15 !important;
+        }
+        label, [data-testid="stWidgetLabel"] p {
+            font-size:6.5px !important;
+            line-height:1 !important;
+        }
+        .stButton button {
+            font-size:7px !important;
+            min-height:22px !important;
+            height:24px !important;
+            padding:1px 4px !important;
+            white-space:nowrap !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            padding:3px !important;
+        }
+        [data-testid="stAlert"] {
+            padding:3px 6px !important;
+            margin:2px 0 !important;
+            font-size:8px !important;
+        }
+        .simple-title { margin-bottom:2px !important; }
+        div[data-testid="stHorizontalBlock"] { margin-bottom:1px !important; }
+        [data-testid="stDataFrame"] {
+            border-radius:4px !important;
+        }
+        [data-testid="stDataFrame"] {
+            border-radius:4px !important;
+            font-size:8px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            padding:2px !important;
+        }
+        .simple-title {
+            font-size:10px !important;
+            line-height:1 !important;
+        }
+        .small-note {
+            padding:3px 5px !important;
+            line-height:1.05 !important;
+        }
     }
-</style>
-""", unsafe_allow_html=True)
-
-# =========================================================
-# 🎨 CAPA VISUAL FINAL — desktop + móvil
-# No modifica el motor del scanner; solo presentación.
-# =========================================================
-st.markdown("""
-<style>
-:root {
-  --ts-gold:#d4af37;
-  --ts-gold2:#f0cf68;
-  --ts-bg:#050505;
-  --ts-panel:#0b0c0e;
-  --ts-line:rgba(212,175,55,.22);
-  --ts-muted:#8f96a3;
-}
-
-/* Marco general */
-[data-testid="stAppViewContainer"] { background:linear-gradient(180deg,#030303 0%,#070707 48%,#030303 100%) !important; }
-.block-container { max-width:1500px !important; padding-top:1rem !important; padding-bottom:2rem !important; }
-
-/* Todos los paneles Streamlit */
-div[data-testid="stVerticalBlockBorderWrapper"] {
-  background:linear-gradient(180deg,#0d0e10,#090a0c) !important;
-  border:1px solid var(--ts-line) !important;
-  border-radius:10px !important;
-  box-shadow:0 8px 30px rgba(0,0,0,.28) !important;
-}
-.simple-title {
-  color:var(--ts-gold2) !important;
-  font-size:14px !important;
-  font-weight:900 !important;
-  letter-spacing:.04em !important;
-  text-transform:uppercase !important;
-  margin-bottom:7px !important;
-}
-.small-note { color:#aeb4bf !important; }
-
-/* Controles compactos tipo terminal */
-[data-testid="stNumberInput"], [data-testid="stSelectbox"], [data-testid="stTextInput"], [data-testid="stTimeInput"] { margin-bottom:-2px !important; }
-[data-testid="stNumberInput"] input, [data-testid="stTextInput"] input {
-  background:#050607 !important;
-  border:1px solid #30343b !important;
-  border-radius:6px !important;
-}
-[data-baseweb="select"] > div {
-  background:#050607 !important;
-  border:1px solid #30343b !important;
-  border-radius:6px !important;
-}
-
-/* Indicadores */
-[data-testid="stMetric"] {
-  background:#070809 !important;
-  border:1px solid rgba(212,175,55,.16) !important;
-  border-radius:8px !important;
-  padding:.55rem .7rem !important;
-}
-
-/* Bloques de columnas: permiten reorganizarse en móvil */
-div[data-testid="stHorizontalBlock"] { align-items:stretch !important; }
-
-/* Cabecera */
-.dash-header { position:relative !important; }
-
-/* Barra de estado debajo del logo */
-.ts-statusbar {
-  display:flex; align-items:center; justify-content:space-between; gap:10px;
-  margin:0 0 10px; padding:8px 12px;
-  background:#090a0b; border:1px solid rgba(212,175,55,.20);
-  border-radius:7px; color:#c7ccd4; font-size:12px;
-}
-.ts-status-main { font-weight:900; letter-spacing:.05em; color:#eee; }
-.ts-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e; margin-right:7px; box-shadow:0 0 8px rgba(34,197,94,.55); }
-.ts-status-meta { color:#8f96a3; }
-
-/* Móvil */
-@media (max-width: 760px) {
-  .block-container { max-width:100% !important; padding:.45rem .35rem 1rem !important; }
-  .dash-header { height:72px !important; border-radius:7px !important; margin-bottom:6px !important; }
-  .simple-title { font-size:12px !important; }
-  .ts-statusbar { flex-direction:column; align-items:flex-start; gap:3px; font-size:11px; padding:7px 9px; }
-
-  /* 2 controles por fila en teléfonos */
-  div[data-testid="stHorizontalBlock"] {
-    flex-wrap:wrap !important;
-    gap:.35rem !important;
-  }
-  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-    min-width:calc(50% - .35rem) !important;
-    flex:1 1 calc(50% - .35rem) !important;
-  }
-  div[data-testid="stNumberInput"] label,
-  div[data-testid="stSelectbox"] label,
-  div[data-testid="stTextInput"] label,
-  div[data-testid="stTimeInput"] label { font-size:10px !important; }
-  div[data-testid="stNumberInput"] input,
-  div[data-testid="stTextInput"] input { font-size:12px !important; }
-  button { min-height:34px !important; }
-
-  /* Panel de broker: tabla con scroll, nunca se rompe */
-  [data-testid="stIFrame"] { width:100% !important; }
-  [data-testid="stDataFrame"] { font-size:11px !important; }
-}
-
-@media (max-width: 430px) {
-  .block-container { padding-left:.22rem !important; padding-right:.22rem !important; }
-  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-    min-width:100% !important; flex-basis:100% !important;
-  }
-  .dash-header { height:58px !important; }
-  .ts-statusbar { margin-bottom:7px; }
-}
-</style>
-""", unsafe_allow_html=True)
-
-# CSS final para móvil tipo FINVIZ: una sola vista compacta.
-st.markdown("""
-<style>
-@media (max-width: 600px) {
-  html, body { overflow-x:hidden !important; }
-  .block-container {
-    padding:.20rem .18rem .35rem !important;
-    max-width:100% !important;
-  }
-  .dash-header { height:46px !important; margin-bottom:3px !important; }
-  .ts-statusbar {
-    margin:0 0 4px !important; padding:4px 6px !important;
-    min-height:0 !important; flex-direction:row !important;
-    align-items:center !important; gap:5px !important;
-    font-size:8px !important; white-space:nowrap !important;
-  }
-  .ts-status-main { font-size:9px !important; }
-  .ts-status-meta { font-size:7px !important; overflow:hidden !important; text-overflow:ellipsis !important; }
-  .ts-dot { width:6px !important; height:6px !important; margin-right:3px !important; }
-
-  /* Los controles quedan en una sola línea de 3 elementos cuando es posible. */
-  div[data-testid="stHorizontalBlock"] {
-    flex-wrap:nowrap !important; gap:.16rem !important;
-  }
-  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-    min-width:0 !important; width:auto !important; flex:1 1 0 !important;
-  }
-  div[data-testid="stNumberInput"], div[data-testid="stSelectbox"], div[data-testid="stToggle"] {
-    margin:0 !important; padding:0 !important;
-  }
-  div[data-testid="stNumberInput"] label,
-  div[data-testid="stSelectbox"] label {
-    font-size:7px !important; line-height:8px !important; margin:0 !important;
-  }
-  div[data-testid="stNumberInput"] input {
-    height:24px !important; min-height:24px !important; padding:0 3px !important;
-    font-size:9px !important;
-  }
-  div[data-baseweb="select"] > div {
-    min-height:24px !important; height:24px !important;
-    padding:0 3px !important; font-size:8px !important;
-  }
-  button { min-height:24px !important; height:24px !important; font-size:8px !important; padding:0 4px !important; }
-  .simple-title { font-size:9px !important; margin:1px 0 2px !important; }
-  [data-testid="stAlert"] { font-size:8px !important; padding:3px 5px !important; margin:2px 0 !important; }
-  [data-testid="stCaptionContainer"] { font-size:7px !important; line-height:9px !important; }
-  [data-testid="stDataFrame"] {
-    font-size:8px !important; width:100% !important;
-    max-width:100vw !important; overflow:hidden !important;
-  }
-  [data-testid="stDataFrame"] iframe { max-width:100% !important; }
-
-  /* En teléfono se ve únicamente el scanner: no paneles administrativos ni diagnóstico. */
-  div[data-testid="stVerticalBlockBorderWrapper"]:has(.ts-mobile-hide),
-  div[data-testid="stExpander"]:has(.ts-diagnostic-marker) {
-    display:none !important;
-  }
-
-  /* Tabla compacta Finviz: una fila de datos muy baja y sin scroll horizontal. */
-  div[data-testid="stVerticalBlockBorderWrapper"]:has(.ts-desktop-table-marker) {
-    display:none !important;
-  }
-  div[data-testid="stVerticalBlockBorderWrapper"]:has(.ts-mobile-table-marker) {
-    display:block !important; margin:3px 0 0 !important; padding:1px !important;
-    border-radius:4px !important;
-  }
-  div[data-testid="stDataFrame"] {
-    border:0 !important; border-radius:0 !important;
-  }
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -2350,36 +2348,13 @@ IMG_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAACHwAAALUCAIAAAD8byAGAABcZmNhQlgAAFxmanVt
 # ==========================================
 # 🖥️ DASHBOARD SUPERIOR — INTERFAZ SIMPLE
 # ==========================================
-# Estado del dashboard: calculado de forma defensiva para evitar NameError
-# durante reruns de Streamlit o si el servicio aún no terminó de inicializar.
 try:
     servicio._esta_en_horario_automatico()
 except Exception:
     pass
-
-try:
-    _hora_inicio = int(getattr(servicio, "hora_inicio_auto_min", HORA_AUTO_INICIO_ET * 60))
-    _hora_fin = int(getattr(servicio, "hora_fin_auto_min", HORA_AUTO_FIN_ET * 60))
-    _hora_txt = f"{_hora_inicio//60:02d}:{_hora_inicio%60:02d} - {_hora_fin//60:02d}:{_hora_fin%60:02d} ET"
-except Exception:
-    _hora_txt = f"{HORA_AUTO_INICIO_ET:02d}:00 - {HORA_AUTO_FIN_ET:02d}:00 ET"
-
-try:
-    _dias_cache = getattr(servicio, "dias_mercado_cache", set()) or set()
-    _dia_txt = "Sí (Alpaca)" if datetime.now(ET).date() in _dias_cache else "No / fuera de mercado"
-except Exception:
-    _dia_txt = "No disponible"
-
-try:
-    _encendido = bool(getattr(servicio, "encendido", False))
-    _auto_horario = bool(getattr(servicio, "auto_en_horario", False))
-    _estado_txt = (
-        "Scanner Activo" if _encendido and _auto_horario
-        else "Scanner Apagado" if not _encendido
-        else "Scanner En espera"
-    )
-except Exception:
-    _estado_txt = "Scanner En espera"
+_hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
+_dia_txt = "Sí (Alpaca)" if datetime.now(ET).date() in servicio.dias_mercado_cache else "No / fuera de mercado"
+_estado_txt = "Scanner Activo" if servicio.encendido and servicio.auto_en_horario else ("Scanner Apagado" if not servicio.encendido else "Scanner En espera")
 
 COLORES_LAYOUT = [
     ("Rojo", "#e53935", "#ffffff"), ("Naranja", "#fb8c00", "#000000"),
@@ -2405,85 +2380,172 @@ st.markdown("""
 
 st.markdown(f"""
 <div class="dash-header">
-    <img class="logo-image"
-         src="data:image/png;base64,{IMG_LOGO_B64}"
-         alt="TradeScanner Institutional" />
+    <div class="dash-brand">
+        <img class="logo-image"
+             src="data:image/png;base64,{IMG_LOGO_B64}"
+             alt="TradeScanner Institutional — Toro y Oso" />
+    </div>
 </div>
 """, unsafe_allow_html=True)
-
-# Construimos el HTML fuera del f-string para evitar cualquier NameError
-# durante reruns de Streamlit. Todas las variables se resuelven previamente.
-try:
-    _status_main = "INSTITUTIONAL SCANNER · " + str(_estado_txt)
-    _status_meta = (
-        "Mercado: " + str(_dia_txt)
-        + " · Horario: " + str(_hora_txt)
-        + " · Actualización: " + str(REFRESCO) + "s"
-    )
-except Exception:
-    _status_main = "INSTITUTIONAL SCANNER · Scanner En espera"
-    _status_meta = "Mercado: No disponible · Horario: No disponible · Actualización: —"
-
-st.markdown(
-    "<div class=\"ts-statusbar\">"
-    + "<div class=\"ts-status-main\"><span class=\"ts-dot\"></span>"
-    + _status_main
-    + "</div>"
-    + "<div class=\"ts-status-meta\">"
-    + _status_meta
-    + "</div></div>",
-    unsafe_allow_html=True,
-)
 
 # =========================================================
 # 🧭 PANEL PRINCIPAL — diseño compacto tipo dashboard
 # =========================================================
+# =========================================================
+# 🌐 IDIOMA + VENTANA FLOTANTE
+# =========================================================
+IDIOMAS_UI = {"Español": "es", "English": "en"}
+
+if "idioma_ui" not in st.session_state:
+    st.session_state["idioma_ui"] = "Español"
+if "scanner_flotante" not in st.session_state:
+    st.session_state["scanner_flotante"] = False
+
+IDIOMA_UI = st.selectbox(
+    "Idioma / Language",
+    list(IDIOMAS_UI.keys()),
+    index=list(IDIOMAS_UI.keys()).index(st.session_state["idioma_ui"]),
+    key="ui_idioma",
+)
+st.session_state["idioma_ui"] = IDIOMA_UI
+
+SCANNER_FLOTANTE = st.toggle(
+    "🪟 Ventana flotante",
+    value=bool(st.session_state["scanner_flotante"]),
+    key="ui_flotante",
+    help="Convierte el panel completo del scanner en una ventana flotante desplazable. Puedes desactivarlo cuando quieras.",
+)
+st.session_state["scanner_flotante"] = SCANNER_FLOTANTE
+
+# Traducciones de los elementos principales de la interfaz.
+_T = {
+    "es": {
+        "prefs": "🔎 Preferencias de búsqueda",
+        "price_min": "Precio mín.", "price_max": "Precio máx.",
+        "gap_min": "Gap mín.", "gap_max": "Gap máx.",
+        "float": "Flotación", "volume": "Volumen mín.",
+        "refresh": "Refresco", "top": "Top N",
+        "ema": "Cruce EMA20", "macd": "MACD", "sort": "Ordenar",
+        "update": "Actualización", "auto": "Auto",
+        "scanner_control": "⚙️ Control del Scanner",
+        "floating": "🪟 Ventana flotante",
+        "language": "Idioma / Language",
+    },
+    "en": {
+        "prefs": "🔎 Search preferences",
+        "price_min": "Min. price", "price_max": "Max. price",
+        "gap_min": "Min. gap", "gap_max": "Max. gap",
+        "float": "Float", "volume": "Min. volume",
+        "refresh": "Refresh", "top": "Top N",
+        "ema": "EMA20 cross", "macd": "MACD", "sort": "Sort by",
+        "update": "Refresh mode", "auto": "Auto",
+        "scanner_control": "⚙️ Scanner Control",
+        "floating": "🪟 Floating window",
+        "language": "Idioma / Language",
+    },
+}
+def _ui(key):
+    return _T[IDIOMAS_UI[st.session_state["idioma_ui"]]].get(key, key)
+
+# Cuando el usuario activa esta opción, el dashboard completo pasa a una
+# ventana fija, con scroll interno y siempre visible. Al apagarla vuelve al
+# comportamiento normal de Streamlit.
+if SCANNER_FLOTANTE:
+    st.markdown("""
+    <style>
+    section.main > div.block-container {
+        position: fixed !important;
+        top: 12px !important;
+        left: 12px !important;
+        right: 12px !important;
+        bottom: 12px !important;
+        width: auto !important;
+        max-width: none !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        z-index: 999999 !important;
+        padding: 1rem 1.25rem 3rem 1.25rem !important;
+        border: 1px solid rgba(255,255,255,.18) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 18px 60px rgba(0,0,0,.55) !important;
+        background: var(--background-color) !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 # 1) Preferencias + control + conexión en una sola fila.
 # Los colores ya NO ocupan una columna lateral grande.
+# Campos compactos tipo Finviz: etiqueta a la izquierda + control corto a la derecha.
+def _campo_inline_num(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([1.25, 0.75], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.number_input("", label_visibility="collapsed", **kwargs)
+
+def _campo_inline_select(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([1.25, 0.75], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.selectbox("", label_visibility="collapsed", **kwargs)
+
+def _campo_inline_text(parent, etiqueta, **kwargs):
+    with parent:
+        lab, box = st.columns([1.25, 0.75], gap="small")
+        with lab:
+            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
+        with box:
+            return st.text_input("", label_visibility="collapsed", **kwargs)
+
 with st.container(border=True):
-    st.markdown('<div class="simple-title ts-mobile-primary">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="simple-title">{_ui("prefs")}</div>', unsafe_allow_html=True)
     cfg = cargar_config()
 
     if ETAPA_PRUEBA_FILTROS == 1:
-        # PRUEBA 1: solo mostramos los parámetros que realmente participan.
-        f1, f2, f3, f4, f5 = st.columns(5, gap="small")
-        with f1:
-            PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
-        with f2:
-            PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-        with f3:
-            CRUCE_EMA = "Hacia arriba"
-            st.text_input("EMA20", value="Precio por encima", disabled=True, key="f_ema_prueba1")
-        with f4:
-            MACD_MODO = "Positivo"
-            st.text_input("MACD", value="Positivo", disabled=True, key="f_macd_prueba1")
-        with f5:
-            REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+        r1 = st.columns(4, gap="small")
+        PRECIO_MIN = _campo_inline_num(r1[0], _ui("price_min"), value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+        PRECIO_MAX = _campo_inline_num(r1[1], _ui("price_max"), value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+        CRUCE_EMA = "Hacia arriba"
+        _campo_inline_text(r1[2], "EMA20", value="Precio por encima", disabled=True, key="f_ema_prueba1")
+        MACD_MODO = "Positivo"
+        _campo_inline_text(r1[3], "MACD", value="Positivo", disabled=True, key="f_macd_prueba1")
 
-        ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-        TOP_N = st.number_input("Top N", value=50, min_value=1, max_value=100, key="f_top")
-        AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
+        r2 = st.columns(4, gap="small")
+        REFRESCO = _campo_inline_num(r2[0], "Refresco", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+        ORDEN = _campo_inline_select(r2[1], "Ordenar", options=["Actualizado", "Cambio %", "Volumen"], key="f_orden")
+        TOP_N = _campo_inline_num(r2[2], "Top N", value=50, min_value=1, max_value=100, key="f_top")
+        with r2[3]:
+            st.markdown(f'<div class="inline-toggle-label">{_ui("auto")}</div>', unsafe_allow_html=True)
+            AUTO_ON = st.toggle("", value=True, label_visibility="collapsed", key="f_auto")
 
-        # Valores heredados solo para compatibilidad interna. La etapa 1 los ignora.
         GAP_MIN = float(cfg["gap_min"])
         GAP_MAX = float(cfg["gap_max"])
         FLOT_MAX = int(cfg["flotacion_max"])
         VOLUMEN_MIN = int(cfg["volumen_min"])
     else:
-        f1,f2,f3,f4,f5,f6,f7 = st.columns(7, gap="small")
-        with f1: PRECIO_MIN = st.number_input("Precio mín. ($)", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
-        with f2: PRECIO_MAX = st.number_input("Precio máx. ($)", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-        with f3: GAP_MIN = st.number_input("Gap mín. (%)", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
-        with f4: GAP_MAX = st.number_input("Gap máx. (%)", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
-        with f5: FLOT_MAX = st.number_input("Flotación máx.", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
-        with f6: VOLUMEN_MIN = st.number_input("Volumen mín. (títulos)", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
-        with f7: REFRESCO = st.number_input("Refresco (seg)", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
-        q1,q2,q3,q4,q5,q6 = st.columns(6, gap="small")
-        with q1: CRUCE_EMA = st.selectbox("Cruce EMA20", OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
-        with q2: MACD_MODO = st.selectbox("MACD", OPCIONES_MACD, index=0, key="f_macd_modo")
-        with q3: ORDEN = st.selectbox("Ordenar por", ["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-        with q4: TOP_N = st.number_input("Top N", value=50, min_value=1, max_value=100, key="f_top")
-        with q5: AUTO_ON = st.toggle("Actualización automática", value=True, key="f_auto")
+        # Cada campo conserva el estilo compacto de Finviz: título a la izquierda y caja corta a la derecha.
+        r1 = st.columns(4, gap="small")
+        PRECIO_MIN = _campo_inline_num(r1[0], _ui("price_min"), value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
+        PRECIO_MAX = _campo_inline_num(r1[1], _ui("price_max"), value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
+        GAP_MIN = _campo_inline_num(r1[2], _ui("gap_min"), value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
+        GAP_MAX = _campo_inline_num(r1[3], _ui("gap_max"), value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
+
+        r2 = st.columns(4, gap="small")
+        FLOT_MAX = _campo_inline_num(r2[0], _ui("float"), value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
+        VOLUMEN_MIN = _campo_inline_num(r2[1], _ui("volume"), value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
+        REFRESCO = _campo_inline_num(r2[2], _ui("refresh"), value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
+        TOP_N = _campo_inline_num(r2[3], _ui("top"), value=50, min_value=1, max_value=100, key="f_top")
+
+        r3 = st.columns(4, gap="small")
+        CRUCE_EMA = _campo_inline_select(r3[0], _ui("ema"), options=OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
+        MACD_MODO = _campo_inline_select(r3[1], _ui("macd"), options=OPCIONES_MACD, index=0, key="f_macd_modo")
+        ORDEN = _campo_inline_select(r3[2], _ui("sort"), options=["Actualizado", "Cambio %", "Volumen"], key="f_orden")
+        with r3[3]:
+            st.markdown(f'<div class="inline-toggle-label">{_ui("update")}</div>', unsafe_allow_html=True)
+            AUTO_ON = st.toggle("", value=True, label_visibility="collapsed", key="f_auto")
 
 params = {
     "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
@@ -2500,6 +2562,8 @@ elif ETAPA_PRUEBA_FILTROS == 3:
 elif ETAPA_PRUEBA_FILTROS >= 4:
     st.info("🧪 PRUEBA 4: Precio + Subida + Volumen + Float + EMA20 + MACD.")
 
+st.success("🚀 PRUEBA 7 ACTIVA: mide si cada señal alcanza +0.25%, +0.50% o +1.00% dentro de la ventana de 10 minutos. Los filtros de entrada no cambian.")
+
 # 2) Control del scanner + conexión API/broker
 # Los controles internos de operación y las credenciales del broker
 # solo se muestran al administrador. El usuario mantiene únicamente
@@ -2513,9 +2577,10 @@ else:
 
 with control_col:
     with st.container(border=True):
-        st.markdown('<div class="simple-title ts-mobile-hide">⚙️ Control del Scanner</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="simple-title">{_ui("scanner_control")}</div>', unsafe_allow_html=True)
         if ES_ADMIN:
-            b1,b2 = st.columns(2, gap="small")
+            # Mandos principales en una sola línea para que el panel sea compacto.
+            b1,b2,b3 = st.columns(3, gap="small")
             with b1:
                 if st.button("🟢 ENCENDER", key="encender_scanner_dashboard", width="stretch"):
                     servicio.encendido = True
@@ -2526,12 +2591,13 @@ with control_col:
                     servicio.encendido = False
                     servicio.auto_en_horario = False
                     st.rerun()
-            if st.button("🔄 REINICIAR SCANNER", key="reiniciar_scanner_dashboard", width="stretch"):
-                servicio.reiniciar_scanner()
-                st.success("Scanner reiniciado. El motor fue reconstruido correctamente.")
-                st.rerun()
+            with b3:
+                if st.button("🔄 REINICIAR", key="reiniciar_scanner_dashboard", width="stretch"):
+                    servicio.reiniciar_scanner()
+                    st.success("Scanner reiniciado. El motor fue reconstruido correctamente.")
+                    st.rerun()
             st.markdown("**Horario de funcionamiento (ET)**")
-            h1,h2 = st.columns(2, gap="small")
+            h1,h2,h3 = st.columns([1,1,1], gap="small")
             with h1:
                 hora_inicio_ui = st.time_input(
                     "Inicio",
@@ -2544,9 +2610,11 @@ with control_col:
                     value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
                     key="hora_fin_scanner_dashboard",
                 )
-            if st.button("💾 GUARDAR HORARIO", key="guardar_horario_dashboard", width="stretch"):
-                servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
-                st.rerun()
+            with h3:
+                st.write("")
+                if st.button("💾 GUARDAR HORARIO", key="guardar_horario_dashboard", width="stretch"):
+                    servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
+                    st.rerun()
             st.markdown(
                 f'<div class="small-note">Estado: <b>{_estado_txt}</b><br>Horario: <b>{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET</b></div>',
                 unsafe_allow_html=True,
@@ -2554,10 +2622,16 @@ with control_col:
         else:
             st.info("Modo usuario. El encendido/apagado y el horario solo los puede modificar el administrador.")
 
+# Espacios fijos de renderizado: el cuadro principal de activos aparece AQUÍ,
+# inmediatamente debajo de los mandos. Se rellena más abajo, después de definir
+# la función, para conservar este orden visual sin mover la lógica del motor.
+panel_resultados_slot = st.empty()
+panel_broker_slot = st.empty()
+
 if ES_ADMIN:
     with broker_col:
         with st.container(border=True):
-            st.markdown('<div class="simple-title ts-mobile-hide">🔗 Conexión API / Broker <span style="font-size:10px;background:#123d67;border-radius:12px;padding:4px 8px;">Opcional</span></div>', unsafe_allow_html=True)
+            st.markdown('<div class="simple-title">🔗 Conexión API / Broker <span style="font-size:10px;background:#123d67;border-radius:12px;padding:4px 8px;">Opcional</span></div>', unsafe_allow_html=True)
             api1,api2,api3 = st.columns(3, gap="small")
             brokers_ui = ["Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
             with api1:
@@ -2585,7 +2659,7 @@ if ES_ADMIN:
 
     with premium_col:
         with st.container(border=True):
-            st.markdown('<div class="simple-title ts-mobile-hide">🔐 Modalidades</div>', unsafe_allow_html=True)
+            st.markdown('<div class="simple-title">🔐 Modalidades</div>', unsafe_allow_html=True)
             st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
             st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
             st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
@@ -2625,249 +2699,6 @@ if ETAPA_PRUEBA_FILTROS != 1 and (getattr(servicio, "float_pendientes", 0) or ge
         partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
     st.warning("⚠️ Float: " + " · ".join(partes_float))
 
-@st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
-def panel_diagnostico_filtros():
-    if ES_ADMIN and getattr(servicio, "diagnostico_filtros", None):
-        d = servicio.diagnostico_filtros
-        with st.expander("🔎 Diagnóstico de filtros (prueba) <span class='ts-diagnostic-marker'></span>", expanded=True):
-            st.caption("Este panel es temporal y solo informa dónde se reducen los candidatos. No modifica el scanner.")
-            if ETAPA_PRUEBA_FILTROS == 1:
-                st.markdown(
-                    f"**Radar base:** {d.get('radar_base', 0)} → "
-                    f"**enviados a técnico:** {d.get('enviados_tecnico', 0)} → "
-                    f"**con ≥40 barras:** {d.get('con_40_barras', 0)} → "
-                    f"**EMA20 calculable:** {d.get('ema_calculable', 0)} → "
-                    f"**Precio > EMA20:** {d.get('ema_arriba', 0)} → "
-                    f"**MACD calculable:** {d.get('macd_calculable', 0)} → "
-                    f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
-                    f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
-                    f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
-                    f"**resultado final:** {d.get('resultados', 0)}"
-                )
-                st.caption(f"Tickers únicos en técnico: {d.get('tickers_unicos', 0)} · duplicados detectados: {d.get('duplicados', 0)}")
-                muestra = [c for c in servicio.resultados if c.get('cruzando_ema20') and c.get('macd_positivo')]
-                if muestra:
-                    df_tec = pd.DataFrame([{
-                        "Ticker": c["ticker"],
-                        "Barras": c.get("tecnico_barras", 0),
-                        "Precio": round(c.get("tecnico_precio") or c["precio"], 4),
-                        "EMA20": round(c.get("tecnico_ema20"), 4) if c.get("tecnico_ema20") is not None else None,
-                        "MACD": round(c.get("tecnico_macd"), 6) if c.get("tecnico_macd") is not None else None,
-                    } for c in muestra])
-                    st.dataframe(df_tec, hide_index=True, width="stretch")
-            else:
-                st.markdown(
-                    f"**Radar base:** {d.get('radar_base', 0)} → "
-                    f"**flotación ≤ {formatear_numero_grande(servicio.filtros_dueno.get('flotacion_max', 15_000_000))}:** {d.get('tras_float', 0)} → "
-                    f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 20_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
-                    f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
-                    f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
-                    f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
-                    f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
-                    f"**resultado final:** {d.get('resultados', 0)}"
-                )
-                if not d.get('gap_aplicado', ETAPA_PRUEBA_FILTROS >= 4):
-                    st.info("ℹ️ PRUEBA actual: el filtro de subida mínima no se está aplicando al embudo (ETAPA_PRUEBA_FILTROS < 4). La etiqueta 'subida ≥ 3%' describe el radar base, pero no elimina candidatos en esta prueba.")
-
-                muestra = list(getattr(servicio, "candidatos_ema_macd_actual", []))
-                if muestra:
-                    final_tickers = set(getattr(servicio, "diagnostico_filtros", {}).get("final_tickers_mismo_ciclo", []))
-                    df_diag = pd.DataFrame([{
-                        "Ticker": c["ticker"],
-                        "Precio ant.": round(c.get("tecnico_precio_anterior"), 4) if c.get("tecnico_precio_anterior") is not None else None,
-                        "EMA20 ant.": round(c.get("tecnico_ema20_anterior"), 4) if c.get("tecnico_ema20_anterior") is not None else None,
-                        "Precio actual": round(c.get("tecnico_precio_actual"), 4) if c.get("tecnico_precio_actual") is not None else None,
-                        "EMA20 actual": round(c.get("tecnico_ema20_actual"), 4) if c.get("tecnico_ema20_actual") is not None else None,
-                        "Cruce EMA20": "✅ SÍ" if c.get("cruce_ema20_confirmado") else "❌ NO",
-                        "MACD": round(c.get("tecnico_macd"), 6) if c.get("tecnico_macd") is not None else None,
-                        "BB superior": round(c.get("bb_upper"), 4) if c.get("bb_upper") is not None else None,
-                        "Dist. BB %": round(c.get("bb_dist_pct"), 2) if c.get("bb_dist_pct") is not None else None,
-                        "Barras": c.get("tecnico_barras", 0),
-                    } for c in muestra])
-                    st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos del MISMO ciclo · se muestran todos, sin límite Top N.")
-                    st.dataframe(df_diag, hide_index=True, width="stretch")
-
-                    # PRUEBA 5: bloque de texto simple para copiar desde el teléfono.
-                    hora_ciclo = (servicio.ultima_actualizacion.strftime("%H:%M:%S")
-                                  if getattr(servicio, "ultima_actualizacion", None) else "--:--:--")
-                    lineas_p5 = [
-                        "PRUEBA 5",
-                        f"CICLO: {hora_ciclo}",
-                        f"EMA20+MACD: {len(muestra)}",
-                        f"FINAL: {len(final_tickers)}",
-                        "",
-                        "Ticker | Precio | BB superior | Dist.BB%",
-                    ]
-                    for c in sorted(muestra, key=lambda x: str(x.get("ticker", ""))):
-                        precio_p5 = c.get("tecnico_precio_actual")
-                        if precio_p5 is None:
-                            precio_p5 = c.get("tecnico_precio") or c.get("precio")
-                        bb_p5 = c.get("bb_upper")
-                        dist_p5 = c.get("bb_dist_pct")
-                        lineas_p5.append(
-                            f"{c.get('ticker','')} | "
-                            f"{precio_p5:.4f} | " if isinstance(precio_p5, (int, float)) else f"{c.get('ticker','')} | {precio_p5} | "
-                            + (f"{bb_p5:.4f} | " if isinstance(bb_p5, (int, float)) else f"{bb_p5} | ")
-                            + (f"{dist_p5:.2f}" if isinstance(dist_p5, (int, float)) else str(dist_p5))
-                        )
-                    st.text_area(
-                        "📋 PRUEBA 5 — copia este bloque completo y pégamelo aquí",
-                        value="\n".join(lineas_p5),
-                        height=min(500, max(180, 105 + 24 * len(muestra))),
-                        key="prueba5_copiar",
-                    )
-
-                    df_4b = pd.DataFrame([{
-                        "Ticker": c.get("ticker"),
-                        "EMA20+MACD": "✅ SÍ",
-                        "Final mismo ciclo": "✅ SÍ" if c.get("ticker") in final_tickers else "❌ NO",
-                        "Estado": "Se mantiene" if c.get("ticker") in final_tickers else "ELIMINADO DESPUÉS",
-                    } for c in muestra])
-                    st.caption("PRUEBA 4B · mismo ciclo: distingue una eliminación real de un cambio natural entre ciclos.")
-                    st.dataframe(df_4b, hide_index=True, width="stretch")
-                    eliminados = getattr(servicio, "diagnostico_filtros", {}).get("eliminados_post_ema_macd", [])
-                    if eliminados:
-                        st.warning("⚠️ Eliminados después de EMA20+MACD en ESTE MISMO ciclo: " + ", ".join(eliminados))
-                    else:
-                        st.success("✅ PRUEBA 4B: ningún candidato EMA20+MACD fue eliminado después en este mismo ciclo.")
-
-                    # PRUEBA 4C: estabilidad entre ciclos consecutivos.
-                    mantenidos = d.get("mantenidos_entre_ciclos", [])
-                    entraron = d.get("entraron_este_ciclo", [])
-                    salieron = d.get("salieron_este_ciclo", [])
-                    st.caption("PRUEBA 4C · compara EMA20+MACD del ciclo actual contra el ciclo inmediatamente anterior.")
-                    if not d.get("raw_tickers_anterior"):
-                        st.info("ℹ️ PRUEBA 4C: esperando un ciclo anterior comparable.")
-                    else:
-                        st.markdown(
-                            f"**Se mantienen:** {len(mantenidos)} · **entraron ahora:** {len(entraron)} · **salieron ahora:** {len(salieron)}"
-                        )
-                        df_4c = pd.DataFrame([{
-                            "Ticker": t,
-                            "Estado 4C": "↔️ Se mantiene" if t in mantenidos else "🟢 Entró ahora"
-                        } for t in sorted(set(mantenidos + entraron))] + [{
-                            "Ticker": t,
-                            "Estado 4C": "🔴 Salió respecto al ciclo anterior"
-                        } for t in salieron])
-                        if not df_4c.empty:
-                            st.dataframe(df_4c, hide_index=True, width="stretch")
-
-                if getattr(servicio, "historial_ciclos", None):
-                    st.markdown("**Historial de los últimos ciclos**")
-                    filas_hist = []
-                    for h in servicio.historial_ciclos:
-                        filas_hist.append({
-                            "Hora": h.get("hora"),
-                            "Radar": h.get("radar_base", 0),
-                            "Volumen": h.get("tras_volumen", 0),
-                            "EMA20": h.get("ema_arriba", 0),
-                            "MACD+": h.get("macd_positivo", 0),
-                            "EMA20+MACD": h.get("ema_y_macd", 0),
-                            "Candidatos": ", ".join(x.get("ticker", "") for x in h.get("finales", [])) or "—",
-                        })
-                    st.dataframe(pd.DataFrame(filas_hist), hide_index=True, width="stretch")
-
-panel_diagnostico_filtros()
-
-# ==========================================
-# 🖥️ TABLA DE RESULTADOS (se refresca sola sin recargar la página)
-# ==========================================
-def color_cambio(val):
-    try:
-        v = float(val)
-    except (TypeError, ValueError):
-        return ""
-    return f"color: {'#2ecc71' if v >= 0 else '#e74c3c'}; font-weight: 700"
-
-
-@st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
-def panel_resultados():
-    filas = filtrar_resultados(list(servicio.resultados), params)
-
-    if servicio.ultima_actualizacion:
-        if ETAPA_PRUEBA_FILTROS == 1:
-            detalle = (f"Última actualización: {servicio.ultima_actualizacion.strftime('%H:%M:%S')} ET"
-                       f" · ciclo {servicio.duracion_ciclo:.1f}s"
-                       f" · {len(servicio.universo)} tickers vigilados"
-                       f" · {servicio.n_radar_base} en el radar base"
-                       f" (solo precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}; EMA20 arriba + MACD positivo)")
-        else:
-            detalle = (f"Última actualización: {servicio.ultima_actualizacion.strftime('%H:%M:%S')} ET"
-                       f" · ciclo {servicio.duracion_ciclo:.1f}s"
-                       f" · {len(servicio.universo)} tickers vigilados"
-                       f" · {servicio.n_radar_base} en el radar base"
-                       f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 20_000))})")
-        st.caption(detalle)
-    else:
-        st.caption("Esperando el primer escaneo (la primera vez puede tardar un minuto)...")
-
-    if servicio.ultimo_error:
-        st.warning(f"Aviso del motor: {servicio.ultimo_error}")
-
-    st.markdown(f"**{len(filas)} resultados** · el motor escanea cada {INTERVALO_ESCANEO_SEGUNDOS}s")
-
-    if not filas:
-        st.info("Sin candidatos que cumplan los filtros en este momento.")
-        return
-
-    df = pd.DataFrame([
-        {
-            "No.": i + 1,
-            "Ticker": c["ticker"],
-            "Precio": round(c["precio"], 2),
-            "Cambio %": round(c["cambio_pct"], 1),
-            "Volumen": formatear_numero_grande(c["volumen_dia"]),
-            "Flotación": (
-                formatear_numero_grande(c["float_shares"])
-                if c["float_shares"] is not None
-                else ("Pendiente" if c.get("float_status") == "pending" else "Sin dato")
-            ),
-            "EMA20": "✅" if c["cruzando_ema20"] else ("🔻" if c.get("cruzando_ema20_abajo") else ""),
-            "MACD": "✅" if c["macd_positivo"] else ("🔻" if c.get("macd_negativo") else ""),
-            "BB sup.": round(c.get("bb_upper"), 2) if c.get("bb_upper") is not None else None,
-            "Dist. BB %": round(c.get("bb_dist_pct"), 1) if c.get("bb_dist_pct") is not None else None,
-            "Noticia": "🔥" if c["tiene_noticia"] else "",
-            "Actualizado (ET)": c["actualizado"].astimezone(ET).strftime("%H:%M:%S") if hasattr(c["actualizado"], "astimezone") else str(c["actualizado"]),
-        }
-        for i, c in enumerate(filas)
-    ])
-
-    styled = (
-        df.style
-        .map(color_cambio, subset=["Cambio %"])
-        .set_properties(**{"background-color": "#080808", "color": "#eeeeee", "border-color": "#2b2512"})
-        .set_table_styles([{"selector": "th", "props": [("background-color", "#0b0b0b"), ("color", "#d4af37"), ("font-weight", "bold"), ("border-color", "#5d4b19")]}])
-    )
-    # Escritorio: tabla completa.
-    with st.container(border=True):
-        st.markdown('<span class="ts-desktop-table-marker"></span>', unsafe_allow_html=True)
-        seleccion = st.dataframe(
-            styled, width="stretch", hide_index=True,
-            on_select="rerun", selection_mode="single-row", key="tabla_resultados",
-        )
-        filas_sel = seleccion.selection.rows if seleccion and seleccion.selection else []
-        if filas_sel:
-            st.session_state["ticker_activo"] = df.iloc[filas_sel[0]]["Ticker"]
-
-    # Móvil: solo la información que cabe en una pantalla, sin desplazamiento horizontal.
-    df_mobile = df[["No.", "Ticker", "Precio", "Cambio %", "Volumen", "EMA20", "MACD", "Dist. BB %"]].copy()
-    styled_mobile = (
-        df_mobile.style
-        .map(color_cambio, subset=["Cambio %"])
-        .set_properties(**{"background-color": "#080808", "color": "#eeeeee", "border-color": "#2b2512"})
-        .set_table_styles([{"selector": "th", "props": [("background-color", "#0b0b0b"), ("color", "#d4af37"), ("font-weight", "bold"), ("border-color", "#5d4b19")] }])
-    )
-    with st.container(border=True):
-        st.markdown('<span class="ts-mobile-table-marker"></span>', unsafe_allow_html=True)
-        st.dataframe(
-            styled_mobile, width="stretch", hide_index=True,
-            on_select="rerun", selection_mode="single-row", key="tabla_resultados_mobile",
-        )
-
-
-panel_resultados()
-
-
 # ==========================================
 # 🔗 PANEL BROKER: 10 activos del scanner ↔ 10 colores ↔ 10 layouts del broker
 # Clic en una fila = envía ese símbolo al layout del color de esa fila.
@@ -2878,7 +2709,7 @@ panel_resultados()
 # No coloca órdenes: solo manda el símbolo.
 # ==========================================
 
-PANEL_BROKER_ALTO_PX = 500
+PANEL_BROKER_ALTO_PX = 310
 PUENTE_LOCAL_POR_DEFECTO = "http://127.0.0.1:8765/enviar"
 BROKERS_DISPONIBLES = [
     "Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)",
@@ -2932,13 +2763,21 @@ CSS_PANEL_BROKER = (
     "font-size:13px;display:none;}"
     # --- Responsivo: celular. La tabla no se aprieta, se puede deslizar horizontal ---
     "@media (max-width:640px){"
-    "  th{font-size:12px;padding:6px 4px;}"
-    "  th.colhdr{width:28px;min-width:28px;max-width:28px;}"
-    
-    "  td{font-size:12px;height:30px;}"
-    "  td.gear{font-size:16px;}"
-    "  .swatch{width:12px;height:12px;}"
-    "  #msg{font-size:11px;}"
+    "  .tbl-wrap{overflow:hidden;}"
+    "  table{min-width:0;width:100%;table-layout:fixed;}"
+    "  th{font-size:7px;padding:3px 1px;line-height:1;}"
+    "  th.gearhdr,td.gear{width:18px;min-width:18px;max-width:18px;}"
+    "  th.colhdr,td.col{width:16px;min-width:16px;max-width:16px;}"
+    "  th:nth-child(3){width:18%;}"
+    "  th:nth-child(4){width:11%;}"
+    "  th:nth-child(5){width:12%;}"
+    "  th:nth-child(6){width:17%;}"
+    "  th:nth-child(7){width:17%;}"
+    "  th:nth-child(8){width:12%;}"
+    "  td{font-size:8px;height:21px;padding:0 1px;line-height:1;}"
+    "  td.gear{font-size:10px;}"
+    "  .swatch{width:8px;height:8px;border-radius:2px;}"
+    "  #msg{font-size:8px;margin-top:3px;padding:3px 5px;}"
     "}"
 )
 
@@ -3201,7 +3040,12 @@ def panel_broker():
             "puente": "",
             "webhooks": ["" for _ in range(len(COLORES_LAYOUT_DEFECTO))],
         }
-    st.iframe(construir_html_panel_broker(filas10, cfg, colores_layout_actuales()), height=PANEL_BROKER_ALTO_PX)
+    with panel_broker_slot.container():
+        st.components.v1.html(
+            construir_html_panel_broker(filas10, cfg, colores_layout_actuales()),
+            height=PANEL_BROKER_ALTO_PX,
+            scrolling=False,
+        )
 
 
 panel_broker()
