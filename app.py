@@ -2354,7 +2354,7 @@ html_final = (html_plantilla
     .replace("@@BK_API_KEY@@", st.session_state.get("bk_api_key", ""))
     .replace("@@BK_API_SECRET@@", st.session_state.get("bk_api_secret", ""))
     .replace("@@BK_PUENTE_VAL@@", st.session_state.get("bk_puente", "http://127.0.0"))
-    .replace("@@TXT_VOL_VAL@@", str(v_vol) if v_vol > 0 else "")
+    .replace("@@TXT_VOL_VAL@@", query_params.get("f_vol", ""))
     .replace("@@BK_PUENTE@@", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
     
     .replace("@@MOTOR_ON_SEL@@", "selected" if st.session_state.get("scanner_active", True) else "")
