@@ -2274,912 +2274,224 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+# ==============================================================================
+# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (REEMPLAZO FINAL QUIRÚRGICO)
+# ==============================================================================
 
-
-# ==========================================
-# 🖥️ DASHBOARD SUPERIOR — INTERFAZ SIMPLE
-# ==========================================
+# Sincronización de traducciones y textos rápidos según el estado del motor real
 try:
     servicio._esta_en_horario_automatico()
 except Exception:
     pass
+
 _hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
-_dia_txt = "Sí (Alpaca)" if datetime.now(ET).date() in servicio.dias_mercado_cache else "No / fuera de mercado"
-_estado_txt = "Scanner Activo" if servicio.encendido and servicio.auto_en_horario else ("Scanner Apagado" if not servicio.encendido else "Scanner En espera")
-
-COLORES_LAYOUT = [
-    ("Rojo", "#e53935", "#ffffff"), ("Naranja", "#fb8c00", "#000000"),
-    ("Amarillo", "#fdd835", "#000000"), ("Verde", "#43a047", "#ffffff"),
-    ("Turquesa", "#00acc1", "#ffffff"), ("Azul", "#1e88e5", "#ffffff"),
-    ("Morado", "#8e24aa", "#ffffff"), ("Rosa", "#ec407a", "#ffffff"),
-    ("Marrón", "#8d6e63", "#ffffff"), ("Gris", "#9e9e9e", "#000000"),
-]
-COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
-
-# =========================================================
-# 🧭 PANEL PRINCIPAL — diseño compacto tipo dashboard
-# =========================================================
-# 1) Preferencias + control + conexión en una sola fila.
-# Los colores ya NO ocupan una columna lateral grande.
-# Campos compactos tipo Finviz: etiqueta a la izquierda + control corto a la derecha.
-def _campo_inline_num(parent, etiqueta, **kwargs):
-    with parent:
-        lab, box = st.columns([1.25, 0.75], gap="small")
-        with lab:
-            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
-        with box:
-            return st.number_input("", label_visibility="collapsed", **kwargs)
-
-def _campo_inline_select(parent, etiqueta, **kwargs):
-    with parent:
-        lab, box = st.columns([1.25, 0.75], gap="small")
-        with lab:
-            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
-        with box:
-            return st.selectbox("", label_visibility="collapsed", **kwargs)
-
-def _campo_inline_text(parent, etiqueta, **kwargs):
-    with parent:
-        lab, box = st.columns([1.25, 0.75], gap="small")
-        with lab:
-            st.markdown(f'<div class="inline-field-label">{etiqueta}</div>', unsafe_allow_html=True)
-        with box:
-            return st.text_input("", label_visibility="collapsed", **kwargs)
-
-with st.container(border=True):
-    st.markdown('<div class="simple-title">🔎 Preferencias de búsqueda</div>', unsafe_allow_html=True)
-    cfg = cargar_config()
-
-    if ETAPA_PRUEBA_FILTROS == 1:
-        r1 = st.columns(4, gap="small")
-        PRECIO_MIN = _campo_inline_num(r1[0], "Precio mín.", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
-        PRECIO_MAX = _campo_inline_num(r1[1], "Precio máx.", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-        CRUCE_EMA = "Hacia arriba"
-        _campo_inline_text(r1[2], "EMA20", value="Precio por encima", disabled=True, key="f_ema_prueba1")
-        MACD_MODO = "Positivo"
-        _campo_inline_text(r1[3], "MACD", value="Positivo", disabled=True, key="f_macd_prueba1")
-
-        r2 = st.columns(4, gap="small")
-        REFRESCO = _campo_inline_num(r2[0], "Refresco", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
-        ORDEN = _campo_inline_select(r2[1], "Ordenar", options=["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-        TOP_N = _campo_inline_num(r2[2], "Top N", value=50, min_value=1, max_value=100, key="f_top")
-        with r2[3]:
-            st.markdown('<div class="inline-toggle-label">Auto</div>', unsafe_allow_html=True)
-            AUTO_ON = st.toggle("", value=True, label_visibility="collapsed", key="f_auto")
-
-        GAP_MIN = float(cfg["gap_min"])
-        GAP_MAX = float(cfg["gap_max"])
-        FLOT_MAX = int(cfg["flotacion_max"])
-        VOLUMEN_MIN = int(cfg["volumen_min"])
-    else:
-        # Cada campo conserva el estilo compacto de Finviz: título a la izquierda y caja corta a la derecha.
-        r1 = st.columns(4, gap="small")
-        PRECIO_MIN = _campo_inline_num(r1[0], "Precio mín.", value=float(cfg["precio_min"]), step=0.5, key="f_pmin")
-        PRECIO_MAX = _campo_inline_num(r1[1], "Precio máx.", value=float(cfg["precio_max"]), step=0.5, key="f_pmax")
-        GAP_MIN = _campo_inline_num(r1[2], "Gap mín.", value=float(cfg["gap_min"]), step=1.0, key="f_gmin")
-        GAP_MAX = _campo_inline_num(r1[3], "Gap máx.", value=float(cfg["gap_max"]), step=10.0, key="f_gmax")
-
-        r2 = st.columns(4, gap="small")
-        FLOT_MAX = _campo_inline_num(r2[0], "Flotación", value=int(cfg["flotacion_max"]), step=1_000_000, key="f_flt")
-        VOLUMEN_MIN = _campo_inline_num(r2[1], "Volumen mín.", value=int(cfg["volumen_min"]), min_value=0, step=1000, key="f_vmin")
-        REFRESCO = _campo_inline_num(r2[2], "Refresco", value=int(cfg["intervalo_refresco"]), min_value=1, step=1, key="f_ref")
-        TOP_N = _campo_inline_num(r2[3], "Top N", value=50, min_value=1, max_value=100, key="f_top")
-
-        r3 = st.columns(4, gap="small")
-        CRUCE_EMA = _campo_inline_select(r3[0], "Cruce EMA20", options=OPCIONES_CRUCE_EMA, index=0, key="f_cruce_ema")
-        MACD_MODO = _campo_inline_select(r3[1], "MACD", options=OPCIONES_MACD, index=0, key="f_macd_modo")
-        ORDEN = _campo_inline_select(r3[2], "Ordenar", options=["Actualizado", "Cambio %", "Volumen"], key="f_orden")
-        with r3[3]:
-            st.markdown('<div class="inline-toggle-label">Actualización</div>', unsafe_allow_html=True)
-            AUTO_ON = st.toggle("", value=True, label_visibility="collapsed", key="f_auto")
-
-params = {
-    "precio_min": PRECIO_MIN, "precio_max": PRECIO_MAX, "gap_min": GAP_MIN, "gap_max": GAP_MAX,
-    "flotacion_max": FLOT_MAX, "volumen_min": VOLUMEN_MIN, "cruce_ema": CRUCE_EMA, "macd": MACD_MODO,
-    "orden": ORDEN, "top_n": TOP_N,
-}
-
-if ETAPA_PRUEBA_FILTROS == 1:
-    st.warning("🧪 PRUEBA 1 REAL: solo Precio + EMA20 (precio por encima) + MACD positivo. Subida, Gap, Float, Volumen, RVOL y Telegram están DESACTIVADOS.")
-elif ETAPA_PRUEBA_FILTROS == 2:
-    st.info("🧪 PRUEBA 2: Precio + Volumen + EMA20 + MACD.")
-elif ETAPA_PRUEBA_FILTROS == 3:
-    st.info("🧪 PRUEBA 3: Precio + Volumen + Float + EMA20 + MACD.")
-elif ETAPA_PRUEBA_FILTROS >= 4:
-    st.info("🧪 PRUEBA 4: Precio + Subida + Volumen + Float + EMA20 + MACD.")
-
-st.success("🚀 PRUEBA 7 ACTIVA: mide si cada señal alcanza +0.25%, +0.50% o +1.00% dentro de la ventana de 10 minutos. Los filtros de entrada no cambian.")
-
-# 2) Control del scanner + conexión API/broker
-# Los controles internos de operación y las credenciales del broker
-# solo se muestran al administrador. El usuario mantiene únicamente
-# el acceso al scanner y sus filtros de búsqueda.
-if ES_ADMIN:
-    control_col, broker_col, premium_col = st.columns([1.15, 1.55, 0.72], gap="small")
-else:
-    control_col = st.container()
-    broker_col = None
-    premium_col = None
-
-with control_col:
-    with st.container(border=True):
-        st.markdown('<div class="simple-title">⚙️ Control del Scanner</div>', unsafe_allow_html=True)
-        if ES_ADMIN:
-            # Mandos principales en una sola línea para que el panel sea compacto.
-            b1,b2,b3 = st.columns(3, gap="small")
-            with b1:
-                if st.button("🟢 ENCENDER", key="encender_scanner_dashboard", width="stretch"):
-                    servicio.encendido = True
-                    servicio.ultimo_error = None
-                    st.rerun()
-            with b2:
-                if st.button("🔴 APAGAR", key="apagar_scanner_dashboard", width="stretch"):
-                    servicio.encendido = False
-                    servicio.auto_en_horario = False
-                    st.rerun()
-            with b3:
-                if st.button("🔄 REINICIAR", key="reiniciar_scanner_dashboard", width="stretch"):
-                    servicio.reiniciar_scanner()
-                    st.success("Scanner reiniciado. El motor fue reconstruido correctamente.")
-                    st.rerun()
-            st.markdown("**Horario de funcionamiento (ET)**")
-            h1,h2,h3 = st.columns([1,1,1], gap="small")
-            with h1:
-                hora_inicio_ui = st.time_input(
-                    "Inicio",
-                    value=dt_time(servicio.hora_inicio_auto_min // 60, servicio.hora_inicio_auto_min % 60),
-                    key="hora_inicio_scanner_dashboard",
-                )
-            with h2:
-                hora_fin_ui = st.time_input(
-                    "Cierre",
-                    value=dt_time(servicio.hora_fin_auto_min // 60, servicio.hora_fin_auto_min % 60),
-                    key="hora_fin_scanner_dashboard",
-                )
-            with h3:
-                st.write("")
-                if st.button("💾 GUARDAR HORARIO", key="guardar_horario_dashboard", width="stretch"):
-                    servicio.configurar_horario(hora_inicio_ui, hora_fin_ui)
-                    st.rerun()
-            st.markdown(
-                f'<div class="small-note">Estado: <b>{_estado_txt}</b><br>Horario: <b>{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET</b></div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.info("Modo usuario. El encendido/apagado y el horario solo los puede modificar el administrador.")
-
-# Espacios fijos de renderizado: el cuadro principal de activos aparece AQUÍ,
-# inmediatamente debajo de los mandos. Se rellena más abajo, después de definir
-# la función, para conservar este orden visual sin mover la lógica del motor.
-panel_resultados_slot = st.empty()
-panel_broker_slot = st.empty()
-
-if ES_ADMIN:
-    with broker_col:
-        with st.container(border=True):
-            st.markdown('<div class="simple-title">🔗 Conexión API / Broker <span style="font-size:10px;background:#123d67;border-radius:12px;padding:4px 8px;">Opcional</span></div>', unsafe_allow_html=True)
-            api1,api2,api3 = st.columns(3, gap="small")
-            brokers_ui = ["Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)", "Quantfury (portapapeles)", "Otro (webhook)"]
-            with api1:
-                st.session_state.setdefault("bk_nombre", brokers_ui[0])
-                _idx_b = brokers_ui.index(st.session_state["bk_nombre"]) if st.session_state["bk_nombre"] in brokers_ui else 0
-                st.session_state["bk_nombre"] = st.selectbox("Broker", brokers_ui, index=_idx_b, key="bk_nombre_ui_dashboard")
-            with api2:
-                st.session_state.setdefault("bk_api_key", "")
-                st.session_state["bk_api_key"] = st.text_input("API Key", value=st.session_state.get("bk_api_key", ""), type="password", key="bk_api_key_ui_dashboard")
-            with api3:
-                st.session_state.setdefault("bk_api_secret", "")
-                st.session_state["bk_api_secret"] = st.text_input("Secret Key", value=st.session_state.get("bk_api_secret", ""), type="password", key="bk_api_secret_ui_dashboard")
-            st.session_state.setdefault("bk_puente", "http://127.0.0.1:8765/enviar")
-            st.session_state["bk_puente"] = st.text_input(
-                "Puente / URL para enviar el símbolo al layout del broker",
-                value=st.session_state.get("bk_puente", "http://127.0.0.1:8765/enviar"),
-                key="bk_puente_ui_dashboard",
-            )
-            api_a, api_b = st.columns(2, gap="small")
-            with api_a:
-                st.toggle("Usar API del broker", value=bool(st.session_state.get("bk_api_key")), key="usar_api_broker_dashboard")
-            with api_b:
-                if st.button("🔌 Probar conexión", key="probar_broker_dashboard", width="stretch"):
-                    st.info("La conexión se realizará mediante el puente/webhook configurado.")
-
-    with premium_col:
-        with st.container(border=True):
-            st.markdown('<div class="simple-title">🔐 Modalidades</div>', unsafe_allow_html=True)
-            st.markdown('<div class="small-note"><b>🟢 Web</b><br>Scanner en la nube.</div>', unsafe_allow_html=True)
-            st.markdown('<div class="small-note"><b>🔵 API</b><br>Integración con broker.</div>', unsafe_allow_html=True)
-            st.markdown('<div class="small-note"><b>🟡 Suscripción</b><br>Modalidad comercial.</div>', unsafe_allow_html=True)
-
-# 3) Colores: accesibles, pero sin el bloque vertical gigante de la izquierda.
-if ES_ADMIN:
-    with st.expander("🎨 Configurar colores y layouts del broker", expanded=False):
-        st.caption("Los colores representan los 10 layouts. Puedes cambiarlos sin ocupar espacio en la tabla principal.")
-        _colores_nuevos = list(st.session_state.get("bk_colores", [bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO]))
-        while len(_colores_nuevos) < len(COLORES_LAYOUT_DEFECTO):
-            _colores_nuevos.append(COLORES_LAYOUT_DEFECTO[len(_colores_nuevos)][1])
-        color_cols = st.columns(5, gap="small")
-        for idx,(nombre,bg,_fg) in enumerate(COLORES_LAYOUT_DEFECTO):
-            with color_cols[idx % 5]:
-                _colores_nuevos[idx] = st.color_picker(
-                    f"L{idx+1} · {nombre}",
-                    _colores_nuevos[idx],
-                    key=f"bk_color_dashboard_{idx}",
-                )
-        st.session_state["bk_colores"] = _colores_nuevos
-
-        st.markdown(
-            '<div class="small-note">⚙️ El enlace 🔗 del panel de layouts permite vincular un activo con su ventana correspondiente del broker mediante puente o webhook.</div>',
-            unsafe_allow_html=True,
-        )
-
-# ==========================================
-# 📊 ESTADO DEL MOTOR
-# ==========================================
-# El aviso de float se oculta durante la PRUEBA 1 porque Float está
-# realmente desactivado y no debe contaminar el diagnóstico visual.
-if ETAPA_PRUEBA_FILTROS != 1 and (getattr(servicio, "float_pendientes", 0) or getattr(servicio, "float_sin_dato", 0)):
-    partes_float = []
-    if servicio.float_pendientes:
-        partes_float.append(f"{servicio.float_pendientes} con float pendiente")
-    if servicio.float_sin_dato:
-        partes_float.append(f"{servicio.float_sin_dato} sin float disponible")
-    st.warning("⚠️ Float: " + " · ".join(partes_float))
-
-@st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
-def panel_diagnostico_filtros():
-    if ES_ADMIN and getattr(servicio, "diagnostico_filtros", None):
-        d = servicio.diagnostico_filtros
-        with st.expander("🔎 Diagnóstico de filtros (prueba)", expanded=True):
-            st.caption("Este panel es temporal y solo informa dónde se reducen los candidatos. No modifica el scanner.")
-            if ETAPA_PRUEBA_FILTROS == 1:
-                st.markdown(
-                    f"**Radar base:** {d.get('radar_base', 0)} → "
-                    f"**enviados a técnico:** {d.get('enviados_tecnico', 0)} → "
-                    f"**con ≥40 barras:** {d.get('con_40_barras', 0)} → "
-                    f"**EMA20 calculable:** {d.get('ema_calculable', 0)} → "
-                    f"**Precio > EMA20:** {d.get('ema_arriba', 0)} → "
-                    f"**MACD calculable:** {d.get('macd_calculable', 0)} → "
-                    f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
-                    f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
-                    f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
-                    f"**resultado final:** {d.get('resultados', 0)}"
-                )
-                st.caption(f"Tickers únicos en técnico: {d.get('tickers_unicos', 0)} · duplicados detectados: {d.get('duplicados', 0)}")
-                muestra = [c for c in servicio.resultados if c.get('cruzando_ema20') and c.get('macd_positivo')]
-                if muestra:
-                    df_tec = pd.DataFrame([{
-                        "Ticker": c["ticker"],
-                        "Barras": c.get("tecnico_barras", 0),
-                        "Precio": round(c.get("tecnico_precio") or c["precio"], 4),
-                        "EMA20": round(c.get("tecnico_ema20"), 4) if c.get("tecnico_ema20") is not None else None,
-                        "MACD": round(c.get("tecnico_macd"), 6) if c.get("tecnico_macd") is not None else None,
-                    } for c in muestra])
-                    st.dataframe(df_tec, hide_index=True, width="stretch")
-            else:
-                st.markdown(
-                    f"**Radar base:** {d.get('radar_base', 0)} → "
-                    f"**flotación ≤ {formatear_numero_grande(servicio.filtros_dueno.get('flotacion_max', 20_000_000))}:** {d.get('tras_float', 0)} → "
-                    f"**volumen ≥ {formatear_numero_grande(servicio.filtros_dueno.get('volumen_min', 20_000))} títulos:** {d.get('tras_vol_rel', 0)} → "
-                    f"**EMA20 arriba:** {d.get('ema_arriba', 0)} → "
-                    f"**MACD positivo:** {d.get('macd_positivo', 0)} → "
-                    f"**EMA20 + MACD:** {d.get('ema_y_macd', 0)} → "
-                    f"**candidatos EMA20+MACD (brutos):** {d.get('candidatos_ema_macd_brutos', d.get('ema_y_macd', 0))} → "
-                    f"**resultado final:** {d.get('resultados', 0)}"
-                )
-                if not d.get('gap_aplicado', ETAPA_PRUEBA_FILTROS >= 4):
-                    st.info("ℹ️ PRUEBA actual: el filtro de subida mínima no se está aplicando al embudo (ETAPA_PRUEBA_FILTROS < 4). La etiqueta 'subida ≥ 3%' describe el radar base, pero no elimina candidatos en esta prueba.")
-
-                muestra = list(getattr(servicio, "candidatos_ema_macd_actual", []))
-                if muestra:
-                    final_tickers = set(getattr(servicio, "diagnostico_filtros", {}).get("final_tickers_mismo_ciclo", []))
-                    df_diag = pd.DataFrame([{
-                        "Ticker": c["ticker"],
-                        "Precio ant.": round(c.get("tecnico_precio_anterior"), 4) if c.get("tecnico_precio_anterior") is not None else None,
-                        "EMA20 ant.": round(c.get("tecnico_ema20_anterior"), 4) if c.get("tecnico_ema20_anterior") is not None else None,
-                        "Precio actual": round(c.get("tecnico_precio_actual"), 4) if c.get("tecnico_precio_actual") is not None else None,
-                        "EMA20 actual": round(c.get("tecnico_ema20_actual"), 4) if c.get("tecnico_ema20_actual") is not None else None,
-                        "Cruce EMA20": "✅ SÍ" if c.get("cruce_ema20_confirmado") else "❌ NO",
-                        "MACD": round(c.get("tecnico_macd"), 6) if c.get("tecnico_macd") is not None else None,
-                        "BB superior": round(c.get("bb_upper"), 4) if c.get("bb_upper") is not None else None,
-                        "Dist. BB %": round(c.get("bb_dist_pct"), 2) if c.get("bb_dist_pct") is not None else None,
-                        "Barras": c.get("tecnico_barras", 0),
-                    } for c in muestra])
-                    st.caption(f"PRUEBA 4A · {len(muestra)} candidatos brutos del MISMO ciclo · se muestran todos, sin límite Top N.")
-                    st.dataframe(df_diag, hide_index=True, width="stretch")
-
-                    # PRUEBA 5: bloque de texto simple para copiar desde el teléfono.
-                    hora_ciclo = (servicio.ultima_actualizacion.strftime("%H:%M:%S")
-                                  if getattr(servicio, "ultima_actualizacion", None) else "--:--:--")
-                    lineas_p5 = [
-                        "PRUEBA 5",
-                        f"CICLO: {hora_ciclo}",
-                        f"EMA20+MACD: {len(muestra)}",
-                        f"FINAL: {len(final_tickers)}",
-                        "",
-                        "Ticker | Precio | BB superior | Dist.BB%",
-                    ]
-                    for c in sorted(muestra, key=lambda x: str(x.get("ticker", ""))):
-                        precio_p5 = c.get("tecnico_precio_actual")
-                        if precio_p5 is None:
-                            precio_p5 = c.get("tecnico_precio") or c.get("precio")
-                        bb_p5 = c.get("bb_upper")
-                        dist_p5 = c.get("bb_dist_pct")
-                        lineas_p5.append(
-                            f"{c.get('ticker','')} | "
-                            f"{precio_p5:.4f} | " if isinstance(precio_p5, (int, float)) else f"{c.get('ticker','')} | {precio_p5} | "
-                            + (f"{bb_p5:.4f} | " if isinstance(bb_p5, (int, float)) else f"{bb_p5} | ")
-                            + (f"{dist_p5:.2f}" if isinstance(dist_p5, (int, float)) else str(dist_p5))
-                        )
-                    st.text_area(
-                        "📋 PRUEBA 5 — copia este bloque completo y pégamelo aquí",
-                        value="\n".join(lineas_p5),
-                        height=min(500, max(180, 105 + 24 * len(muestra))),
-                        key="prueba5_copiar",
-                    )
-
-                    # PRUEBA 7: alcanzabilidad de objetivos sobre la misma señal, ventana fija.
-                    completadas_p7 = list(getattr(servicio, "prueba6_completadas", []))
-                    activas_p7 = list(getattr(servicio, "prueba6_activos", {}).values())
-                    st.caption(
-                        f"PRUEBA 7 · objetivos +0.25%, +0.50% y +1.00% durante {VENTANA_PRUEBA6_MINUTOS} minutos · "
-                        f"completadas: {len(completadas_p7)} · en observación: {len(activas_p7)} · entrada sin cambios."
-                    )
-                    if completadas_p7:
-                        df_p7 = pd.DataFrame([{
-                            "Ticker": x.get("ticker"),
-                            "Hora señal": x.get("inicio_hora"),
-                            "Dist.BB inicial %": round(x.get("bb_dist_inicial"), 2) if x.get("bb_dist_inicial") is not None else None,
-                            "MFE %": round(x.get("mfe_pct"), 2) if x.get("mfe_pct") is not None else None,
-                            "≥0.25%": "✅" if x.get("alcanza_025") else "❌",
-                            "≥0.50%": "✅" if x.get("alcanza_050") else "❌",
-                            "≥1.00%": "✅" if x.get("alcanza_100") else "❌",
-                            "Min a 0.50%": round(x.get("tiempo_050_min"), 2) if x.get("tiempo_050_min") is not None else None,
-                        } for x in completadas_p7])
-                        st.dataframe(df_p7, hide_index=True, width="stretch")
-
-                        n = len(completadas_p7)
-                        n025 = sum(bool(x.get("alcanza_025")) for x in completadas_p7)
-                        n050 = sum(bool(x.get("alcanza_050")) for x in completadas_p7)
-                        n100 = sum(bool(x.get("alcanza_100")) for x in completadas_p7)
-                        pos = sum((x.get("mfe_pct") is not None and x.get("mfe_pct") > 0) for x in completadas_p7)
-                        neg = sum((x.get("mfe_pct") is not None and x.get("mfe_pct") < 0) for x in completadas_p7)
-                        cero = n - pos - neg
-                        c1,c2,c3,c4,c5 = st.columns(5)
-                        c1.metric("Completadas", n)
-                        c2.metric("≥ +0.25%", f"{n025} ({n025/n*100:.1f}%)" if n else "0")
-                        c3.metric("≥ +0.50%", f"{n050} ({n050/n*100:.1f}%)" if n else "0")
-                        c4.metric("≥ +1.00%", f"{n100} ({n100/n*100:.1f}%)" if n else "0")
-                        c5.metric("Pos / 0 / Neg", f"{pos} / {cero} / {neg}")
-
-                    lineas_p7 = [
-                        "PRUEBA 7",
-                        f"VENTANA: {VENTANA_PRUEBA6_MINUTOS} MINUTOS",
-                        f"COMPLETADAS: {len(completadas_p7)}",
-                        f"EN OBSERVACIÓN: {len(activas_p7)}",
-                        "",
-                        "Ticker | Dist.BB inicial | MFE% | ≥0.25% | ≥0.50% | ≥1.00% | Min a 0.50%",
-                    ]
-                    for x in sorted(completadas_p7, key=lambda z: str(z.get("inicio_hora", "")), reverse=True):
-                        vals = [
-                            x.get("ticker", ""),
-                            f"{x.get('bb_dist_inicial'):.2f}" if isinstance(x.get('bb_dist_inicial'), (int, float)) else "",
-                            f"{x.get('mfe_pct'):.2f}" if isinstance(x.get('mfe_pct'), (int, float)) else "",
-                            "SI" if x.get("alcanza_025") else "NO",
-                            "SI" if x.get("alcanza_050") else "NO",
-                            "SI" if x.get("alcanza_100") else "NO",
-                            f"{x.get('tiempo_050_min'):.2f}" if isinstance(x.get('tiempo_050_min'), (int, float)) else "",
-                        ]
-                        lineas_p7.append(" | ".join(vals))
-                    st.text_area(
-                        "📋 PRUEBA 7 — copia las operaciones COMPLETADAS",
-                        value="\n".join(lineas_p7),
-                        height=min(600, max(180, 125 + 24 * max(1, len(completadas_p7)))),
-                        key="prueba7_copiar",
-                    )
-
-                    df_4b = pd.DataFrame([{
-                        "Ticker": c.get("ticker"),
-                        "EMA20+MACD": "✅ SÍ",
-                        "Final mismo ciclo": "✅ SÍ" if c.get("ticker") in final_tickers else "❌ NO",
-                        "Estado": "Se mantiene" if c.get("ticker") in final_tickers else "ELIMINADO DESPUÉS",
-                    } for c in muestra])
-                    st.caption("PRUEBA 4B · mismo ciclo: distingue una eliminación real de un cambio natural entre ciclos.")
-                    st.dataframe(df_4b, hide_index=True, width="stretch")
-                    eliminados = getattr(servicio, "diagnostico_filtros", {}).get("eliminados_post_ema_macd", [])
-                    if eliminados:
-                        st.warning("⚠️ Eliminados después de EMA20+MACD en ESTE MISMO ciclo: " + ", ".join(eliminados))
-                    else:
-                        st.success("✅ PRUEBA 4B: ningún candidato EMA20+MACD fue eliminado después en este mismo ciclo.")
-
-                    # PRUEBA 4C: estabilidad entre ciclos consecutivos.
-                    mantenidos = d.get("mantenidos_entre_ciclos", [])
-                    entraron = d.get("entraron_este_ciclo", [])
-                    salieron = d.get("salieron_este_ciclo", [])
-                    st.caption("PRUEBA 4C · compara EMA20+MACD del ciclo actual contra el ciclo inmediatamente anterior.")
-                    if not d.get("raw_tickers_anterior"):
-                        st.info("ℹ️ PRUEBA 4C: esperando un ciclo anterior comparable.")
-                    else:
-                        st.markdown(
-                            f"**Se mantienen:** {len(mantenidos)} · **entraron ahora:** {len(entraron)} · **salieron ahora:** {len(salieron)}"
-                        )
-                        df_4c = pd.DataFrame([{
-                            "Ticker": t,
-                            "Estado 4C": "↔️ Se mantiene" if t in mantenidos else "🟢 Entró ahora"
-                        } for t in sorted(set(mantenidos + entraron))] + [{
-                            "Ticker": t,
-                            "Estado 4C": "🔴 Salió respecto al ciclo anterior"
-                        } for t in salieron])
-                        if not df_4c.empty:
-                            st.dataframe(df_4c, hide_index=True, width="stretch")
-
-                if getattr(servicio, "historial_ciclos", None):
-                    st.markdown("**Historial de los últimos ciclos**")
-                    filas_hist = []
-                    for h in servicio.historial_ciclos:
-                        filas_hist.append({
-                            "Hora": h.get("hora"),
-                            "Radar": h.get("radar_base", 0),
-                            "Volumen": h.get("tras_volumen", 0),
-                            "EMA20": h.get("ema_arriba", 0),
-                            "MACD+": h.get("macd_positivo", 0),
-                            "EMA20+MACD": h.get("ema_y_macd", 0),
-                            "Candidatos": ", ".join(x.get("ticker", "") for x in h.get("finales", [])) or "—",
-                        })
-                    st.dataframe(pd.DataFrame(filas_hist), hide_index=True, width="stretch")
-
-# ==========================================
-# 🖥️ TABLA DE RESULTADOS (se refresca sola sin recargar la página)
-# ==========================================
-def color_cambio(val):
-    try:
-        v = float(val)
-    except (TypeError, ValueError):
-        return ""
-    return f"color: {'#2ecc71' if v >= 0 else '#e74c3c'}; font-weight: 700"
-
-
-@st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
-def panel_resultados():
-    filas = filtrar_resultados(list(servicio.resultados), params)
-
-    if servicio.ultima_actualizacion:
-        if ETAPA_PRUEBA_FILTROS == 1:
-            detalle = (f"Última actualización: {servicio.ultima_actualizacion.strftime('%H:%M:%S')} ET"
-                       f" · ciclo {servicio.duracion_ciclo:.1f}s"
-                       f" · {len(servicio.universo)} tickers vigilados"
-                       f" · {servicio.n_radar_base} en el radar base"
-                       f" (solo precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}; EMA20 arriba + MACD positivo)")
-        else:
-            detalle = (f"Última actualización: {servicio.ultima_actualizacion.strftime('%H:%M:%S')} ET"
-                       f" · ciclo {servicio.duracion_ciclo:.1f}s"
-                       f" · {len(servicio.universo)} tickers vigilados"
-                       f" · {servicio.n_radar_base} en el radar base"
-                       f" (precio ${BASE_PRECIO_MIN:.2f}-${BASE_PRECIO_MAX:.0f}, subida ≥ {BASE_GAP_MIN:.0f}%, float ≤ {formatear_numero_grande(BASE_FLOTACION_MAX)}, volumen actual ≥ {formatear_numero_grande(servicio.filtros_dueno.get("volumen_min", 20_000))})")
-        st.caption(detalle)
-    else:
-        st.caption("Esperando el primer escaneo (la primera vez puede tardar un minuto)...")
-
-    if servicio.ultimo_error:
-        st.warning(f"Aviso del motor: {servicio.ultimo_error}")
-
-    st.markdown(f"**{len(filas)} resultados** · el motor escanea cada {INTERVALO_ESCANEO_SEGUNDOS}s")
-
-    if not filas:
-        st.info("Sin candidatos que cumplan los filtros en este momento.")
-        return
-
-    df = pd.DataFrame([
-        {
-            "No.": i + 1,
-            "Ticker": c["ticker"],
-            "Precio": round(c["precio"], 2),
-            "Cambio %": round(c["cambio_pct"], 1),
-            "Volumen": formatear_numero_grande(c["volumen_dia"]),
-            "Flotación": (
-                formatear_numero_grande(c["float_shares"])
-                if c["float_shares"] is not None
-                else ("Pendiente" if c.get("float_status") == "pending" else "Sin dato")
-            ),
-            "EMA20": "✅" if c["cruzando_ema20"] else ("🔻" if c.get("cruzando_ema20_abajo") else ""),
-            "MACD": "✅" if c["macd_positivo"] else ("🔻" if c.get("macd_negativo") else ""),
-            "BB sup.": round(c.get("bb_upper"), 2) if c.get("bb_upper") is not None else None,
-            "Dist. BB %": round(c.get("bb_dist_pct"), 1) if c.get("bb_dist_pct") is not None else None,
-            "Noticia": "🔥" if c["tiene_noticia"] else "",
-            "Actualizado (ET)": c["actualizado"].astimezone(ET).strftime("%H:%M:%S") if hasattr(c["actualizado"], "astimezone") else str(c["actualizado"]),
-        }
-        for i, c in enumerate(filas)
-    ])
-
-    styled = (
-        df.style
-        .map(color_cambio, subset=["Cambio %"])
-        .set_properties(**{
-            "background-color": "#101318",
-            "color": "#e8edf2",
-            "border-color": "#303640",
-            "font-size": "9px",
-            "padding": "2px 4px",
-            "line-height": "1.05",
-            "white-space": "nowrap",
-        })
-        .set_table_styles([
-            {"selector": "th", "props": [
-                ("background-color", "#171b22"),
-                ("color", "#f0c75e"),
-                ("font-weight", "700"),
-                ("font-size", "9px"),
-                ("padding", "2px 4px"),
-                ("line-height", "1.0"),
-                ("border-color", "#39404b"),
-                ("white-space", "nowrap"),
-            ]},
-            {"selector": "tbody tr:nth-child(even)", "props": [("background-color", "#0d1117")]},
-            {"selector": "tbody tr:hover", "props": [("background-color", "#202733")]},
-        ])
-    )
-    seleccion = st.dataframe(
-        styled, width="stretch", hide_index=True,
-        on_select="rerun", selection_mode="single-row", key="tabla_resultados",
-    )
-    filas_sel = seleccion.selection.rows if seleccion and seleccion.selection else []
-    if filas_sel:
-        st.session_state["ticker_activo"] = df.iloc[filas_sel[0]]["Ticker"]
-
-
-with panel_resultados_slot.container():
-    panel_resultados()
-
-# El diagnóstico técnico se mantiene debajo para no empujar la tabla principal.
-panel_diagnostico_filtros()
-
-
-# ==========================================
-# 🔗 PANEL BROKER: 10 activos del scanner ↔ 10 colores ↔ 10 layouts del broker
-# Clic en una fila = envía ese símbolo al layout del color de esa fila.
-#   · Con webhook para ese color (ej. trigger de Macro Deck): se envía ahí.
-#   · Sin webhook: se envía al "puente" local (URL general).
-#   · Quantfury: copia el ticker al portapapeles.
-# El envío lo hace TU NAVEGADOR (no el servidor), así funciona con http://127.0.0.1 en tu PC.
-# No coloca órdenes: solo manda el símbolo.
-# ==========================================
-
-PANEL_BROKER_ALTO_PX = 310
-PUENTE_LOCAL_POR_DEFECTO = "http://127.0.0.1:8765/enviar"
-BROKERS_DISPONIBLES = [
-    "Interactive Brokers (TWS)", "TradeZero (webhook)", "Binance (webhook)",
-    "Quantfury (portapapeles)", "Otro (webhook)",
-]
-RUTA_PANEL_BROKER = os.path.join(os.getcwd(), "config_panel_broker.json")
-
-def _texto_contraste(hex_color):
-    """Elige texto negro/blanco según el brillo del color elegido."""
-    try:
-        h = str(hex_color).lstrip("#")
-        if len(h) != 6:
-            return "#000000"
-        r, g, b = (int(h[i:i+2], 16) for i in (0, 2, 4))
-        brillo = (r * 299 + g * 587 + b * 114) / 1000
-        return "#000000" if brillo >= 150 else "#ffffff"
-    except Exception:
-        return "#000000"
-
-def colores_layout_actuales():
-    personalizados = st.session_state.get("bk_colores", [])
-    resultado = []
-    for i, (nombre, bg_def, _fg_def) in enumerate(COLORES_LAYOUT_DEFECTO):
-        bg = personalizados[i] if i < len(personalizados) and personalizados[i] else bg_def
-        resultado.append((nombre, bg, _texto_contraste(bg)))
-    return resultado
-
-CSS_PANEL_BROKER = (
-    "body{margin:0;background:transparent;font-family:Calibri,'Segoe UI',Arial,sans-serif;}"
-    ".tbl-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}"
-    "table{width:100%;min-width:560px;border-collapse:collapse;table-layout:fixed;}"
-    "th{background:#0b0b0b;color:#d4af37;font-weight:700;font-size:15px;padding:8px 6px;"
-    "border:1px solid #5d4b19;text-align:center;line-height:1.15;}"
-    "th.cred{display:none;}"
-    "th.cred .m{font-weight:400;font-size:12px;opacity:.9;}"
-    "th.cred .bk{font-weight:400;font-size:11px;opacity:.85;margin-top:2px;}"
-    "td{height:34px;border:1px solid #808080;text-align:center;font-size:14px;color:#111111;"
-    "background:#ffffff;padding:0 4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;}"
-    "th.colhdr{width:32px;min-width:32px;max-width:32px;padding:4px 0;}"
-    "td.col{width:32px;min-width:32px;max-width:32px;padding:0;text-align:center;}"
-    "th.gearhdr,td.gear{width:30px;min-width:30px;max-width:30px;padding:0;text-align:center;}"
-    "td.gear{font-size:18px;color:#d4af37;cursor:pointer;}"
-    ".swatch{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid rgba(255,255,255,.55);vertical-align:middle;}"
-    "td.sym{font-weight:700;}"
-    "tr.fila.ok{cursor:pointer;}"
-    "tr.fila.ok:hover td:not(.col){filter:brightness(.94);}"
-    "tr.pos td:not(.col){background:#0d1b13;color:#7be2a7;}"
-    "tr.neg td:not(.col){background:#1b0d0d;color:#f28a8a;}"
-    "tr.sel td:not(.col){box-shadow:inset 0 0 0 2px #d4af37;}"
-    "#msg{margin-top:8px;padding:6px 10px;border-radius:6px;background:#15120b;color:#f0dfaa;border:1px solid #5d4b19;"
-    "font-size:13px;display:none;}"
-    # --- Responsivo: celular. La tabla no se aprieta, se puede deslizar horizontal ---
-    "@media (max-width:640px){"
-    "  .tbl-wrap{overflow:hidden;}"
-    "  table{min-width:0;width:100%;table-layout:fixed;}"
-    "  th{font-size:7px;padding:3px 1px;line-height:1;}"
-    "  th.gearhdr,td.gear{width:18px;min-width:18px;max-width:18px;}"
-    "  th.colhdr,td.col{width:16px;min-width:16px;max-width:16px;}"
-    "  th:nth-child(3){width:18%;}"
-    "  th:nth-child(4){width:11%;}"
-    "  th:nth-child(5){width:12%;}"
-    "  th:nth-child(6){width:17%;}"
-    "  th:nth-child(7){width:17%;}"
-    "  th:nth-child(8){width:12%;}"
-    "  td{font-size:8px;height:21px;padding:0 1px;line-height:1;}"
-    "  td.gear{font-size:10px;}"
-    "  .swatch{width:8px;height:8px;border-radius:2px;}"
-    "  #msg{font-size:8px;margin-top:3px;padding:3px 5px;}"
-    "}"
-)
-
-JS_PANEL_BROKER = r"""
-(function(){
-  const D = JSON.parse(document.getElementById("datos").textContent);
-  const msg = document.getElementById("msg");
-  let temporizador = null;
-  function aviso(txt, tipo){
-    msg.textContent = txt;
-    msg.style.display = "block";
-    msg.style.background = tipo === "ok" ? "#166534" : (tipo === "err" ? "#991b1b" : "#1f2937");
-    clearTimeout(temporizador);
-    temporizador = setTimeout(function(){ msg.style.display = "none"; }, 6000);
-  }
-  function guardarSel(tk){ try { sessionStorage.setItem("sel_ticker", tk); } catch(e) {} }
-  function leerSel(){ try { return sessionStorage.getItem("sel_ticker"); } catch(e) { return null; } }
-
-  const filas = document.querySelectorAll("tr.fila");
-  const previa = leerSel();
-  filas.forEach(function(tr){
-    const d = D.filas[+tr.dataset.i];
-    if (d && d.ticker === previa) tr.classList.add("sel");
-  });
-
-  filas.forEach(function(tr){
-    tr.addEventListener("click", async function(){
-      const i = +tr.dataset.i;
-      const d = D.filas[i];
-      if (!d) return;
-      filas.forEach(function(x){ x.classList.remove("sel"); });
-      tr.classList.add("sel");
-      guardarSel(d.ticker);
-      const color = D.colores[i];
-      const broker = D.cfg.broker || "";
-      const payload = {simbolo: d.ticker, ticker: d.ticker, color: color, color_num: i + 1, broker: broker};
-
-      // 1) Quantfury: copiar al portapapeles
-      if (broker.indexOf("Quantfury") === 0) {
-        try {
-          await navigator.clipboard.writeText(d.ticker);
-          aviso("✔ " + d.ticker + " copiado: pégalo en Quantfury", "ok");
-        } catch(e) {
-          aviso("⚠ No pude copiar automáticamente. Ticker: " + d.ticker, "err");
-        }
-        return;
-      }
-
-      // 2) Webhook propio de este color (ej. trigger de Macro Deck)
-      const hook = ((D.webhooks || [])[i] || "").trim();
-      if (hook) {
-        aviso("Enviando " + d.ticker + " → " + color + "…", "info");
-        try {
-          await fetch(hook, {method: "POST", mode: "no-cors",
-                             headers: {"Content-Type": "text/plain"}, body: JSON.stringify(payload)});
-          aviso("✔ " + d.ticker + " enviado al webhook de " + color + " (sin confirmación de respuesta)", "ok");
-        } catch(e) {
-          aviso("⚠ No pude alcanzar el webhook de " + color, "err");
-        }
-        return;
-      }
-
-      // 3) Puente local general
-      const puente = (D.cfg.puente || "").trim();
-      if (!puente) {
-        aviso("⚠ Falta la URL del puente o el webhook de " + color + " (botón ✏️)", "err");
-        return;
-      }
-      payload.api_key = D.cfg.api_key;
-      payload.api_secret = D.cfg.api_secret;
-      aviso("Enviando " + d.ticker + " → " + color + "…", "info");
-      try {
-        const r = await fetch(puente, {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(payload)
-        });
-        let j = {};
-        try { j = await r.json(); } catch(e) {}
-        if (r.ok && j.ok !== false) aviso("✔ " + d.ticker + " enviado al layout " + color, "ok");
-        else aviso("⚠ El puente respondió con error" + (j.error ? ": " + j.error : ""), "err");
-      } catch(e) {
-        aviso("⚠ Sin conexión con el puente del broker (" + puente + ")", "err");
-      }
-    });
-  });
-})();
-"""
-
-
-def construir_html_panel_broker(filas10, cfg, colores_layout=None):
-    """HTML del panel con columna compacta de colores configurables."""
-    colores_layout = colores_layout or COLORES_LAYOUT_DEFECTO
-    key = cfg.get("api_key") or ""
-    sec = cfg.get("api_secret") or ""
-    key_txt = ("••••" + key[-4:]) if key else ""
-    sec_txt = "••••••••" if sec else ""
-    broker_txt = html_escape(cfg.get("broker") or "") if (key or sec) else ""
-
-    cuerpo = []
-    for i, (nombre, bg, fg) in enumerate(colores_layout):
-        d = filas10[i] if i < len(filas10) else None
-        celda_color = f'<td class="col"><span class="swatch" style="background:{bg}"></span></td>'
-        if d is None:
-            cuerpo.append(f'<tr class="fila" data-i="{i}"><td class="gear" title="Vincular este activo con el layout del broker">🔗</td>{celda_color}' + "<td></td>" * 6 + "</tr>")
-            continue
-        clase = "ok " + ("pos" if d["subiendo"] else "neg")
-        cuerpo.append(
-            f'<tr class="fila {clase}" data-i="{i}">'
-            f'<td class="gear" title="Vincular este activo con el layout del broker">🔗</td>'
-            f'{celda_color}'
-            f'<td class="sym">{html_escape(str(d["ticker"]))}{" 🔥" if d["noticia"] else ""}</td>'
-            f'<td>{d["precio"]:.2f}</td>'
-            f'<td>{d["cambio"]:+.1f}%</td>'
-            f'<td>{d["volumen"]}</td>'
-            f'<td>{d["flotacion"]}</td>'
-            f'<td>{d["volrel"]:.2f}</td>'
-            f'</tr>'
-        )
-
-    webhooks = list(cfg.get("webhooks") or [])[: len(colores_layout)]
-    webhooks += [""] * (len(colores_layout) - len(webhooks))
-
-    datos = {
-        "filas": [
-            ({"ticker": d["ticker"]} if d else None)
-            for d in (list(filas10) + [None] * (len(colores_layout) - len(filas10)))[: len(colores_layout)]
-        ],
-        "colores": [c[1] for c in colores_layout],
-        "webhooks": webhooks,
-        "cfg": {
-            "broker": cfg.get("broker") or "",
-            "api_key": key,
-            "api_secret": sec,
-            "puente": cfg.get("puente") or "",
-        },
-    }
-    datos_json = json.dumps(datos, ensure_ascii=False).replace("</", "<\\/")
-
-    return (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<style>" + CSS_PANEL_BROKER + "</style></head><body>"
-        "<div class='tbl-wrap'>"
-        "<table><thead><tr>"
-        '<th class="gearhdr">🔗</th><th class="colhdr">&nbsp;</th><th>Símbolo / Noticia</th><th>Precio</th><th>Cambio %</th>' 
-        "<th>Volumen</th><th>Flotación</th><th>Vol. Relativo</th>"
-        "</tr></thead><tbody>" + "".join(cuerpo) + "</tbody></table>"
-        "</div>"
-        '<div id="msg"></div>'
-        f'<script type="application/json" id="datos">{datos_json}</script>'
-        "<script>" + JS_PANEL_BROKER + "</script>"
-        "</body></html>"
-    )
-
-
-def _direccion_por_ticker():
-    """Última dirección conocida (True = subiendo / False = bajando) de cada ticker, según los eventos."""
-    dirs = {}
-    for ev in list(getattr(servicio, "eventos", [])):  # el más nuevo primero
-        dirs.setdefault(ev["ticker"], ev["subiendo"])
-    return dirs
-
-
-# --- Configuración por licencia (broker, puente y webhooks; la API Key/Secret NO se guardan en disco) ---
-def _clave_usuario():
-    return hashlib.sha256(str(TOKEN_ACTIVO).encode("utf-8")).hexdigest()[:16]
-
-
-def cargar_panel_broker():
-    try:
-        with open(RUTA_PANEL_BROKER, "r", encoding="utf-8") as f:
-            d = json.load(f).get(_clave_usuario(), {})
-    except Exception:
-        d = {}
-    broker = d.get("broker", BROKERS_DISPONIBLES[0])
-    if broker not in BROKERS_DISPONIBLES:
-        broker = BROKERS_DISPONIBLES[0]
-    webhooks = [str(w) for w in list(d.get("webhooks", []))[: len(COLORES_LAYOUT_DEFECTO)]]
-    webhooks += [""] * (len(COLORES_LAYOUT_DEFECTO) - len(webhooks))
-    colores = [str(c) for c in list(d.get("colores", []))[: len(COLORES_LAYOUT_DEFECTO)]]
-    colores += [bg for _n, bg, _fg in COLORES_LAYOUT_DEFECTO[len(colores):]]
-    return {"broker": broker, "puente": d.get("puente", PUENTE_LOCAL_POR_DEFECTO), "webhooks": webhooks, "colores": colores}
-
-
-def guardar_panel_broker(cfg):
-    try:
-        try:
-            with open(RUTA_PANEL_BROKER, "r", encoding="utf-8") as f:
-                todo = json.load(f)
-        except Exception:
-            todo = {}
-        todo[_clave_usuario()] = cfg
-        with open(RUTA_PANEL_BROKER, "w", encoding="utf-8") as f:
-            json.dump(todo, f)
-    except Exception:
-        pass
-
-
-if "bk_cargado" not in st.session_state:
-    _ini = cargar_panel_broker()
-    st.session_state.setdefault("bk_nombre", _ini["broker"])
-    st.session_state.setdefault("bk_puente", _ini["puente"])
-    st.session_state.setdefault("bk_api_key", "")
-    st.session_state.setdefault("bk_api_secret", "")
-    for _i, _w in enumerate(_ini["webhooks"]):
-        st.session_state.setdefault(f"bk_wh_{_i}", _w)
-    st.session_state.setdefault("bk_colores", list(_ini.get("colores", [bg for _n, bg, _fg in COLORES_LAYOUT_DEFECTO])))
-    st.session_state.setdefault("_bk_guardado", _ini)
-    st.session_state["bk_cargado"] = True
-
-# --- Persistencia de configuración del broker y colores ---
-_cfg_guardable = {
-    "broker": st.session_state.get("bk_nombre", BROKERS_DISPONIBLES[0]),
-    "puente": st.session_state.get("bk_puente", PUENTE_LOCAL_POR_DEFECTO),
-    "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT_DEFECTO))],
-    "colores": list(st.session_state.get("bk_colores", [bg for _n,bg,_fg in COLORES_LAYOUT_DEFECTO])),
-}
-if st.session_state.get("_bk_guardado") != _cfg_guardable:
-    guardar_panel_broker(_cfg_guardable)
-    st.session_state["_bk_guardado"]=_cfg_guardable
-
-
-@st.fragment(run_every=(f"{int(REFRESCO)}s" if AUTO_ON else None))
-def panel_broker():
-    filas = filtrar_resultados(list(servicio.resultados), params)[: len(COLORES_LAYOUT)]
-    dirs = _direccion_por_ticker()
-    filas10 = [
-        {
-            "ticker": c["ticker"],
-            "noticia": bool(c["tiene_noticia"]),
-            "precio": c["precio"],
-            "cambio": c["cambio_pct"],
-            "volumen": formatear_numero_grande(c["volumen_dia"]),
-            "flotacion": (
-                formatear_numero_grande(c["float_shares"])
-                if c["float_shares"] is not None
-                else ("Pendiente" if c.get("float_status") == "pending" else "Sin dato")
-            ),
-            "volrel": c["volumen_relativo"],
-            "subiendo": dirs.get(c["ticker"], True),
-        }
-        for c in filas
-    ]
-    if ES_ADMIN:
-        cfg = {
-            "broker": st.session_state.get("bk_nombre", BROKERS_DISPONIBLES[0]),
-            "api_key": st.session_state.get("bk_api_key", ""),
-            "api_secret": st.session_state.get("bk_api_secret", ""),
-            "puente": st.session_state.get("bk_puente", ""),
-            "webhooks": [st.session_state.get(f"bk_wh_{_i}", "") for _i in range(len(COLORES_LAYOUT_DEFECTO))],
-        }
-    else:
-        # Nunca enviar credenciales, webhooks ni puentes privados al navegador
-        # de un usuario normal.
-        cfg = {
-            "broker": "",
-            "api_key": "",
-            "api_secret": "",
-            "puente": "",
-            "webhooks": ["" for _ in range(len(COLORES_LAYOUT_DEFECTO))],
-        }
-    with panel_broker_slot.container():
-        st.components.v1.html(
-            construir_html_panel_broker(filas10, cfg, colores_layout_actuales()),
-            height=PANEL_BROKER_ALTO_PX,
-            scrolling=False,
-        )
-
-
-panel_broker()
+_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
+
+# 1. Extracción y preparación de tus datos reales filtrados por el usuario
+filas_reales = filtrar_resultados(list(servicio.resultados), params) if "params" in locals() else list(servicio.resultados)
+
+# Formatear el dataset real para la inyección limpia en la cuadrícula HTML
+datos_formateados = []
+for row in filas_reales:
+    datos_formateados.append({
+        "Ticker": row.get("ticker", ""),
+        "Sector": row.get("sector", "N/A"),
+        "Precio": float(row.get("precio", 0.0)),
+        "Cambio": float(row.get("cambio_pct", 0.0)),
+        "Gap": float(row.get("cambio_pct", 0.0)), 
+        "Float": float(row.get("float_shares", 0.0)) / 1_000_000 if row.get("float_shares") else 0.0,
+        "EMA20": "Por encima" if row.get("cruzando_ema20") else ("Por debajo" if row.get("cruzando_ema20_abajo") else "Sin patrón"),
+        "MACD": "Positivo" if row.get("macd_positivo") else ("Negativo" if row.get("macd_negativo") else "Neutro"),
+        "Volumen": int(row.get("volumen_dia", 0)),
+        "Noticia": bool(row.get("tiene_noticia", False))
+    })
+
+# Conversión a JSON sanitizado para el motor de renderizado JavaScript
+json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</", "<\\/")
+
+# 2. Construcción de la carátula rígida 2D encapsulada
+html_caratula_finviz = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+    body {{
+        background-color: #dcdcdc; /* Color de fondo gris cenizo institucional */
+        font-family: Verdana, Arial, sans-serif;
+        font-size: 11px;
+        color: #000000;
+        margin: 4px;
+        padding: 0;
+    }}
+    .filtros-grid {{
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 4px;
+        background-color: #ffffff;
+        border: 1px solid #999999;
+        padding: 6px;
+        margin-bottom: 8px;
+    }}
+    .filtro-item {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #f1f1f1;
+        border: 1px solid #aaaaaa;
+        padding: 2px 5px;
+        height: 24px;
+        box-sizing: border-box;
+    }}
+    .filtro-item label {{
+        font-weight: bold;
+        color: #111111;
+        font-size: 10px;
+        white-space: nowrap;
+        margin-right: 4px;
+    }}
+    .logo-container {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #e6e6e6;
+        border: 1px dashed #777777;
+        font-weight: bold;
+        color: #444444;
+        font-size: 11px;
+        height: 24px;
+        text-align: center;
+    }}
+    input, select, button {{
+        font-family: Verdana;
+        font-size: 10px;
+        height: 18px;
+        border: 1px solid #777777;
+        background-color: #ffffff;
+        border-radius: 0px;
+        box-sizing: border-box;
+        outline: none;
+    }}
+    button {{ cursor: pointer; background-color: #eaeaea; font-weight: bold; }}
+    button:active {{ background-color: #cccccc; }}
+    .table-wrapper {{
+        width: 100%;
+        overflow-x: auto;
+        background-color: #ffffff;
+    }}
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid #888888;
+    }}
+    th {{
+        background-color: #cccccc;
+        color: #000000;
+        font-weight: bold;
+        padding: 4px 5px;
+        border: 1px solid #888888;
+        font-size: 10px;
+    }}
+    td {{
+        padding: 4px 5px;
+        border: 1px solid #888888;
+        font-size: 11px;
+        white-space: nowrap;
+        height: 20px;
+    }}
+    .fila-alza {{ background-color: #e2f0d9 !important; }}
+    .fila-baja {{ background-color: #fce4d6 !important; }}
+    
+    .engranaje-select {{ font-size: 9px; font-weight: bold; height: 16px; width: 100%; }}
+    .c-default {{ background-color: #ffffff; color: #000000; }}
+    .c-L1 {{ background-color: #ffcccc; }} .c-L2 {{ background-color: #ffe5cc; }}
+    .c-L3 {{ background-color: #ffffcc; }} .c-L4 {{ background-color: #e5ffcc; }}
+    .c-L5 {{ background-color: #ccffcc; }} .c-L6 {{ background-color: #ccffe5; }}
+    .c-L7 {{ background-color: #ccffff; }} .c-L8 {{ background-color: #cce5ff; }}
+    .c-L9 {{ background-color: #ccccff; }} .c-L10 {{ background-color: #e5ccff; }}
+    .macd-positivo {{ background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }}
+    .macd-negativo {{ background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }}
+    .macd-neutro {{ background-color: #e2e3e5 !important; text-align: center; }}
+    .num-col {{ text-align: right; }}
+
+    @media (max-width: 768px) {{
+        body {{ margin: 2px; }}
+        .filtros-grid {{ grid-template-columns: repeat(2, 1fr); padding: 4px; gap: 3px; }}
+        td, th {{ font-size: 10px; padding: 3px 4px; }}
+        .filtro-item select, .filtro-item input {{ width: 50%; }}
+    }}
+</style>
+<script>
+    function pushConfig(actionType) {{
+        var urlParams = new URLSearchParams(window.parent.location.search);
+        urlParams.set('action', actionType);
+        if(actionType === 'update_all') {{
+            urlParams.set('c_active', document.getElementById('cfg_active').value);
+            urlParams.set('c_start', document.getElementById('cfg_start').value);
+            urlParams.set('c_end', document.getElementById('cfg_end').value);
+            urlParams.set('c_broker', document.getElementById('cfg_broker').value);
+            urlParams.set('c_cust_broker', document.getElementById('cfg_cust_broker').value);
+            urlParams.set('c_api', document.getElementById('cfg_api').value);
+            urlParams.set('c_secret', document.getElementById('cfg_secret').value);
+            urlParams.set('c_url', document.getElementById('cfg_url').value);
+            urlParams.set('c_lang', document.getElementById('cfg_lang').value);
+            urlParams.set('c_wnd', document.getElementById('cfg_wnd').value);
+            urlParams.set('f_vol', document.getElementById('txt_vol').value || 0);
+            urlParams.set('f_pre', document.getElementById('sel_pre').value);
+            urlParams.set('f_gap', document.getElementById('sel_gap').value);
+            urlParams.set('f_flt', document.getElementById('sel_flt').value);
+            urlParams.set('f_ema', document.getElementById('sel_ema').value);
+            urlParams.set('f_mac', document.getElementById('sel_mac').value);
+        }}
+        window.parent.location.search = '?' + urlParams.toString();
+    }}
+    function toggleCustomBroker() {{
+        var broker = document.getElementById('cfg_broker').value;
+        document.getElementById('cfg_cust_broker').style.display = (broker === "Otro") ? "inline-block" : "none";
+    }}
+    function cambiarLayout(ticker, selectObj) {{
+        var colorVal = selectObj.value;
+        selectObj.className = "engranaje-select c-" + (colorVal ? colorVal : "default");
+        if(colorVal !== "") {{
+            var urlParams = new URLSearchParams(window.parent.location.search);
+            urlParams.set('link_ticker', ticker);
+            urlParams.set('layout_color', colorVal);
+            window.parent.history.replaceState(null, '', '?' + urlParams.toString());
+            var targetUrl = document.getElementById('cfg_url').value || "{st.session_state.get('bk_puente', 'http://localhost:8080/layout')}";
+            if(document.getElementById('cfg_wnd').value === "Flotante") {{
+                window.open(targetUrl + "?ticker=" + ticker + "&layout=" + colorVal, "_blank", "width=400,height=300");
+            }}
+            fetch(targetUrl, {{
+                method: "POST",
+                headers: {{ "Content-Type": "application/json" }},
+                body: JSON.stringify({{ 
+                    ticker: ticker, 
+                    layout_color: colorVal,
+                    broker: document.getElementById('cfg_broker').value,
+                    api_key: document.getElementById('cfg_api').value
+                }}),
+                mode: "cors"
+            }}).catch(e => console.log("Signal dispatched."));
+        }}
+    }}
+</script>
+</head>
+<body onload="toggleCustomBroker()">
+    <div class="filtros-grid">
+        <div class="logo-container">[ LOGOTIPO ]</div>
+        <div class="filtro-item">
+            <label>MOTOR:</label>
+            <select id="cfg_active" onchange="pushConfig('update_all')" style="font-weight:bold;">
+                <option value="True" {'selected' if st.session_state.get("scanner_active", True) else ''}>🟢 ON ({_estado_txt})</option>
+                <option value="False" {'selected' if not st.session_state.get("scanner_active", True) else ''}>🔴 OFF</option>
+            </select>
+        </div>
+        <div class="filtro-item">
+            <label>LAPSO:</label>
+            <div style="display:flex; gap:2px;">
+                <input type="time" id="cfg_start" value="{st.session_state.get("start_time", "08:00")}" onchange="pushConfig('update_all')">
+                <input type="time" id="cfg_end" value="{st.session_state.get("end_time", "17:00")}" onchange="pushConfig('update_all')">
+            </div>
+        </div>
+        <div class="filtro-item">
