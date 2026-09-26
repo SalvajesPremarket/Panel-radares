@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
+import plotly.express as px
 import requests
 import streamlit as st
 from alpaca.data.historical import StockHistoricalDataClient
@@ -1846,8 +1847,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self.duracion_ciclo = time.monotonic() - inicio
         self._registrar_eventos(enriquecidos)
 
-        # 🛑 TELEGRAM APAGADO DURANTE LA DEPURACIÓN.
-        # No se envía nada al grupo mientras comprobamos los filtros.
+        # 📲 Envío automático al canal de Telegram cuando hay resultados.
         p = dict(self.filtros_dueno)
         p.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
         top = filtrar_resultados(enriquecidos, p)
@@ -1857,8 +1857,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 nombre = f"🔥{c['ticker']}" if c["tiene_noticia"] else c["ticker"]
                 tabla += (f"{nombre:<5}|{c['precio']:>5.2f}|{c['cambio_pct']:>3.0f}%|"
                           f"{formatear_numero_grande(c['volumen_dia']):>5}|{formatear_numero_grande(c['float_shares']):>5}\n")
-            # Telegram permanece desactivado en las pruebas.
-            # self._enviar_telegram(tabla)
+            self._enviar_telegram(tabla)
             self._escribir_html(tabla)
 
     def _bucle(self):
@@ -3119,3 +3118,98 @@ def panel_broker():
 
 
 panel_broker()
+
+# ============================================================
+# 🧪 VISTA DE PRUEBA — FINVIZ STYLE
+# Esta sección es independiente del scanner real y usa datos simulados.
+# Sirve únicamente para visualizar la propuesta de interfaz antes de integrarla.
+# ============================================================
+st.markdown("---")
+st.markdown("## 🧪 Vista de prueba — DevTrading Finviz Style")
+st.caption("Demostración visual independiente. Los datos mostrados aquí son simulados y no modifican el scanner.")
+
+_df_finviz_demo = pd.DataFrame({
+    "Ticker": ["AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "AMD", "NFLX", "INTC"],
+    "Sector": ["Tecnología", "Tecnología", "Consumo Cíclico", "Tecnología", "Servicios de Comunicación", "Servicios de Comunicación", "Consumo Cíclico", "Tecnología", "Servicios de Comunicación", "Tecnología"],
+    "Precio": [175.20, 420.50, 180.10, 875.00, 150.30, 495.20, 170.80, 180.20, 610.00, 35.50],
+    "Cambio %": [1.5, -0.8, 2.3, 4.7, -1.2, 0.5, -3.4, 3.1, 1.2, -2.1],
+    "Volumen Relativo": [1.2, 0.8, 1.5, 2.1, 0.9, 1.1, 1.8, 1.4, 0.7, 1.3],
+    "RSI (14)": [58, 42, 65, 72, 48, 55, 34, 61, 59, 28],
+})
+
+_finviz_c1, _finviz_c2, _finviz_c3 = st.columns([1.1, 1.1, 1.1])
+with _finviz_c1:
+    _finviz_sectores = st.multiselect(
+        "🔍 Sector",
+        options=sorted(_df_finviz_demo["Sector"].unique()),
+        default=sorted(_df_finviz_demo["Sector"].unique()),
+        key="finviz_demo_sector",
+    )
+with _finviz_c2:
+    _finviz_cambio = st.slider(
+        "Cambio diario (%)",
+        min_value=-10.0,
+        max_value=10.0,
+        value=(-5.0, 5.0),
+        key="finviz_demo_cambio",
+    )
+with _finviz_c3:
+    _finviz_rsi = st.slider(
+        "RSI (14)",
+        min_value=0,
+        max_value=100,
+        value=(0, 100),
+        key="finviz_demo_rsi",
+    )
+
+_df_finviz_filtrado = _df_finviz_demo[
+    (_df_finviz_demo["Sector"].isin(_finviz_sectores))
+    & (_df_finviz_demo["Cambio %"] >= _finviz_cambio[0])
+    & (_df_finviz_demo["Cambio %"] <= _finviz_cambio[1])
+    & (_df_finviz_demo["RSI (14)"] >= _finviz_rsi[0])
+    & (_df_finviz_demo["RSI (14)"] <= _finviz_rsi[1])
+].copy()
+
+_finviz_tab1, _finviz_tab2 = st.tabs(["📋 Screener / Tabla", "🗺️ Mapa de calor"])
+
+with _finviz_tab1:
+    st.subheader("Resultados del Escáner")
+
+    def _finviz_color_cambio(val):
+        if val > 0:
+            return "color: #26a69a; font-weight: 700;"
+        if val < 0:
+            return "color: #ef5350; font-weight: 700;"
+        return "color: white; font-weight: 700;"
+
+    st.dataframe(
+        _df_finviz_filtrado.style
+        .map(_finviz_color_cambio, subset=["Cambio %"])
+        .format({"Precio": "${:.2f}", "Cambio %": "{:+.2f}%"}),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+with _finviz_tab2:
+    st.subheader("Mapa de Calor del Mercado")
+    if not _df_finviz_filtrado.empty:
+        _fig_finviz = px.treemap(
+            _df_finviz_filtrado,
+            path=["Sector", "Ticker"],
+            values="Precio",
+            color="Cambio %",
+            color_continuous_scale=["#ff3b30", "#000000", "#34c759"],
+            color_continuous_midpoint=0,
+            custom_data=["Precio", "Cambio %"],
+        )
+        _fig_finviz.update_traces(
+            texttemplate="<b>%{label}</b><br>%{customdata[1]:+.2f}%",
+            hovertemplate="<b>%{label}</b><br>Precio: $%{customdata[0]:.2f}<br>Cambio: %{customdata[1]:+.2f}%<extra></extra>",
+        )
+        _fig_finviz.update_layout(
+            margin=dict(t=10, l=10, r=10, b=10),
+            height=600,
+        )
+        st.plotly_chart(_fig_finviz, use_container_width=True)
+    else:
+        st.warning("No hay datos que coincidan con los filtros seleccionados.")
