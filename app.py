@@ -2171,6 +2171,22 @@ IMG_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAACHwAAALUCAIAAAD8byAGAABcZmNhQlgAAFxmanVt
 # - La ventana visual sigue el diseño institucional de referencia.
 # ============================================================
 
+# Paleta de layouts original del scanner. Se mantiene aquí porque el
+# bloque superior institucional la utiliza y el panel broker también.
+COLORES_LAYOUT = [
+    ("Rojo", "#e53935", "#ffffff"),
+    ("Naranja", "#fb8c00", "#000000"),
+    ("Amarillo", "#fdd835", "#000000"),
+    ("Verde", "#43a047", "#ffffff"),
+    ("Turquesa", "#00acc1", "#ffffff"),
+    ("Azul", "#1e88e5", "#ffffff"),
+    ("Morado", "#8e24aa", "#ffffff"),
+    ("Rosa", "#ec407a", "#ffffff"),
+    ("Marrón", "#8d6e63", "#ffffff"),
+    ("Gris", "#9e9e9e", "#000000"),
+]
+COLORES_LAYOUT_DEFECTO = COLORES_LAYOUT.copy()
+
 # Estado visual/operativo de esta interfaz. Se conecta directamente
 # con el mismo objeto `servicio` que utiliza el motor real.
 _ui_q = st.query_params
