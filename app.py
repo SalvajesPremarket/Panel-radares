@@ -1,5 +1,3 @@
-import streamlit as st
-import streamlit.components.v1 as components  # <--- ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ ASÍ
 import os
 import json
 import time
@@ -3281,35 +3279,84 @@ panel_broker()
 # ============================================================
 
 # ============================================================
-# 🧪 VISTA DE PRUEBA — NUEVO SCREENER TIPO FINVIZ
+# 🧪 VISTA DE PRUEBA — NUEVO SCREENER INSTITUTIONAL
 # Esta sección reemplaza únicamente la prueba anterior.
-# El scanner real y su encabezado permanecen intactos.
+# El scanner real y su encabezado/logo permanecen intactos.
 # ============================================================
 
-# 1. CAPTURA DE ACCIONES EN VIVO DESDE LA INTERFAZ HTML
+# El scanner real ya configura Streamlit e importa los módulos necesarios.
+# Esta prueba usa estado y parámetros propios para no interferir con él.
 _demo_query_params = st.query_params
 
-# Lógica del disparador HTTP automático para el Broker al mover el engranaje
-if "link_ticker" in _demo_query_params and "layout_color" in _demo_query_params:
-    _demo_ticker_sel = _demo_query_params["link_ticker"]
-    _demo_color_sel = _demo_query_params["layout_color"]
-    _demo_url_puente = "http://localhost:8080/layout"
-    _demo_payload = {
-        "ticker": _demo_ticker_sel,
-        "layout_color": _demo_color_sel,
-        "timestamp": str(datetime.now()),
-    }
-    try:
-        requests.post(_demo_url_puente, json=_demo_payload, timeout=0.1)
-    except Exception:
-        pass
+_demo_defaults = {
+    "tsdemo_scanner_active": True,
+    "tsdemo_start_time": "08:00",
+    "tsdemo_end_time": "17:00",
+    "tsdemo_selected_broker": "Interactive Brokers",
+    "tsdemo_custom_broker": "",
+    "tsdemo_api_key": "",
+    "tsdemo_secret_key": "",
+    "tsdemo_broker_url": "http://localhost:8080/layout",
+    "tsdemo_selected_lang": "ESP",
+    "tsdemo_window_type": "Incrustada",
+}
+for _k, _v in _demo_defaults.items():
+    if _k not in st.session_state:
+        st.session_state[_k] = _v
 
-# 2. BASE DE DATOS DE PRUEBA ESTRUCTURADA PARA MAPEAR
+# 1. PROCESAMIENTO DE ACCIONES POR PARÁMETROS URL
+if "tsdemo_action" in _demo_query_params:
+    _demo_action = _demo_query_params["tsdemo_action"]
+    if _demo_action == "update_all":
+        st.session_state["tsdemo_scanner_active"] = _demo_query_params.get("c_active", "True") == "True"
+        st.session_state["tsdemo_start_time"] = _demo_query_params.get("c_start", "08:00")
+        st.session_state["tsdemo_end_time"] = _demo_query_params.get("c_end", "17:00")
+        st.session_state["tsdemo_selected_broker"] = _demo_query_params.get("c_broker", "Interactive Brokers")
+        st.session_state["tsdemo_custom_broker"] = _demo_query_params.get("c_cust_broker", "")
+        st.session_state["tsdemo_api_key"] = _demo_query_params.get("c_api", "")
+        st.session_state["tsdemo_secret_key"] = _demo_query_params.get("c_secret", "")
+        st.session_state["tsdemo_broker_url"] = _demo_query_params.get("c_url", "http://localhost:8080/layout")
+        st.session_state["tsdemo_selected_lang"] = _demo_query_params.get("c_lang", "ESP")
+        st.session_state["tsdemo_window_type"] = _demo_query_params.get("c_wnd", "Incrustada")
+    elif _demo_action == "reset":
+        for _k, _v in _demo_defaults.items():
+            st.session_state[_k] = _v
+
+    for _key in [
+        "tsdemo_action", "c_active", "c_start", "c_end", "c_broker",
+        "c_cust_broker", "c_api", "c_secret", "c_url", "c_lang", "c_wnd"
+    ]:
+        _demo_query_params.pop(_key, None)
+    st.rerun()
+
+# Despachador HTTP POST al broker local
+if st.session_state["tsdemo_scanner_active"]:
+    if "tsdemo_link_ticker" in _demo_query_params and "tsdemo_layout_color" in _demo_query_params:
+        _ticker_sel = _demo_query_params["tsdemo_link_ticker"]
+        _color_sel = _demo_query_params["tsdemo_layout_color"]
+        _payload = {
+            "ticker": _ticker_sel,
+            "layout_color": _color_sel,
+            "broker": (
+                st.session_state["tsdemo_custom_broker"]
+                if st.session_state["tsdemo_selected_broker"] == "Otro"
+                else st.session_state["tsdemo_selected_broker"]
+            ),
+            "api_key": st.session_state["tsdemo_api_key"],
+            "window_type": st.session_state["tsdemo_window_type"],
+            "timestamp": str(datetime.now()),
+        }
+        try:
+            requests.post(st.session_state["tsdemo_broker_url"], json=_payload, timeout=0.1)
+        except Exception:
+            pass
+
+# 2. BASE DE DATOS DE ACTIVOS (Dataset con volúmenes corregidos)
 @st.cache_data
-def generar_datos_finviz_demo():
+
+def generar_datos_finviz_institutional():
     tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "BABA", "PLTR", "SOUN"]
     sectores = ["Tecnología", "Tecnología", "Tecnología", "Consumo", "Tecnología", "Comunicación", "Automotriz", "Tecnología", "Entretenimiento", "Consumo", "Software", "Inteligencia Artificial"]
-
     return pd.DataFrame({
         "Ticker": tickers,
         "Sector": sectores,
@@ -3319,12 +3366,12 @@ def generar_datos_finviz_demo():
         "Gap": [1.50, 4.20, 8.50, -2.10, 0.50, 5.10, 9.20, -0.80, 3.50, 7.10, 1.20, 4.80],
         "Float": [12.5, 14.2, 18.0, 19.5, 22.0, 35.0, 48.0, 11.0, 15.5, 24.1, 41.3, 17.2],
         "EMA20": ["1ra Vela 1min por encima", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo", "Sin patrón", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"],
-        "MACD": ["Positivo", "Positivo", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Positivo", "Neutro"]
+        "MACD": ["Positivo", "Positivo", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Positivo", "Neutro"],
     })
 
-df_activos = generar_datos_finviz_demo()
+df_activos_institutional = generar_datos_finviz_institutional()
 
-# --- RECOLECCIÓN DE VALORES ACTIVOS DE FILTROS EN LA URL ---
+# --- EXTRACCIÓN DE PARÁMETROS FILTRADOS ---
 try:
     v_vol = int(_demo_query_params.get("f_vol", 0))
 except (TypeError, ValueError):
@@ -3335,265 +3382,367 @@ v_flt = _demo_query_params.get("f_flt", "Cualquiera")
 v_ema = _demo_query_params.get("f_ema", "Cualquiera")
 v_mac = _demo_query_params.get("f_mac", "Cualquiera")
 
-# --- PROCESAMIENTO MATEMÁTICO DE LOS FILTROS ---
-df_filtrado = df_activos.copy()
-if v_vol > 0:
-    df_filtrado = df_filtrado[df_filtrado["Volumen"] >= v_vol]
-if v_gap == "De 0% a 3%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap"] >= 0) & (df_filtrado["Gap"] <= 3)]
-elif v_gap == "De 4% a 6%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap"] >= 4) & (df_filtrado["Gap"] <= 6)]
-elif v_gap == "De 7% a 10%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap"] >= 7) & (df_filtrado["Gap"] <= 10)]
-if v_flt == "De 10M a 15M":
-    df_filtrado = df_filtrado[(df_filtrado["Float"] >= 10) & (df_filtrado["Float"] <= 15)]
-elif v_flt == "De 16M a 20M":
-    df_filtrado = df_filtrado[(df_filtrado["Float"] >= 16) & (df_filtrado["Float"] <= 20)]
-elif v_flt == "De 21M a 50M":
-    df_filtrado = df_filtrado[(df_filtrado["Float"] >= 21) & (df_filtrado["Float"] <= 50)]
-if v_ema != "Cualquiera":
-    df_filtrado = df_filtrado[df_filtrado["EMA20"] == v_ema]
-if v_mac != "Cualquiera":
-    df_filtrado = df_filtrado[df_filtrado["MACD"] == v_mac]
-if v_pre == "< $10":
-    df_filtrado = df_filtrado[df_filtrado["Precio"] < 10]
-elif v_pre == "$10 - $50":
-    df_filtrado = df_filtrado[(df_filtrado["Precio"] >= 10) & (df_filtrado["Precio"] <= 50)]
-elif v_pre == "$50 - $200":
-    df_filtrado = df_filtrado[(df_filtrado["Precio"] >= 50) & (df_filtrado["Precio"] <= 200)]
-elif v_pre == "> $200":
-    df_filtrado = df_filtrado[df_filtrado["Precio"] > 200]
+df_filtrado_institutional = df_activos_institutional.copy()
+if not st.session_state["tsdemo_scanner_active"]:
+    df_filtrado_institutional = pd.DataFrame(columns=df_activos_institutional.columns)
+else:
+    if v_vol > 0:
+        df_filtrado_institutional = df_filtrado_institutional[df_filtrado_institutional["Volumen"] >= v_vol]
+    if v_gap == "0to3":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Gap"] >= 0) & (df_filtrado_institutional["Gap"] <= 3)]
+    elif v_gap == "4to6":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Gap"] >= 4) & (df_filtrado_institutional["Gap"] <= 6)]
+    elif v_gap == "7to10":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Gap"] >= 7) & (df_filtrado_institutional["Gap"] <= 10)]
+    if v_flt == "10to15":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Float"] >= 10) & (df_filtrado_institutional["Float"] <= 15)]
+    elif v_flt == "16to20":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Float"] >= 16) & (df_filtrado_institutional["Float"] <= 20)]
+    elif v_flt == "21to50":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Float"] >= 21) & (df_filtrado_institutional["Float"] <= 50)]
+    if v_ema != "Cualquiera":
+        df_filtrado_institutional = df_filtrado_institutional[df_filtrado_institutional["EMA20"] == v_ema]
+    if v_mac != "Cualquiera":
+        df_filtrado_institutional = df_filtrado_institutional[df_filtrado_institutional["MACD"] == v_mac]
+    if v_pre == "under10":
+        df_filtrado_institutional = df_filtrado_institutional[df_filtrado_institutional["Precio"] < 10]
+    elif v_pre == "10to50":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Precio"] >= 10) & (df_filtrado_institutional["Precio"] <= 50)]
+    elif v_pre == "50to200":
+        df_filtrado_institutional = df_filtrado_institutional[(df_filtrado_institutional["Precio"] >= 50) & (df_filtrado_institutional["Precio"] <= 200)]
+    elif v_pre == "over200":
+        df_filtrado_institutional = df_filtrado_institutional[df_filtrado_institutional["Precio"] > 200]
 
-# 3. CONSTRUCCIÓN DE LA APLICACIÓN INTEGRAL EN HTML ENCAPSULADO
-html_aplicacion = f"""
+json_rows_institutional = df_filtrado_institutional.to_json(orient="records")
+
+# 3. CONSTRUCCIÓN DE LA APLICACIÓN INTEGRAL EN HTML (GRID EXPANDIDO RESPONSIVO)
+html_aplicacion_institutional = f"""
 <!DOCTYPE html>
 <html>
 <head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
     body {{
-        background-color: #f3f3f3;
-        font-family: Verdana, Arial, Tahoma, sans-serif;
+        background-color: #dcdcdc;
+        font-family: Verdana, Arial, sans-serif;
         font-size: 11px;
         color: #000000;
-        margin: 5px;
+        margin: 4px;
         padding: 0;
-    }}
-    .registro-bar {{
-        background-color: #ffffff;
-        border: 1px solid #a0a0a0;
-        padding: 8px;
-        margin-bottom: 12px;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }}
-    .registro-bar input {{
-        font-size: 11px;
-        font-family: Verdana;
-        padding: 3px;
-        border: 1px solid #777777;
-        width: 220px;
-    }}
-    .registro-bar button {{
-        font-size: 11px;
-        font-family: Verdana;
-        background-color: #f0f0f0;
-        border: 1px solid #777777;
-        cursor: pointer;
-        padding: 3px 10px;
     }}
     .filtros-grid {{
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 4px;
         background-color: #ffffff;
-        border: 1px solid #a0a0a0;
-        padding: 10px;
-        margin-bottom: 15px;
+        border: 1px solid #999999;
+        padding: 6px;
+        margin-bottom: 8px;
     }}
     .filtro-item {{
         display: flex;
-        flex-direction: column;
-        gap: 3px;
+        align-items: center;
+        justify-content: space-between;
+        background: #f1f1f1;
+        border: 1px solid #aaaaaa;
+        padding: 2px 5px;
+        height: 24px;
+        box-sizing: border-box;
     }}
     .filtro-item label {{
         font-weight: bold;
-        color: #333333;
+        color: #111111;
+        font-size: 10px;
+        white-space: nowrap;
+        margin-right: 4px;
     }}
-    .filtro-item select, .filtro-item input {{
-        font-family: Verdana;
+    .logo-container {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #e6e6e6;
+        border: 1px dashed #777777;
+        font-weight: bold;
+        color: #444444;
         font-size: 11px;
-        height: 22px;
+        height: 24px;
+        text-align: center;
+    }}
+    input, select, button {{
+        font-family: Verdana;
+        font-size: 10px;
+        height: 18px;
         border: 1px solid #777777;
         background-color: #ffffff;
-        padding: 2px;
-        box-shadow: none;
+        border-radius: 0px;
+        box-sizing: border-box;
         outline: none;
+    }}
+    button {{ cursor: pointer; background-color: #eaeaea; font-weight: bold; }}
+    button:active {{ background-color: #cccccc; }}
+    .table-wrapper {{
+        width: 100%;
+        overflow-x: auto;
+        background-color: #ffffff;
     }}
     table {{
         width: 100%;
         border-collapse: collapse;
-        background-color: #ffffff;
-        border: 1px solid #a0a0a0;
+        border: 1px solid #888888;
     }}
     th {{
-        background-color: #d3d3d3;
-        color: #444444;
+        background-color: #cccccc;
+        color: #000000;
         font-weight: bold;
-        padding: 5px;
-        border: 1px solid #a0a0a0;
-        text-align: left;
+        padding: 4px 5px;
+        border: 1px solid #888888;
+        font-size: 10px;
     }}
     td {{
-        padding: 5px 6px;
-        border: 1px solid #a0a0a0;
-        text-align: left;
-        vertical-align: middle;
-        height: 25px;
-    }}
-    tr:nth-child(even) td {{
-        background-color: #f9f9f9;
-    }}
-    .engranaje-select {{
-        font-family: Verdana;
-        font-size: 10px;
-        border: 1px solid #777777;
-        background: #ffffff;
+        padding: 4px 5px;
+        border: 1px solid #888888;
+        font-size: 11px;
+        white-space: nowrap;
         height: 20px;
-        width: 100%;
+    }}
+    .fila-alza {{ background-color: #e2f0d9 !important; }}
+    .fila-baja {{ background-color: #fce4d6 !important; }}
+    .engranaje-select {{ font-size: 9px; font-weight: bold; height: 16px; width: 100%; }}
+    .c-default {{ background-color: #ffffff; color: #000000; }}
+    .c-L1 {{ background-color: #ffcccc; }} .c-L2 {{ background-color: #ffe5cc; }}
+    .c-L3 {{ background-color: #ffffcc; }} .c-L4 {{ background-color: #e5ffcc; }}
+    .c-L5 {{ background-color: #ccffcc; }} .c-L6 {{ background-color: #ccffe5; }}
+    .c-L7 {{ background-color: #ccffff; }} .c-L8 {{ background-color: #cce5ff; }}
+    .c-L9 {{ background-color: #ccccff; }} .c-L10 {{ background-color: #e5ccff; }}
+    .macd-positivo {{ background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }}
+    .macd-negativo {{ background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }}
+    .macd-neutro {{ background-color: #e2e3e5 !important; text-align: center; }}
+    .num-col {{ text-align: right; }}
+    @media (max-width: 768px) {{
+        body {{ margin: 2px; }}
+        .filtros-grid {{ grid-template-columns: repeat(2, 1fr); padding: 4px; gap: 3px; }}
+        td, th {{ font-size: 10px; padding: 3px 4px; }}
+        .filtro-item select, .filtro-item input {{ width: 50%; }}
     }}
 </style>
 <script>
-    function aplicarFiltros() {{
-        var vol = document.getElementById('txt_vol').value;
-        var pre = document.getElementById('sel_pre').value;
-        var gap = document.getElementById('sel_gap').value;
-        var flt = document.getElementById('sel_flt').value;
-        var ema = document.getElementById('sel_ema').value;
-        var mac = document.getElementById('sel_mac').value;
-        window.parent.location.search = '?f_vol='+encodeURIComponent(vol)+'&f_pre='+encodeURIComponent(pre)+'&f_gap='+encodeURIComponent(gap)+'&f_flt='+encodeURIComponent(flt)+'&f_ema='+encodeURIComponent(ema)+'&f_mac='+encodeURIComponent(mac);
+    function pushConfig(actionType) {{
+        var urlParams = new URLSearchParams(window.parent.location.search);
+        urlParams.set('tsdemo_action', actionType);
+        if(actionType === 'update_all') {{
+            urlParams.set('c_active', document.getElementById('cfg_active').value);
+            urlParams.set('c_start', document.getElementById('cfg_start').value);
+            urlParams.set('c_end', document.getElementById('cfg_end').value);
+            urlParams.set('c_broker', document.getElementById('cfg_broker').value);
+            urlParams.set('c_cust_broker', document.getElementById('cfg_cust_broker').value);
+            urlParams.set('c_api', document.getElementById('cfg_api').value);
+            urlParams.set('c_secret', document.getElementById('cfg_secret').value);
+            urlParams.set('c_url', document.getElementById('cfg_url').value);
+            urlParams.set('c_lang', document.getElementById('cfg_lang').value);
+            urlParams.set('c_wnd', document.getElementById('cfg_wnd').value);
+            urlParams.set('f_vol', document.getElementById('txt_vol').value || 0);
+            urlParams.set('f_pre', document.getElementById('sel_pre').value);
+            urlParams.set('f_gap', document.getElementById('sel_gap').value);
+            urlParams.set('f_flt', document.getElementById('sel_flt').value);
+            urlParams.set('f_ema', document.getElementById('sel_ema').value);
+            urlParams.set('f_mac', document.getElementById('sel_mac').value);
+        }}
+        window.parent.location.search = '?' + urlParams.toString();
     }}
-    function cambiarLayout(ticker, colorVal) {{
+    function toggleCustomBroker() {{
+        var broker = document.getElementById('cfg_broker').value;
+        document.getElementById('cfg_cust_broker').style.display = (broker === "Otro") ? "inline-block" : "none";
+    }}
+    function cambiarLayout(ticker, selectObj) {{
+        var colorVal = selectObj.value;
+        selectObj.className = "engranaje-select c-" + (colorVal ? colorVal : "default");
         if(colorVal !== "") {{
             var urlParams = new URLSearchParams(window.parent.location.search);
-            urlParams.set('link_ticker', ticker);
-            urlParams.set('layout_color', colorVal);
-            window.parent.location.search = '?' + urlParams.toString();
+            urlParams.set('tsdemo_link_ticker', ticker);
+            urlParams.set('tsdemo_layout_color', colorVal);
+            window.parent.history.replaceState(null, '', '?' + urlParams.toString());
+            var targetUrl = document.getElementById('cfg_url').value || "http://localhost:8080/layout";
+            if(document.getElementById('cfg_wnd').value === "Flotante") {{
+                window.open(targetUrl + "?ticker=" + ticker + "&layout=" + colorVal, "_blank", "width=400,height=300");
+            }}
+            fetch(targetUrl, {{
+                method: "POST",
+                headers: {{ "Content-Type": "application/json" }},
+                body: JSON.stringify({{ 
+                    ticker: ticker, 
+                    layout_color: colorVal,
+                    broker: document.getElementById('cfg_broker').value,
+                    api_key: document.getElementById('cfg_api').value
+                }}),
+                mode: "cors"
+            }}).catch(e => console.log("Signal dispatched."));
         }}
     }}
 </script>
 </head>
-<body>
-    <div class="registro-bar">
-        <label>🔑 <b>Registro de Usuario:</b></label>
-        <input type="email" id="user_email" placeholder="usuario@correo.com">
-        <button type="button" onclick="alert('Correo guardado en el sistema.')">Crear Cuenta / Login</button>
-    </div>
+<body onload="toggleCustomBroker()">
     <div class="filtros-grid">
+        <div class="logo-container">[ LOGOTIPO ]</div>
         <div class="filtro-item">
-            <label>Volumen Mínimo (Monto exacto)</label>
-            <input type="number" id="txt_vol" value="{v_vol}" onchange="aplicarFiltros()">
-        </div>
-        <div class="filtro-item">
-            <label>Gap %</label>
-            <select id="sel_gap" onchange="aplicarFiltros()">
-                <option value="Cualquiera" {"selected" if v_gap=="Cualquiera" else ""}>Cualquiera</option>
-                <option value="De 0% a 3%" {"selected" if v_gap=="De 0% a 3%" else ""}>De 0% a 3%</option>
-                <option value="De 4% a 6%" {"selected" if v_gap=="De 4% a 6%" else ""}>De 4% a 6%</option>
-                <option value="De 7% a 10%" {"selected" if v_gap=="De 7% a 10%" else ""}>De 7% a 10%</option>
+            <label>MOTOR:</label>
+            <select id="cfg_active" onchange="pushConfig('update_all')" style="font-weight:bold;">
+                <option value="True" {'selected' if st.session_state["tsdemo_scanner_active"] else ''}>🟢 ON</option>
+                <option value="False" {'selected' if not st.session_state["tsdemo_scanner_active"] else ''}>🔴 OFF</option>
             </select>
         </div>
         <div class="filtro-item">
-            <label>Flotación (Float)</label>
-            <select id="sel_flt" onchange="aplicarFiltros()">
-                <option value="Cualquiera" {"selected" if v_flt=="Cualquiera" else ""}>Cualquiera</option>
-                <option value="De 10M a 15M" {"selected" if v_flt=="De 10M a 15M" else ""}>De 10M a 15M</option>
-                <option value="De 16M a 20M" {"selected" if v_flt=="De 16M a 20M" else ""}>De 16M a 20M</option>
-                <option value="De 21M a 50M" {"selected" if v_flt=="De 21M a 50M" else ""}>De 21M a 50M</option>
+            <label>LAPSO:</label>
+            <div style="display:flex; gap:2px;">
+                <input type="time" id="cfg_start" value="{st.session_state['tsdemo_start_time']}" onchange="pushConfig('update_all')">
+                <input type="time" id="cfg_end" value="{st.session_state['tsdemo_end_time']}" onchange="pushConfig('update_all')">
+            </div>
+        </div>
+        <div class="filtro-item">
+            <label>IDIOMA:</label>
+            <select id="cfg_lang" onchange="pushConfig('update_all')">
+                <option value="ESP" {'selected' if st.session_state['tsdemo_selected_lang']=='ESP' else ''}>ESP</option>
+                <option value="ENG" {'selected' if st.session_state['tsdemo_selected_lang']=='ENG' else ''}>ENG</option>
             </select>
         </div>
         <div class="filtro-item">
-            <label>MACD Estado</label>
-            <select id="sel_mac" onchange="aplicarFiltros()">
-                <option value="Cualquiera" {"selected" if v_mac=="Cualquiera" else ""}>Cualquiera</option>
-                <option value="Positivo" {"selected" if v_mac=="Positivo" else ""}>Positivo</option>
-                <option value="Negativo" {"selected" if v_mac=="Negativo" else ""}>Negativo</option>
-                <option value="Neutro" {"selected" if v_mac=="Neutro" else ""}>Neutro</option>
+            <label>VENTANA:</label>
+            <select id="cfg_wnd" onchange="pushConfig('update_all')">
+                <option value="Incrustada" {'selected' if st.session_state['tsdemo_window_type']=='Incrustada' else ''}>Incrustada</option>
+                <option value="Flotante" {'selected' if st.session_state['tsdemo_window_type']=='Flotante' else ''}>Flotante</option>
             </select>
         </div>
         <div class="filtro-item">
-            <label>Precio ($)</label>
-            <select id="sel_pre" onchange="aplicarFiltros()">
-                <option value="Cualquiera" {"selected" if v_pre=="Cualquiera" else ""}>Cualquiera</option>
-                <option value="< $10" {"selected" if v_pre=="< $10" else ""}>&lt; $10</option>
-                <option value="$10 - $50" {"selected" if v_pre=="$10 - $50" else ""}>$10 - $50</option>
-                <option value="$50 - $200" {"selected" if v_pre=="$50 - $200" else ""}>$50 - $200</option>
-                <option value="> $200" {"selected" if v_pre=="> $200" else ""}>&gt; $200</option>
+            <label>BROKER:</label>
+            <select id="cfg_broker" onchange="toggleCustomBroker(); pushConfig('update_all');" style="width:50%;">
+                <option value="Interactive Brokers" {'selected' if st.session_state['tsdemo_selected_broker']=='Interactive Brokers' else ''}>Interactive Brokers</option>
+                <option value="Tradestation" {'selected' if st.session_state['tsdemo_selected_broker']=='Tradestation' else ''}>Tradestation</option>
+                <option value="Otro" {'selected' if st.session_state['tsdemo_selected_broker']=='Otro' else ''}>Otro</option>
+            </select>
+            <input type="text" id="cfg_cust_broker" value="{st.session_state['tsdemo_custom_broker']}" style="width:45%; display:none;" placeholder="Nombre..." onchange="pushConfig('update_all')">
+        </div>
+        <div class="filtro-item"><label>API KEY:</label><input type="text" id="cfg_api" value="{st.session_state['tsdemo_api_key']}" onchange="pushConfig('update_all')" style="width:60%;"></div>
+        <div class="filtro-item"><label>SECRET:</label><input type="password" id="cfg_secret" value="{st.session_state['tsdemo_secret_key']}" onchange="pushConfig('update_all')" style="width:60%;"></div>
+        <div class="filtro-item"><label>PUENTE:</label><input type="text" id="cfg_url" value="{st.session_state['tsdemo_broker_url']}" onchange="pushConfig('update_all')" style="width:60%;"></div>
+        <div class="filtro-item"><label>VOLUMEN &gt;</label><input type="number" id="txt_vol" value="{v_vol if v_vol > 0 else ''}" onchange="pushConfig('update_all')"></div>
+        <div class="filtro-item">
+            <label>PRECIO ($)</label>
+            <select id="sel_pre" onchange="pushConfig('update_all')">
+                <option value="Cualquiera" {'selected' if v_pre=='Cualquiera' else ''}>Cualquiera</option>
+                <option value="under10" {'selected' if v_pre=='under10' else ''}>&lt; $10</option>
+                <option value="10to50" {'selected' if v_pre=='10to50' else ''}>$10 - $50</option>
+                <option value="50to200" {'selected' if v_pre=='50to200' else ''}>$50 - $200</option>
+                <option value="over200" {'selected' if v_pre=='over200' else ''}>&gt; $200</option>
             </select>
         </div>
         <div class="filtro-item">
-            <label>EMA 20 Patrón</label>
-            <select id="sel_ema" onchange="aplicarFiltros()">
-                <option value="Cualquiera" {"selected" if v_ema=="Cualquiera" else ""}>Cualquiera</option>
-                <option value="1ra Vela 1min por encima" {"selected" if v_ema=="1ra Vela 1min por encima" else ""}>1ra Vela 1min por encima</option>
-                <option value="1ra Vela 1min por debajo" {"selected" if v_ema=="1ra Vela 1min por debajo" else ""}>1ra Vela 1min por debajo</option>
+            <label>GAP %</label>
+            <select id="sel_gap" onchange="pushConfig('update_all')">
+                <option value="Cualquiera" {'selected' if v_gap=='Cualquiera' else ''}>Cualquiera</option>
+                <option value="0to3" {'selected' if v_gap=='0to3' else ''}>0% a 3%</option>
+                <option value="4to6" {'selected' if v_gap=='4to6' else ''}>4% a 6%</option>
+                <option value="7to10" {'selected' if v_gap=='7to10' else ''}>7% a 10%</option>
             </select>
+        </div>
+        <div class="filtro-item">
+            <label>FLOAT:</label>
+            <select id="sel_flt" onchange="pushConfig('update_all')">
+                <option value="Cualquiera" {'selected' if v_flt=='Cualquiera' else ''}>Cualquiera</option>
+                <option value="10to15" {'selected' if v_flt=='10to15' else ''}>10M a 15M</option>
+                <option value="16to20" {'selected' if v_flt=='16to20' else ''}>16M a 20M</option>
+                <option value="21to50" {'selected' if v_flt=='21to50' else ''}>21M a 50M</option>
+            </select>
+        </div>
+        <div class="filtro-item">
+            <label>EMA20 1M:</label>
+            <select id="sel_ema" onchange="pushConfig('update_all')">
+                <option value="Cualquiera" {'selected' if v_ema=='Cualquiera' else ''}>Cualquiera</option>
+                <option value="1ra Vela 1min por encima" {'selected' if v_ema=='1ra Vela 1min por encima' else ''}>Por encima</option>
+                <option value="1ra Vela 1min por debajo" {'selected' if v_ema=='1ra Vela 1min por debajo' else ''}>Por debajo</option>
+            </select>
+        </div>
+        <div class="filtro-item">
+            <label>MACD:</label>
+            <select id="sel_mac" onchange="pushConfig('update_all')">
+                <option value="Cualquiera" {'selected' if v_mac=='Cualquiera' else ''}>Cualquiera</option>
+                <option value="Positivo" {'selected' if v_mac=='Positivo' else ''}>Positivo</option>
+                <option value="Negativo" {'selected' if v_mac=='Negativo' else ''}>Negativo</option>
+                <option value="Neutro" {'selected' if v_mac=='Neutro' else ''}>Neutro</option>
+            </select>
+        </div>
+        <div class="filtro-item" style="justify-content: space-around;">
+            <button type="button" style="background-color: #fff2cc;" onclick="pushConfig('update_all')">GUARDAR</button>
+            <button type="button" style="background-color: #fce4d6; color: red;" onclick="pushConfig('reset')">REINICIAR</button>
         </div>
     </div>
-    <table>
-        <thead>
-            <tr>
-                <th style="width: 155px;">LINK LAYOUT (API)</th>
-                <th>TICKER</th>
-                <th>SECTOR</th>
-                <th>PRECIO</th>
-                <th>CAMBIO %</th>
-                <th>VOLUMEN</th>
-                <th>GAP %</th>
-                <th>EMA20 (1 MIN)</th>
-                <th>MACD</th>
-            </tr>
-        </thead>
-        <tbody>
-"""
 
-for idx, row in df_filtrado.iterrows():
-    c_pct = "#00873c" if row["Cambio"] >= 0 else "#eb0f29"
-    c_mac = "#00873c" if row["MACD"] == "Positivo" else ("#eb0f29" if row["MACD"] == "Negativo" else "#555555")
-    html_aplicacion += f"""
-            <tr>
-                <td>
-                    <select class="engranaje-select" onchange="cambiarLayout('{row['Ticker']}', this.value)">
-                        <option value="">⚙️ Enlazar Color...</option>
-                        <option value="🔴 L1 (Rojo)">🔴 L1 (Rojo)</option>
-                        <option value="🔵 L2 (Azul)">🔵 L2 (Azul)</option>
-                        <option value="🟢 L3 (Verde)">🟢 L3 (Verde)</option>
-                        <option value="🟡 L4 (Amarillo)">🟡 L4 (Amarillo)</option>
-                        <option value="🟣 L5 (Morado)">🟣 L5 (Morado)</option>
-                        <option value="🟠 L6 (Naranja)">🟠 L6 (Naranja)</option>
-                        <option value="⚪ L7 (Blanco)">⚪ L7 (Blanco)</option>
-                        <option value="⚫ L8 (Negro)">⚫ L8 (Negro)</option>
-                        <option value="🔷 L9 (Cian)">🔷 L9 (Cian)</option>
-                        <option value="🌸 L10 (Rosa)">🌸 L10 (Rosa)</option>
-                    </select>
-                </td>
-                <td><b style="color:#0000ff;">{row['Ticker']}</b></td>
-                <td>{row['Sector']}</td>
-                <td>${row['Precio']:.2f}</td>
-                <td style="color:{c_pct}; font-weight:bold;">{row['Cambio']}%</td>
-                <td>{row['Volumen']:,}</td>
-                <td>{row['Gap']}%</td>
-                <td style="font-size:10px;">{row['EMA20']}</td>
-                <td style="color:{c_mac}; font-weight:bold;">{row['MACD']}</td>
-            </tr>
-    """
+    <div class="table-wrapper">
+        <table id="tabla_scanner">
+            <thead>
+                <tr>
+                    <th style="width: 65px; text-align: center;">LAYOUT</th>
+                    <th>TICKER</th>
+                    <th>SECTOR</th>
+                    <th class="num-col">PRECIO ($)</th>
+                    <th class="num-col">CAMBIO %</th>
+                    <th class="num-col">GAP %</th>
+                    <th class="num-col">FLOAT</th>
+                    <th>EMA 20 INTRADÍA</th>
+                    <th style="text-align: center;">MACD</th>
+                    <th class="num-col">VOLUMEN</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
 
-html_aplicacion += """
-        </tbody>
-    </table>
+    <script>
+        const dataset = {json_rows_institutional};
+        const tbody = document.querySelector("#tabla_scanner tbody");
+        if(dataset.length === 0) {{
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:#555; padding: 15px; background:#fff;">SISTEMA INACTIVO O SIN RESULTADOS.</td></tr>`;
+        }} else {{
+            dataset.forEach(row => {{
+                let tr = document.createElement("tr");
+                tr.className = row.Cambio >= 0 ? "fila-alza" : "fila-baja";
+                let macdStyle = "macd-neutro";
+                if(row.MACD === "Positivo") macdStyle = "macd-positivo";
+                if(row.MACD === "Negativo") macdStyle = "macd-negativo";
+                let cambioColor = row.Cambio >= 0 ? "green" : "red";
+                let gapColor = row.Gap >= 0 ? "green" : "red";
+                tr.innerHTML = `
+                    <td style="text-align:center; padding: 1px;">
+                        <select class="engranaje-select c-default" onchange="cambiarLayout('${{row.Ticker}}', this)">
+                            <option value="" class="c-default">⚙️ --</option>
+                            <option value="L1" class="c-L1">L1</option>
+                            <option value="L2" class="c-L2">L2</option>
+                            <option value="L3" class="c-L3">L3</option>
+                            <option value="L4" class="c-L4">L4</option>
+                            <option value="L5" class="c-L5">L5</option>
+                            <option value="L6" class="c-L6">L6</option>
+                            <option value="L7" class="c-L7">L7</option>
+                            <option value="L8" class="c-L8">L8</option>
+                            <option value="L9" class="c-L9">L9</option>
+                            <option value="L10" class="c-L10">L10</option>
+                        </select>
+                    </td>
+                    <td style="font-weight: bold; color: #0000cc;">${{row.Ticker}}</td>
+                    <td>${{row.Sector}}</td>
+                    <td class="num-col" style="font-weight: bold;">${{row.Precio.toFixed(2)}}</td>
+                    <td class="num-col" style="color: ${{cambioColor}}; font-weight:bold;">${{row.Cambio >= 0 ? '+' : ''}}${{row.Cambio.toFixed(2)}}%</td>
+                    <td class="num-col" style="color: ${{gapColor}};">${{row.Gap >= 0 ? '+' : ''}}${{row.Gap.toFixed(2)}}%</td>
+                    <td class="num-col">${{row.Float.toFixed(1)}}M</td>
+                    <td>${{row.EMA20}}</td>
+                    <td class="${{macdStyle}}">${{row.MACD}}</td>
+                    <td class="num-col">${{row.Volumen.toLocaleString()}}</td>
+                `;
+                tbody.appendChild(tr);
+            }});
+        }}
+    </script>
 </body>
 </html>
 """
 
-# 4. DESPLIEGUE FINAL — Altura fija de 650px
-components.html(html_aplicacion, height=650, scrolling=True)
+# 4. INYECCIÓN RESPONSIVA EN EL LIENZO DE STREAMLIT
+components.html(html_aplicacion_institutional, height=850, scrolling=True)
