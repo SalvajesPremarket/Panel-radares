@@ -2193,7 +2193,7 @@ st.markdown("""
         display:block !important;
         width:min(100%, 860px) !important;
         height:auto !important;
-        max-height:142px !important;
+        max-height:172px !important;
         object-fit:contain !important;
         object-position:center !important;
     }
@@ -2303,7 +2303,7 @@ st.markdown("""
         font-size:9px !important;
     }
     @media (max-width: 900px) {
-        .dash-header { height:58px !important; padding:3px 6px !important; }
+        .dash-header { height:68px !important; padding:3px 6px !important; }
         .dash-brand .logo-image { width:100% !important; height:100% !important; }
     }
     @media (max-width: 640px) {
@@ -2324,7 +2324,7 @@ st.markdown("""
             max-width:84vw !important;
             width:84vw !important;
             height:auto !important;
-            max-height:43px !important;
+            max-height:53px !important;
             object-fit:contain !important;
         }
         .simple-title { font-size:12px !important; }
