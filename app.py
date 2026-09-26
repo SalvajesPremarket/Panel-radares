@@ -2310,7 +2310,7 @@ json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</
 
 # 2. Construcción de la carátula rígida 2D encapsulada
 # ==============================================================================
-# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (SISTEMA DE PARSEO SEGURO MARKMOWN)
+# 🖥️ CARÁTULA BLINDADA ESTILO FINVIZ DE ALTA DENSIDAD (SOLUCIÓN COMPLETA DE UNA PIEZA)
 # ==============================================================================
 
 try:
@@ -2360,40 +2360,84 @@ f_flt_val = st.query_params.get("f_flt", "Cualquiera")
 f_ema_val = st.query_params.get("f_ema", "Cualquiera")
 f_mac_val = st.query_params.get("f_mac", "Cualquiera")
 
-# 2. Inyección directa mediante iframes nativos sandboxed para evitar colapsar Python
-html_componente_seguro = f"""
-<<div style="max-width: 1200px; margin: 30px auto 10px auto; padding: 0 15px; box-sizing: border-box;">
-<div class="filtros-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; font-family: Verdana, sans-serif; font-size: 11px;">
-    <div style="display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; height: 24px;">[ LOGOTIPO ]</div>
-    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">MOTOR:</label><select id="cfg_active" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><option value="True" {m_on}>🟢 ON ({_estado_txt})</option><option value="False" {m_off}>🔴 OFF</option></select></div>
-    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">LAPSO:</label><div style="display:flex; gap:2px;"><input type="time" id="cfg_start" value="{st.session_state.get('start_time', '08:00')}" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><input type="time" id="cfg_end" value="{st.session_state.get('end_time', '17:00')}" style="font-size: 10px; height: 18px; border: 1px solid #777777;"></div></div>
-    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">IDIOMA:</label><select id="cfg_lang" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><option value="ESP" {l_esp}>ESP</option><option value="ENG" {l_eng}>ENG</option></select></div>
-    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">VENTANA:</label><select id="cfg_wnd" style="font-size: 10px; height: 18px; border: 1px solid #777777;"><option value="Incrustada" {w_inc}>Incrustada</option><option value="Flotante" {w_flo}>Flotante</option></select></div>
-    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">BROKER:</label><select id="cfg_broker" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:50%;"><option value="Interactive Brokers" {b_ib}>Interactive Brokers</option><option value="Tradestation" {b_ts}>Tradestation</option><option value="Otro" {b_ot}>Otro</option></select></div>
-    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">PUENTE:</label><input type="text" id="cfg_url" value="{st.session_state.get('bk_puente', 'http://127.0.0')}" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:60%;"></div>
-    <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">VOLUMEN &gt;</label><input type="number" id="txt_vol" value="{st.query_params.get('f_vol', '')}" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:60%;"></div>
-</div>
-</div>
-"""
-
-# Renderizar controles superiores planos estilizados Finviz de forma segura
-st.markdown(html_componente_seguro, unsafe_allow_html=True)
-
-# 3. Renderizar la tabla de datos reales utilizando la infraestructura estructurada de DataFrames de Streamlit
-if len(datos_formateados) == 0:
-    st.info("SISTEMA INACTIVO O SIN CANDIDATOS EN ESTE CICLO.")
-else:
-    df_visual = pd.DataFrame(datos_formateados)
-    
-    # Formatear columnas numéricas al estilo institucional exacto
-    df_visual["Precio"] = df_visual["Precio"].map(lambda x: f"${x:,.2f}")
-    df_visual["Cambio"] = df_visual["Cambio"].map(lambda x: f"{'+' if x>=0 else ''}{x:,.2f}%")
-    df_visual["Gap"] = df_visual["Gap"].map(lambda x: f"{'+' if x>=0 else ''}{x:,.2f}%")
-    df_visual["Float"] = df_visual["Float"].map(lambda x: f"{x:,.1f}M")
-    df_visual["Volumen"] = df_visual["Volumen"].map(lambda x: f"{x:,}")
-    
-    # Reordenar las columnas fijas para coincidir con el diseño tabular
-    df_visual = df_visual[["Ticker", "Sector", "Precio", "Cambio", "Gap", "Float", "EMA20", "MACD", "Volumen"]]
-    
-    # Desplegar la matriz en pantalla completa de alta densidad
-    st.dataframe(df_visual, hide_index=True, use_container_width=True)
+# 2. Lienzo Monolítico de Aislamiento Absoluto (Filtros en 4 columnas y Tabla Fija Completa)
+html_caratula_completa = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+    body {{ background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }}
+    .main-container {{ max-width: 1200px; margin: 15px auto; padding: 0 10px; box-sizing: border-box; }}
+    .filtros-grid {{ display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }}
+    .filtro-item {{ display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }}
+    .filtro-item label {{ font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }}
+    .logo-container {{ display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }}
+    input, select, button {{ font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }}
+    button {{ cursor: pointer; background-color: #eaeaea; font-weight: bold; }}
+    button:active {{ background-color: #cccccc; }}
+    .table-wrapper {{ width: 100%; overflow-x: auto; background-color: #ffffff; border: 1px solid #888888; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th {{ background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; text-align: left; }}
+    td {{ padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; text-align: left; }}
+    .fila-alza {{ background-color: #e2f0d9 !important; }}
+    .fila-baja {{ background-color: #fce4d6 !important; }}
+    .engranaje-select {{ font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }}
+    .macd-positivo {{ background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }}
+    .macd-negativo {{ background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }}
+    .macd-neutro {{ background-color: #e2e3e5 !important; text-align: center; }}
+    .num-col {{ text-align: right; }}
+    @media (max-width: 768px) {{ .filtros-grid {{ grid-template-columns: repeat(2, 1fr); }} }}
+</style>
+<script>
+    function pushConfig(actionType) {{
+        var urlParams = new URLSearchParams(window.parent.location.search);
+        urlParams.set('action', actionType);
+        if(actionType === 'update_all') {{
+            urlParams.set('c_active', document.getElementById('cfg_active').value);
+            urlParams.set('c_start', document.getElementById('cfg_start').value);
+            urlParams.set('c_end', document.getElementById('cfg_end').value);
+            urlParams.set('c_broker', document.getElementById('cfg_broker').value);
+            urlParams.set('c_cust_broker', document.getElementById('cfg_cust_broker').value);
+            urlParams.set('c_api', document.getElementById('cfg_api').value);
+            urlParams.set('c_secret', document.getElementById('cfg_secret').value);
+            urlParams.set('c_url', document.getElementById('cfg_url').value);
+            urlParams.set('c_lang', document.getElementById('cfg_lang').value);
+            urlParams.set('c_wnd', document.getElementById('cfg_wnd').value);
+            urlParams.set('f_vol', document.getElementById('txt_vol').value || 0);
+            urlParams.set('f_pre', document.getElementById('sel_pre').value);
+            urlParams.set('f_gap', document.getElementById('sel_gap').value);
+            urlParams.set('f_flt', document.getElementById('sel_flt').value);
+            urlParams.set('f_ema', document.getElementById('sel_ema').value);
+            urlParams.set('f_mac', document.getElementById('sel_mac').value);
+        }}
+        window.parent.location.search = '?' + urlParams.toString();
+    }}
+    function toggleCustomBroker() {{
+        var broker = document.getElementById('cfg_broker').value;
+        document.getElementById('cfg_cust_broker').style.display = (broker === "Otro") ? "inline-block" : "none";
+    }}
+    function cambiarLayout(ticker, selectObj) {{
+        var colorVal = selectObj.value;
+        if(colorVal !== "") {{
+            var urlParams = new URLSearchParams(window.parent.location.search);
+            urlParams.set('link_ticker', ticker);
+            urlParams.set('layout_color', colorVal);
+            window.parent.history.replaceState(null, '', '?' + urlParams.toString());
+            var targetUrl = document.getElementById('cfg_url').value;
+            fetch(targetUrl, {{ method: "POST", headers: {{ "Content-Type": "application/json" }}, body: JSON.stringify({{ ticker: ticker, layout_color: colorVal, broker: document.getElementById('cfg_broker').value, api_key: document.getElementById('cfg_api').value }}), mode: "cors" }}).catch(e => console.log("Signal dispatched."));
+        }}
+    }}
+</script>
+</head>
+<body>
+    <div class="main-container">
+        <div class="filtros-grid">
+            <div class="logo-container">[ LOGOTIPO ]</div>
+            <div class="filtro-item"><label>MOTOR:</label><select id="cfg_active" onchange="pushConfig('update_all')"><option value="True" {m_on}>🟢 ON ({_estado_txt})</option><option value="False" {m_off}>🔴 OFF</option></select></div>
+            <div class="filtro-item"><label>LAPSO:</label><div style="display:flex; gap:2px;"><input type="time" id="cfg_start" value="{st.session_state.get('start_time', '08:00')}" onchange="pushConfig('update_all')"><input type="time" id="cfg_end" value="{st.session_state.get('end_time', '17:00')}" onchange="pushConfig('update_all')"></div></div>
+            <div class="filtro-item"><label>IDIOMA:</label><select id="cfg_lang" onchange="pushConfig('update_all')"><option value="ESP" {l_esp}>ESP</option><option value="ENG" {l_eng}>ENG</option></select></div>
+            <div class="filtro-item"><label>VENTANA:</label><select id="cfg_wnd" onchange="pushConfig('update_all')"><option value="Incrustada" {w_inc}>Incrustada</option><option value="Flotante" {w_flo}>Flotante</option></select></div>
+            <div class="filtro-item"><label>BROKER:</label><select id="cfg_broker" onchange="toggleCustomBroker(); pushConfig('update_all');" style="width:50%;"><option value="Interactive Brokers" {b_ib}>Interactive Brokers</option><option value="Tradestation" {b_ts}>Tradestation</option><option value="Otro" {b_ot}>Otro</option></select></div>
+            <div class="filtro-item"><label>API KEY:</label><input type="text" id="cfg_api" value="" style="width:60%;"></div>
