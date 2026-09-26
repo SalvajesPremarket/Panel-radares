@@ -2322,7 +2322,7 @@ _hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto
 _estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
 
 # 1. Extracción y preparación de tus datos reales filtrados por el usuario
-filas_reales = filtrar_resultados(list(servicio.resultados), params) if "params" in locals() else list(servicio.resultados)
+filas_reales = list(servicio.resultados)
 
 datos_formateados = []
 for row in filas_reales:
