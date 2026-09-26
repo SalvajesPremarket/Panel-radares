@@ -2422,6 +2422,14 @@ def _row_html(row):
     news = " 🔥" if noticia else ""
     return (
         f"<tr class='{fila}'>"
+        f"<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
+        f"<option value=''>⚙️ Layout</option>"
+        f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
+        f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
+        f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
+        f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
+        f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
+        f"</select></td>"
         f"<td><b>{ticker}</b>{news}</td>"
         f"<td>{sector}</td>"
         f"<td class='num-col'>{_money(precio)}</td>"
@@ -2430,15 +2438,7 @@ def _row_html(row):
         f"<td class='num-col'>{_pct(cambio)}</td>"
         f"<td class='num-col'>{flotacion:.2f}M</td>"
         f"<td>{ema_txt}</td>"
-        f"<td class='{mac_cls}'>{mac_txt}</td>"
-        f"<td><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
-        f"<option value=''>⚙️ Layout</option>"
-        f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
-        f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
-        f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
-        f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
-        f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-        f"</select></td></tr>"
+        f"<td class='{mac_cls}'>{mac_txt}</td></tr>"
     )
 
 
@@ -2454,17 +2454,17 @@ def _row_visualizacion(item, indice):
     if item is None:
         return (
             "<tr class='fila-vacia'>"
-            "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
-            "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
-            "<td class='num-col'>—</td><td>—</td><td class='macd-neutro'>—</td>"
-            "<td><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
+            "<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
             "<option value=''>⚙️ Layout</option>"
             "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
             "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
             "<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
             "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
             "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-            "</select></td></tr>"
+            "</select></td>"
+            "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
+            "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
+            "<td class='num-col'>—</td><td>—</td><td class='macd-neutro'>—</td></tr>"
         )
     return _row_html(item)
 
@@ -2496,7 +2496,7 @@ h += "<style>"
 h += "*{box-sizing:border-box;}"
 h += "body{background:#dcdcdc;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;margin:0;padding:0;}"
 h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
-h += ".topbar{background:#efefef;border:1px solid #777;padding:7px 9px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px;}"
+h += ".topbar{background:#efefef;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;}"
 h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#111;white-space:nowrap;}.brand small{font-size:10px;font-weight:normal;color:#555;}"
 h += ".status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}"
 h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#c9c9c9;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
@@ -2515,7 +2515,7 @@ h += "th{background:#c8c8c8;color:#000;font-weight:bold;padding:7px 7px;border:1
 h += "td{padding:5px 7px;border:1px solid #aaa;font-size:11px;white-space:nowrap;height:27px;}"
 h += ".fila-alza{background:#edf7e8}.fila-baja{background:#fceceb}.fila-vacia{background:#fafafa;color:#777}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
 h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
-h += ".engranaje-select{width:115px;font-size:9px;height:21px;}"
+h += ".layout-col{width:120px;text-align:center;background:#f1f1f1;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
 h += ".footer-note{margin-top:4px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:8px;}"
 h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;}}"
 h += "@media(max-width:520px){.main-container{padding:3px}.filtros-grid{grid-template-columns:1fr 1fr;gap:3px}.filtro-item{min-height:30px;padding:3px}.filtro-item label{font-size:8px}.filtro-item input,.filtro-item select{font-size:8px;height:21px;max-width:100px}.tabs{overflow-x:auto}.tab{font-size:8px;padding:3px 6px}.topbar{padding:5px}.brand{font-size:13px}.status{font-size:8px}}"
@@ -2564,11 +2564,11 @@ h += "</div>"
 h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span></div>"
 h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
 h += "<div class='table-wrapper'><table><thead><tr>"
-h += "<th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 (1 min)</th><th>MACD</th><th>⚙️ Layout</th>"
+h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 (1 min)</th><th>MACD</th>"
 h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
 h += f"<div class='footer-note'><span>Motor real conectado · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
 h += "</div></body></html>"
 
 # La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
 # anterior de Streamlit no pueda ocultarla. El motor sigue ejecutándose fuera.
-components.html(h, height=590, scrolling=True)
+components.html(h, height=760, scrolling=False)
