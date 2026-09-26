@@ -2442,13 +2442,34 @@ def _row_html(row):
     )
 
 
-rows_html = "".join(_row_html(r) for r in filas_reales)
-if not rows_html:
-    rows_html = (
-        "<tr><td colspan='10' class='empty-row'>"
-        "Sin candidatos en este momento. El motor continúa escaneando en segundo plano."
-        "</td></tr>"
-    )
+# La sección RESULTADOS / VISUALIZACIÓN mantiene siempre las 10 líneas
+# horizontales del diseño. Cuando hay señales reales se colocan en las primeras
+# líneas; las restantes quedan disponibles con su engranaje de Layout.
+filas_visualizacion = list(filas_reales[:10])
+while len(filas_visualizacion) < 10:
+    filas_visualizacion.append(None)
+
+
+def _row_visualizacion(item, indice):
+    if item is None:
+        return (
+            "<tr class='fila-vacia'>"
+            "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
+            "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
+            "<td class='num-col'>—</td><td>—</td><td class='macd-neutro'>—</td>"
+            "<td><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
+            "<option value=''>⚙️ Layout</option>"
+            "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
+            "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
+            "<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
+            "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
+            "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
+            "</select></td></tr>"
+        )
+    return _row_html(item)
+
+
+rows_html = "".join(_row_visualizacion(r, i + 1) for i, r in enumerate(filas_visualizacion))
 
 try:
     hora_ini = int(servicio.hora_inicio_auto_min)
@@ -2488,10 +2509,11 @@ h += "input{min-width:0;width:105px;padding:1px 4px;}select{min-width:105px;max-
 h += ".range{display:flex;gap:2px;align-items:center;}.range span{font-size:8px;color:#555;}"
 h += ".logo{display:flex;align-items:center;justify-content:center;background:#e6e6e6;border:1px dashed #777;font-weight:900;color:#222;min-height:34px;font-size:14px;}"
 h += ".engine{font-weight:bold;}.subline{background:#eee;border:1px solid #999;padding:5px 7px;margin-bottom:6px;font-size:10px;display:flex;gap:16px;flex-wrap:wrap;}"
-h += ".table-wrapper{width:100%;overflow-x:auto;background:#fff;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;}"
+h += ".result-title{background:#c9c9c9;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;}"
+h += ".table-wrapper{width:100%;overflow-x:auto;background:#fff;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
 h += "th{background:#c8c8c8;color:#000;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
-h += "td{padding:6px 7px;border:1px solid #aaa;font-size:12px;white-space:nowrap;height:25px;}"
-h += ".fila-alza{background:#edf7e8}.fila-baja{background:#fceceb}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
+h += "td{padding:5px 7px;border:1px solid #aaa;font-size:11px;white-space:nowrap;height:27px;}"
+h += ".fila-alza{background:#edf7e8}.fila-baja{background:#fceceb}.fila-vacia{background:#fafafa;color:#777}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
 h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
 h += ".engranaje-select{width:115px;font-size:9px;height:21px;}"
 h += ".footer-note{margin-top:4px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:8px;}"
@@ -2540,12 +2562,13 @@ h += f"<div class='filtro-item'><label>PUENTE</label><input type='text' id='cfg_
 h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR FILTROS</button></div>"
 h += "</div>"
 h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span></div>"
+h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
 h += "<div class='table-wrapper'><table><thead><tr>"
-h += "<th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 (1 min)</th><th>MACD</th><th>Layout</th>"
+h += "<th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 (1 min)</th><th>MACD</th><th>⚙️ Layout</th>"
 h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
 h += f"<div class='footer-note'><span>Motor real conectado · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
 h += "</div></body></html>"
 
 # La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
 # anterior de Streamlit no pueda ocultarla. El motor sigue ejecutándose fuera.
-components.html(h, height=520, scrolling=True)
+components.html(h, height=590, scrolling=True)
