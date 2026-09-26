@@ -2373,6 +2373,7 @@ html_componente_seguro = f"""
     <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">PUENTE:</label><input type="text" id="cfg_url" value="{st.session_state.get('bk_puente', 'http://127.0.0')}" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:60%;"></div>
     <div style="display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box;"><label style="font-weight: bold;">VOLUMEN &gt;</label><input type="number" id="txt_vol" value="{st.query_params.get('f_vol', '')}" style="font-size: 10px; height: 18px; border: 1px solid #777777; width:60%;"></div>
 </div>
+</div>
 """
 
 # Renderizar controles superiores planos estilizados Finviz de forma segura
