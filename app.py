@@ -1,3 +1,5 @@
+import streamlit as st
+import streamlit.components.v1 as components  # <--- ASEGÚRATE DE QUE ESTA LÍNEA ESTÉ ASÍ
 import os
 import json
 import time
