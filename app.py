@@ -2278,7 +2278,6 @@ st.markdown("""
 # 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (REEMPLAZO FINAL DEFINITIVO CORREGIDO)
 # ==============================================================================
 
-# Sincronización de traducciones y textos rápidos según el estado del motor real
 try:
     servicio._esta_en_horario_automatico()
 except Exception:
@@ -2318,7 +2317,7 @@ html_caratula_finviz = f"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
     body {{
-        background-color: #dcdcdc; /* Color de fondo gris cenizo institucional */
+        background-color: #dcdcdc;
         font-family: Verdana, Arial, sans-serif;
         font-size: 11px;
         color: #000000;
@@ -2483,8 +2482,8 @@ html_caratula_finviz = f"""
         <div class="filtro-item">
             <label>MOTOR:</label>
             <select id="cfg_active" onchange="pushConfig('update_all')" style="font-weight:bold;">
-                <option value="True" {'selected' if st.session_state.get("scanner_active", True) else ''}>🟢 ON ({_estado_txt})</option>
-                <option value="False" {'selected' if not st.session_state.get("scanner_active", True) else ''}>🔴 OFF</option>
+                <option value="True" {"selected" if st.session_state.get("scanner_active", True) else ""}>🟢 ON ({_estado_txt})</option>
+                <option value="False" {"selected" if not st.session_state.get("scanner_active", True) else ""}>🔴 OFF</option>
             </select>
         </div>
         <div class="filtro-item">
@@ -2494,3 +2493,6 @@ html_caratula_finviz = f"""
                 <input type="time" id="cfg_end" value="{st.session_state.get("end_time", "17:00")}" onchange="pushConfig('update_all')">
             </div>
         </div>
+        <div class="filtro-item">
+            <label>IDIOMA:</label>
+            <select id="cfg_lang" onchange="pushConfig('update_all')">
