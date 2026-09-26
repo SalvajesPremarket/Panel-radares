@@ -2326,21 +2326,19 @@ _estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else 
 
 # Extracción directa del flujo de Alpaca libre de funciones conflictivas
 # Restauración y enlace de los parámetros dinámicos globales para el motor
-params = {
-    "precio_min": float(st.query_params.get("f_pre_min", 0.5)) if st.query_params.get("f_pre_min", "").replace(".","").isdigit() else 0.5,
-    "precio_max": float(st.query_params.get("f_pre_max", 20.0)) if st.query_params.get("f_pre_max", "").replace(".","").isdigit() else 20.0,
-    "gap_min": float(st.query_params.get("f_gap_min", 3.0)) if st.query_params.get("f_gap_min", "").replace(".","").isdigit() else 3.0,
-    "gap_max": float(st.query_params.get("f_gap_max", 50.0)) if st.query_params.get("f_gap_max", "").replace(".","").isdigit() else 50.0,
-    "flotacion_max": int(st.query_params.get("f_flt", 20000000)) if st.query_params.get("f_flt", "").isdigit() else 20000000,
-    "volumen_min": int(st.query_params.get("f_vol", 20000)) if st.query_params.get("f_vol", "").isdigit() else 20000,
-    "cruce_ema": st.query_params.get("f_ema", "Cualquiera"),
-    "macd": st.query_params.get("f_mac", "Cualquiera"),
-    "orden": "Actualizado",
-    "top_n": 50
-}
-
-# Extracción de candidatos reales del motor utilizando la variable restaurada
-filas_reales = filtrar_resultados(list(servicio.resultados), params)
+# Bloque de contingencia seguro para evitar bloqueos del motor de filtrado
+try:
+    if "params" in locals() or "params" in globals():
+        filas_reales = filtrar_resultados(list(servicio.resultados), params)
+    else:
+        params_backup = {
+            "precio_min": 0.5, "precio_max": 20.0, "gap_min": 3.0, "gap_max": 50.0,
+            "flotacion_max": 20000000, "volumen_min": 20000, "cruce_ema": "Cualquiera",
+            "macd": "Cualquiera", "orden": "Actualizado", "top_n": 50
+        }
+        filas_reales = filtrar_resultados(list(servicio.resultados), params_backup)
+except Exception:
+    filas_reales = list(servicio.resultados)
 
 datos_formateados = []
 for row in filas_reales:
