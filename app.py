@@ -3458,25 +3458,28 @@ html_aplicacion_institutional = f"""
         white-space: nowrap;
         margin-right: 4px;
     }}
-    .logo-container {{
+    .institutional-window-header {{
+        width: 100%;
+        height: 150px;
+        box-sizing: border-box;
+        padding: 4px 14px;
+        margin: 0 0 6px;
+        border: 1px solid rgba(212,175,55,.55);
+        border-radius: 7px;
+        overflow: hidden;
+        background: #000;
+        box-shadow: 0 0 22px rgba(212,175,55,.07), inset 0 0 22px rgba(255,255,255,.015);
         display: flex;
         align-items: center;
         justify-content: center;
-        background-color: #e6e6e6;
-        border: 1px solid #999999;
-        height: 24px;
-        min-height: 24px;
-        overflow: hidden;
-        box-sizing: border-box;
     }}
-    .logo-container img {{
+    .institutional-window-header img {{
         display: block;
-        max-width: 200%;
-        width: auto;
-        height: 40px;
+        width: min(100%, 860px);
+        height: auto;
+        max-height: 142px;
         object-fit: contain;
-        transform: scale(1);
-        transform-origin: center center;
+        object-position: center;
     }}
     input, select, button {{
         font-family: Verdana;
@@ -3529,6 +3532,17 @@ html_aplicacion_institutional = f"""
     .macd-neutro {{ background-color: #e2e3e5 !important; text-align: center; }}
     .num-col {{ text-align: right; }}
     @media (max-width: 768px) {{
+        .institutional-window-header {{
+            height: 58px;
+            padding: 3px 6px;
+            border-radius: 4px;
+            margin-bottom: 3px;
+        }}
+        .institutional-window-header img {{
+            width: 100%;
+            max-width: 84vw;
+            max-height: 50px;
+        }}
         body {{ margin: 2px; }}
         .filtros-grid {{ grid-template-columns: repeat(2, 1fr); padding: 4px; gap: 3px; }}
         td, th {{ font-size: 10px; padding: 3px 4px; }}
@@ -3591,8 +3605,10 @@ html_aplicacion_institutional = f"""
 </script>
 </head>
 <body onload="toggleCustomBroker()">
+    <div class="institutional-window-header">
+        <img src="data:image/png;base64,{IMG_LOGO_B64}" alt="TradeScanner Institutional" />
+    </div>
     <div class="filtros-grid">
-        <div class="logo-container"><img src="data:image/png;base64,{IMG_LOGO_B64}" alt="TradeScanner" /></div>
         <div class="filtro-item">
             <label>MOTOR:</label>
             <select id="cfg_active" onchange="pushConfig('update_all')" style="font-weight:bold;">
