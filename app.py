@@ -3277,387 +3277,219 @@ def panel_broker():
 panel_broker()
 
 # ============================================================
-# 🧪 VISTA DE PRUEBA — SCREENER TIPO FINVIZ
-# IMPORTANTE: esta sección es SOLO una demostración visual.
-# No reemplaza, no modifica y no alimenta el scanner real.
+
 # ============================================================
-st.markdown("---")
-st.markdown("## 🧪 Vista de prueba — Screener tipo Finviz")
-st.caption("Datos simulados únicamente para probar la nueva interfaz. El scanner real permanece intacto.")
+# 🧪 VISTA DE PRUEBA — NUEVO SCREENER TIPO FINVIZ
+# Esta sección reemplaza únicamente la prueba anterior.
+# El scanner real permanece intacto.
+# ============================================================
+
+import numpy as np
+import streamlit.components.v1 as components
+import datetime as _demo_datetime
+from urllib.parse import parse_qs
 
 # ------------------------------------------------------------
-# CSS DE LA DEMO — aislado para NO cambiar el diseño del scanner real
+# ENCABEZADO — USA EL MISMO LOGOTIPO DEL SCANNER REAL
 # ------------------------------------------------------------
 st.markdown("""
 <style>
-.ts-finviz-demo {
-    background:#f3f3f3;
-    color:#000;
-    font-family:Verdana,Arial,Tahoma,sans-serif;
-    font-size:11px;
-    padding:0;
-}
-.ts-finviz-demo .demo-topbar {
-    background:#111;
+.ts-new-finviz-header {
+    background:#000;
     padding:7px 12px;
     display:flex;
     justify-content:space-between;
     align-items:center;
     border-bottom:3px solid #b39212;
-    margin-bottom:10px;
+    margin:0 0 10px 0;
+    font-family:Verdana,Arial,sans-serif;
 }
-.ts-finviz-demo .demo-brand {
-    display:flex;
-    align-items:center;
-    min-width:0;
-}
-.ts-finviz-demo .demo-logo-img {
-    height:50px;
-    width:auto;
-    max-width:95px;
-    object-fit:contain;
-    margin-right:10px;
-}
-.ts-finviz-demo .demo-brand-title {
-    color:#f4d03f;
-    margin:0;
-    font-family:Arial Black,Impact,Arial,sans-serif;
-    font-size:21px;
-    letter-spacing:.5px;
-}
-.ts-finviz-demo .demo-brand-subtitle {
-    color:#d0d0d0;
-    margin:1px 0 0;
-    font-size:9px;
-    text-transform:uppercase;
-}
-.ts-finviz-demo .demo-status {
-    color:#fff;
-    font-size:10px;
-    text-align:right;
-    line-height:1.5;
-}
-.ts-finviz-demo .demo-live {
-    color:#00d26a;
-    font-weight:bold;
-}
-.ts-finviz-demo .demo-section-title {
-    font-size:12px;
-    font-weight:bold;
-    color:#333;
-    margin:8px 0 5px;
-}
-.ts-finviz-demo .demo-rule {
-    border:0;
-    border-top:1px solid #aaa;
-    margin:7px 0;
-}
-.ts-finviz-demo .demo-table-head {
-    background:#d3d3d3;
-    color:#444;
-    border-top:1px solid #aaa;
-    border-bottom:2px solid #999;
-    padding:5px 4px;
-    font-weight:bold;
-    font-size:10px;
-}
-.ts-finviz-demo .demo-cell {
-    background:#fff;
-    border-bottom:1px solid #d0d0d0;
-    padding:5px 4px;
-    min-height:29px;
-    font-size:10px;
-}
-.ts-finviz-demo .demo-ticker {
-    font-weight:bold;
-    color:#0645ad;
-}
-.ts-finviz-demo .demo-positive {
-    color:#00873c;
-    font-weight:bold;
-}
-.ts-finviz-demo .demo-negative {
-    color:#d00000;
-    font-weight:bold;
-}
-.ts-finviz-demo .demo-neutral {
-    color:#666;
-    font-weight:bold;
-}
-.ts-finviz-demo .stButton > button {
-    width:100%;
-    min-height:28px;
-    border-radius:0 !important;
-    border:1px solid #999 !important;
-    background:#efefef !important;
-    box-shadow:none !important;
-    font-size:10px !important;
-    padding:2px 4px !important;
-}
-.ts-finviz-demo .stButton > button:hover {
-    border-color:#555 !important;
-}
+.ts-new-finviz-brand { display:flex; align-items:center; min-width:0; }
+.ts-new-finviz-logo { height:50px; width:auto; max-width:95px; object-fit:contain; margin-right:10px; }
+.ts-new-finviz-title { color:#f4d03f; font-family:Arial Black,Impact,Arial,sans-serif; font-size:21px; letter-spacing:.5px; }
+.ts-new-finviz-subtitle { color:#d0d0d0; font-size:9px; text-transform:uppercase; }
+.ts-new-finviz-status { color:#fff; font-size:10px; text-align:right; }
+.ts-new-finviz-live { color:#19c37d; font-weight:bold; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="ts-finviz-demo">', unsafe_allow_html=True)
-
-# ------------------------------------------------------------
-# 1. ENCABEZADO — USA EL MISMO LOGOTIPO DEL SCANNER REAL
-# ------------------------------------------------------------
 st.markdown(f"""
-<div class="demo-topbar">
-    <div class="demo-brand">
-        <img class="demo-logo-img"
+<div class="ts-new-finviz-header">
+    <div class="ts-new-finviz-brand">
+        <img class="ts-new-finviz-logo"
              src="data:image/png;base64,{IMG_LOGO_B64}"
              alt="TradeScanner Institutional — Toro y Oso" />
         <div>
-            <div class="demo-brand-title">TradeScanner</div>
-            <div class="demo-brand-subtitle">Institutional Stock Scanner · Vista de prueba Finviz</div>
+            <div class="ts-new-finviz-title">TradeScanner</div>
+            <div class="ts-new-finviz-subtitle">Institutional Stock Scanner · Screener Finviz</div>
         </div>
     </div>
-    <div class="demo-status">
-        <div><span style="color:#a0a0a0;">Language:</span> <b>Español</b></div>
-        <div><span style="color:#a0a0a0;">Status:</span> <span class="demo-live">Live Connection</span></div>
+    <div class="ts-new-finviz-status">
+        <div>Language: <b>Español</b></div>
+        <div>Status: <span class="ts-new-finviz-live">Live Connection</span></div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
-# ------------------------------------------------------------
-# 2. REGISTRO / LOGIN DE PRUEBA
-# ------------------------------------------------------------
-_reg1, _reg2, _reg3 = st.columns([2, 1, 1], gap="small")
-with _reg1:
-    demo_email = st.text_input(
-        "🔑 Registro de Usuario (correo)",
-        placeholder="usuario@correo.com",
-        key="demo_email_usuario",
-    )
-with _reg2:
-    st.write("")
-    if st.button("Crear Cuenta / Login", key="demo_login_btn"):
-        if demo_email.strip():
-            st.success("Registro de prueba realizado.")
-        else:
-            st.error("Escriba un correo.")
-with _reg3:
-    st.write("")
-    st.caption("Modo demostración")
-
-# ------------------------------------------------------------
-# 3. CONTROL DEL MOTOR DE PRUEBA
-# ------------------------------------------------------------
-st.markdown('<div class="demo-section-title">🎛️ CONTROL DEL MOTOR</div>', unsafe_allow_html=True)
-_ctrl1, _ctrl2, _ctrl3 = st.columns(3, gap="small")
-with _ctrl1:
-    demo_scanner_on = st.toggle("⚡ Alternar Scanner (On / Off)", value=True, key="demo_scanner_on")
-with _ctrl2:
-    with st.expander("📅 Horario de Ejecución", expanded=False):
-        st.time_input("Inicio", dt_time(9, 30), key="demo_h_ini")
-        st.time_input("Cierre", dt_time(16, 0), key="demo_h_fin")
-with _ctrl3:
-    with st.expander("🔌 API Enlace Broker", expanded=False):
-        st.selectbox(
-            "Broker Target:",
-            ["Interactive Brokers", "TradeStation", "Custom Bridge"],
-            key="demo_broker_target",
-        )
-
-st.markdown('<hr class="demo-rule">', unsafe_allow_html=True)
-
-# ------------------------------------------------------------
-# 4. DATOS SIMULADOS
-# ------------------------------------------------------------
-@st.cache_data
-def generar_datos_scanner_demo():
-    tickers = [
-        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META",
-        "TSLA", "AMD", "NFLX", "BABA", "PLTR", "SOUN"
-    ]
-    sectores = [
-        "Tecnología", "Tecnología", "Tecnología", "Consumo",
-        "Tecnología", "Comunicación", "Automotriz", "Tecnología",
-        "Entretenimiento", "Consumo", "Software", "Inteligencia Artificial"
-    ]
-    precios = [185.40, 421.18, 136.72, 188.61, 251.32, 517.44, 338.21, 172.83, 96.45, 108.37, 24.18, 7.92]
-    cambios = [2.41, 1.18, 5.72, -1.31, 0.84, 3.16, 4.92, -0.80, 3.51, 7.10, 1.22, 4.80]
-    volumenes = [18500000, 22100000, 48700000, 16400000, 12300000, 9800000, 31700000, 27600000, 11200000, 15400000, 28900000, 36500000]
-    gaps = [1.5, 4.2, 8.5, -2.1, 0.5, 5.1, 9.2, -0.8, 3.5, 7.1, 1.2, 4.8]
-    flotaciones = [12.5, 14.2, 18.0, 19.5, 22.0, 35.0, 48.0, 11.0, 15.5, 24.1, 41.3, 17.2]
-    ema20 = [
-        "1ra Vela 1min por encima", "1ra Vela 1min por debajo", "1ra Vela 1min por encima",
-        "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo",
-        "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima",
-        "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "1ra Vela 1min por encima"
-    ]
-    macd = [
-        "Positivo", "Positivo", "Positivo", "Negativo", "Neutro", "Positivo",
-        "Positivo", "Negativo", "Positivo", "Positivo", "Neutro", "Positivo"
-    ]
-    return pd.DataFrame({
-        "Ticker": tickers,
-        "Sector": sectores,
-        "Precio ($)": precios,
-        "Cambio %": cambios,
-        "Volumen": volumenes,
-        "Gap %": gaps,
-        "Flotación (M)": flotaciones,
-        "EMA20 (1 min)": ema20,
-        "MACD": macd,
-    })
-
-df_demo = generar_datos_scanner_demo()
-
-# ------------------------------------------------------------
-# 5. FILTROS DEL SCREENER
-# ------------------------------------------------------------
-st.markdown('<div class="demo-section-title">🔎 FILTROS DEL SCREENER</div>', unsafe_allow_html=True)
-
-_f1, _f2, _f3, _f4 = st.columns(4, gap="small")
-with _f1:
-    f_volumen_min = st.number_input(
-        "Volumen Mínimo (monto exacto)", min_value=0, value=0, step=100000,
-        key="demo_volumen_min",
-    )
-    f_precio = st.selectbox(
-        "Precio ($)", ["Cualquiera", "< $10", "$10 - $50", "$50 - $200", "> $200"],
-        key="demo_precio",
-    )
-with _f2:
-    f_gap = st.selectbox(
-        "Gap %", ["Cualquiera", "De 0% a 3%", "De 4% a 6%", "De 7% a 10%"],
-        key="demo_gap",
-    )
-    f_sector = st.selectbox(
-        "Sector Activo", ["Todos"] + list(df_demo["Sector"].unique()),
-        key="demo_sector",
-    )
-with _f3:
-    f_flotacion = st.selectbox(
-        "Flotación (Float)", ["Cualquiera", "De 10M a 15M", "De 16M a 20M", "De 21M a 50M"],
-        key="demo_float",
-    )
-    f_ema20 = st.selectbox(
-        "EMA 20 Patrón", ["Cualquiera", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"],
-        key="demo_ema20",
-    )
-with _f4:
-    f_macd = st.selectbox(
-        "MACD Estado", ["Cualquiera", "Positivo", "Negativo", "Neutro"],
-        key="demo_macd",
-    )
-
-# ------------------------------------------------------------
-# 6. APLICACIÓN DE FILTROS
-# ------------------------------------------------------------
-df_filtrado = df_demo.copy()
-
-if f_volumen_min > 0:
-    df_filtrado = df_filtrado[df_filtrado["Volumen"] >= f_volumen_min]
-
-if f_precio == "< $10":
-    df_filtrado = df_filtrado[df_filtrado["Precio ($)"] < 10]
-elif f_precio == "$10 - $50":
-    df_filtrado = df_filtrado[(df_filtrado["Precio ($)"] >= 10) & (df_filtrado["Precio ($)"] <= 50)]
-elif f_precio == "$50 - $200":
-    df_filtrado = df_filtrado[(df_filtrado["Precio ($)"] > 50) & (df_filtrado["Precio ($)"] <= 200)]
-elif f_precio == "> $200":
-    df_filtrado = df_filtrado[df_filtrado["Precio ($)"] > 200]
-
-if f_gap == "De 0% a 3%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 0) & (df_filtrado["Gap %"] <= 3)]
-elif f_gap == "De 4% a 6%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 4) & (df_filtrado["Gap %"] <= 6)]
-elif f_gap == "De 7% a 10%":
-    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 7) & (df_filtrado["Gap %"] <= 10)]
-
-if f_sector != "Todos":
-    df_filtrado = df_filtrado[df_filtrado["Sector"] == f_sector]
-
-if f_flotacion == "De 10M a 15M":
-    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 10) & (df_filtrado["Flotación (M)"] <= 15)]
-elif f_flotacion == "De 16M a 20M":
-    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 16) & (df_filtrado["Flotación (M)"] <= 20)]
-elif f_flotacion == "De 21M a 50M":
-    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 21) & (df_filtrado["Flotación (M)"] <= 50)]
-
-if f_ema20 != "Cualquiera":
-    df_filtrado = df_filtrado[df_filtrado["EMA20 (1 min)"] == f_ema20]
-
-if f_macd != "Cualquiera":
-    df_filtrado = df_filtrado[df_filtrado["MACD"] == f_macd]
-
-# Puente HTTP de prueba (independiente del scanner real).
-def enviar_senal_broker(ticker, layout_canal):
+# 1. ESCUCHA DE LA SEÑAL DEL ENGRANAJE DESDE EL HTML ANIDADO
+query_params = st.query_params
+if "link_ticker" in query_params and "layout_color" in query_params:
+    ticker_seleccionado = query_params["link_ticker"]
+    color_seleccionado = query_params["layout_color"]
     url_puente = "http://localhost:8080/layout"
     payload = {
-        "ticker": ticker,
-        "layout_color": layout_canal,
-        "timestamp": datetime.now().isoformat(),
+        "ticker": ticker_seleccionado,
+        "layout_color": color_seleccionado,
+        "timestamp": str(_demo_datetime.datetime.now()),
     }
     try:
         requests.post(url_puente, json=payload, timeout=0.1)
     except Exception:
         pass
 
-# ------------------------------------------------------------
-# 7. TABLA TIPO FINVIZ + 10 CANALES DE LAYOUT
-# ------------------------------------------------------------
-st.markdown('<div class="demo-section-title">📊 TABLA DE RESULTADOS DE ACTIVOS</div>', unsafe_allow_html=True)
+# 2. BASE DE DATOS DEL SCANNER (Rangos exactos solicitados)
+@st.cache_data
+def generar_datos_finviz():
+    tickers = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA", "AMD", "NFLX", "BABA", "PLTR", "SOUN"]
+    sectores = ["Tecnología", "Tecnología", "Tecnología", "Consumo", "Tecnología", "Comunicación", "Automotriz", "Tecnología", "Entretenimiento", "Consumo", "Software", "Inteligencia Artificial"]
 
-if not demo_scanner_on:
-    st.warning("Scanner de prueba apagado.")
-elif df_filtrado.empty:
-    st.info("Ningún activo cumple los criterios seleccionados.")
-else:
-    opciones_layout = [
-        "⚙️ L1 (Rojo)", "⚙️ L2 (Azul)", "⚙️ L3 (Verde)", "⚙️ L4 (Amarillo)",
-        "⚙️ L5 (Morado)", "⚙️ L6 (Naranja)", "⚙️ L7 (Blanco)", "⚙️ L8 (Negro)",
-        "⚙️ L9 (Cian)", "⚙️ L10 (Rosa)",
-    ]
-    layout_codigos = ["rojo", "azul", "verde", "amarillo", "morado", "naranja", "blanco", "negro", "cian", "rosa"]
+    np.random.seed(42)
+    return pd.DataFrame({
+        "Ticker": tickers,
+        "Sector": sectores,
+        "Precio ($)": np.round(np.random.uniform(5, 500, len(tickers)), 2),
+        "Cambio %": np.round(np.random.uniform(-6.0, 6.0, len(tickers)), 2),
+        "Volumen": [12500000, 18400000, 35600000, 9200000, 14800000, 22100000, 31900000, 11700000, 8900000, 16300000, 27400000, 10200000],
+        "Gap %": [1.5, 4.2, 8.5, -2.1, 0.5, 5.1, 9.2, -0.8, 3.5, 7.1, 1.2, 4.8],
+        "Flotación (M)": [12.5, 14.2, 18.0, 19.5, 22.0, 35.0, 48.0, 11.0, 15.5, 24.1, 41.3, 17.2],
+        "EMA20 (1 min)": ["1ra Vela 1min por encima", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo", "Sin patrón", "1ra Vela 1min por debajo", "1ra Vela 1min por encima", "Sin patrón", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"],
+        "MACD": ["Positivo", "Positivo", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Neutro", "Positivo", "Negativo", "Positivo", "Neutro"],
+    })
 
-    header_cols = st.columns([1.5, 0.8, 1.35, 1, 1, 1.15, 0.85, 1.8, 0.9], gap="small")
-    headers = ["LINK LAYOUT (API)", "TICKER", "SECTOR", "PRECIO", "CAMBIO %", "VOLUMEN", "GAP %", "EMA20 (1 MIN)", "MACD"]
-    for col, h in zip(header_cols, headers):
-        with col:
-            st.markdown(f'<div class="demo-table-head">{h}</div>', unsafe_allow_html=True)
+df_activos = generar_datos_finviz()
 
-    for row_num, (_, row) in enumerate(df_filtrado.iterrows()):
-        # Reutiliza los 10 canales, uno por fila, para la demostración.
-        layout_idx = row_num % len(opciones_layout)
-        cols = st.columns([1.5, 0.8, 1.35, 1, 1, 1.15, 0.85, 1.8, 0.9], gap="small")
+# 3. CASILLA DE REGISTRO CON CORREO ELECTRÓNICO
+col_reg1, col_reg2 = st.columns([3, 1])
+with col_reg1:
+    email_usuario = st.text_input("🔑 Registro de Usuario (Correo Electrónico):", placeholder="usuario@correo.com", key="finviz_email_usuario")
+with col_reg2:
+    st.write("<br/>", unsafe_allow_html=True)
+    st.button("Crear Cuenta / Login", key="finviz_login_btn")
 
-        with cols[0]:
-            if st.button(opciones_layout[layout_idx], key=f"demo_layout_{row_num}_{row['Ticker']}"):
-                enviar_senal_broker(row["Ticker"], layout_codigos[layout_idx])
-                st.toast(f"Señal de prueba enviada: {row['Ticker']} → L{layout_idx + 1}")
+# 4. MATRIZ DE FILTROS TOTALMENTE PLANOS
+st.markdown("<b style='font-size:11px; color:#444444;'>🔎 FILTROS DEL SCREENER</b>", unsafe_allow_html=True)
+col_f1, col_f2, col_f3, col_f4 = st.columns(4)
 
-        with cols[1]:
-            st.markdown(f'<div class="demo-cell demo-ticker">{row["Ticker"]}</div>', unsafe_allow_html=True)
-        with cols[2]:
-            st.markdown(f'<div class="demo-cell">{row["Sector"]}</div>', unsafe_allow_html=True)
-        with cols[3]:
-            st.markdown(f'<div class="demo-cell">${row["Precio ($)"]:.2f}</div>', unsafe_allow_html=True)
-        with cols[4]:
-            cambio = float(row["Cambio %"])
-            clase = "demo-positive" if cambio > 0 else ("demo-negative" if cambio < 0 else "demo-neutral")
-            signo = "+" if cambio > 0 else ""
-            st.markdown(f'<div class="demo-cell {clase}">{signo}{cambio:.2f}%</div>', unsafe_allow_html=True)
-        with cols[5]:
-            st.markdown(f'<div class="demo-cell">{int(row["Volumen"]):,}</div>', unsafe_allow_html=True)
-        with cols[6]:
-            gap = float(row["Gap %"])
-            gap_clase = "demo-positive" if gap > 0 else ("demo-negative" if gap < 0 else "demo-neutral")
-            gap_signo = "+" if gap > 0 else ""
-            st.markdown(f'<div class="demo-cell {gap_clase}">{gap_signo}{gap:.2f}%</div>', unsafe_allow_html=True)
-        with cols[7]:
-            ema = row["EMA20 (1 min)"]
-            st.markdown(f'<div class="demo-cell">{ema}</div>', unsafe_allow_html=True)
-        with cols[8]:
-            macd = row["MACD"]
-            macd_clase = "demo-positive" if macd == "Positivo" else ("demo-negative" if macd == "Negativo" else "demo-neutral")
-            st.markdown(f'<div class="demo-cell {macd_clase}">{macd}</div>', unsafe_allow_html=True)
+with col_f1:
+    f_volumen_min = st.number_input("Volumen Mínimo (Monto exacto)", min_value=0, value=0, step=100000, key="finviz_volumen_min")
+    f_precio = st.selectbox("Precio ($)", ["Cualquiera", "< $10", "$10 - $50", "$50 - $200", "> $200"], key="finviz_precio")
+with col_f2:
+    f_gap = st.selectbox("Gap %", ["Cualquiera", "De 0% a 3%", "De 4% a 6%", "De 7% a 10%"], key="finviz_gap")
+    f_sector = st.selectbox("Sector Activo", ["Todos"] + list(df_activos["Sector"].unique()), key="finviz_sector")
+with col_f3:
+    f_flotacion = st.selectbox("Flotación (Float)", ["Cualquiera", "De 10M a 15M", "De 16M a 20M", "De 21M a 50M"], key="finviz_float")
+    f_ema20 = st.selectbox("EMA 20 Patrón", ["Cualquiera", "1ra Vela 1min por encima", "1ra Vela 1min por debajo"], key="finviz_ema20")
+with col_f4:
+    f_macd = st.selectbox("MACD Estado", ["Cualquiera", "Positivo", "Negativo", "Neutro"], key="finviz_macd")
 
-    st.caption(f"Mostrando {len(df_filtrado)} activo(s) simulado(s). Esta tabla no modifica los resultados del scanner real.")
+# --- FILTRADO MATEMÁTICO ---
+df_filtrado = df_activos.copy()
+if f_volumen_min > 0:
+    df_filtrado = df_filtrado[df_filtrado["Volumen"] >= f_volumen_min]
+if f_precio == "< $10":
+    df_filtrado = df_filtrado[df_filtrado["Precio ($)"] < 10]
+elif f_precio == "$10 - $50":
+    df_filtrado = df_filtrado[(df_filtrado["Precio ($)"] >= 10) & (df_filtrado["Precio ($)"] <= 50)]
+elif f_precio == "$50 - $200":
+    df_filtrado = df_filtrado[(df_filtrado["Precio ($)"] >= 50) & (df_filtrado["Precio ($)"] <= 200)]
+elif f_precio == "> $200":
+    df_filtrado = df_filtrado[df_filtrado["Precio ($)"] > 200]
+if f_gap == "De 0% a 3%":
+    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 0) & (df_filtrado["Gap %"] <= 3)]
+elif f_gap == "De 4% a 6%":
+    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 4) & (df_filtrado["Gap %"] <= 6)]
+elif f_gap == "De 7% a 10%":
+    df_filtrado = df_filtrado[(df_filtrado["Gap %"] >= 7) & (df_filtrado["Gap %"] <= 10)]
+if f_flotacion == "De 10M a 15M":
+    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 10) & (df_filtrado["Flotación (M)"] <= 15)]
+elif f_flotacion == "De 16M a 20M":
+    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 16) & (df_filtrado["Flotación (M)"] <= 20)]
+elif f_flotacion == "De 21M a 50M":
+    df_filtrado = df_filtrado[(df_filtrado["Flotación (M)"] >= 21) & (df_filtrado["Flotación (M)"] <= 50)]
+if f_ema20 != "Cualquiera":
+    df_filtrado = df_filtrado[df_filtrado["EMA20 (1 min)"] == f_ema20]
+if f_macd != "Cualquiera":
+    df_filtrado = df_filtrado[df_filtrado["MACD"] == f_macd]
+if f_sector != "Todos":
+    df_filtrado = df_filtrado[df_filtrado["Sector"] == f_sector]
 
+st.markdown("<br/>", unsafe_allow_html=True)
+st.markdown("<b style='font-size:11px; color:#444444;'>📊 TABLA DE RESULTADOS DE ACTIVOS (ESTILO COMPACTO FINVIZ)</b>", unsafe_allow_html=True)
+
+# 5. INYECCIÓN DEL CÓDIGO HTML BLINDADO (TABLA CON LÍNEAS VERTICALES Y HORIZONTALES REALES)
+html_codigo = """
+<style>
+    table { width: 100%; border-collapse: collapse; font-family: Verdana, Arial; font-size: 11px; color: #000000; }
+    th { background-color: #d3d3d3; color: #444444; font-weight: bold; padding: 5px; border: 1px solid #a0a0a0; text-align: left;}
+    td { padding: 4px 6px; border: 1px solid #a0a0a0; background-color: #ffffff; text-align: left; vertical-align: middle; }
+    tr:nth-child(even) td { background-color: #f9f9f9; }
+    select { font-family: Verdana; font-size: 10px; border: 1px solid #777777; border-radius: 0px; background: #fff; height: 18px; width: 100%; }
+</style>
+
+<script>
+    function cambiarLayout(ticker, colorVal) {
+        window.parent.location.search = '?link_ticker=' + encodeURIComponent(ticker) + '&layout_color=' + encodeURIComponent(colorVal);
+    }
+</script>
+
+<table>
+    <thead>
+        <tr>
+            <th style="width: 140px;">LINK LAYOUT (API)</th>
+            <th>TICKER</th>
+            <th>SECTOR</th>
+            <th>PRECIO</th>
+            <th>CAMBIO %</th>
+            <th>VOLUMEN</th>
+            <th>GAP %</th>
+            <th>EMA20 (1 MIN)</th>
+            <th>MACD</th>
+        </tr>
+    </thead>
+    <tbody>
+"""
+
+for idx, row in df_filtrado.iterrows():
+    color_pct = "#00873c" if row["Cambio %"] >= 0 else "#eb0f29"
+    color_macd = "#00873c" if row["MACD"] == "Positivo" else ("#eb0f29" if row["MACD"] == "Negativo" else "#555555")
+    select_html = f"""
+    <select onchange="cambiarLayout('{row['Ticker']}', this.value)">
+        <option value="">⚙️ Vincular Layout...</option>
+        <option value="🔴 L1 (Rojo)">🔴 L1 (Rojo)</option>
+        <option value="🔵 L2 (Azul)">🔵 L2 (Azul)</option>
+        <option value="🟢 L3 (Verde)">🟢 L3 (Verde)</option>
+        <option value="🟡 L4 (Amarillo)">🟡 L4 (Amarillo)</option>
+        <option value="🟣 L5 (Morado)">🟣 L5 (Morado)</option>
+        <option value="🟠 L6 (Naranja)">🟠 L6 (Naranja)</option>
+        <option value="⚪ L7 (Blanco)">⚪ L7 (Blanco)</option>
+        <option value="⚫ L8 (Negro)">⚫ L8 (Negro)</option>
+        <option value="🔷 L9 (Cian)">🔷 L9 (Cian)</option>
+        <option value="🌸 L10 (Rosa)">🌸 L10 (Rosa)</option>
+    </select>
+    """
+    html_codigo += f"""
+    <tr>
+        <td>{select_html}</td>
+        <td><b style="color:#0000ff;">{row['Ticker']}</b></td>
+        <td>{row['Sector']}</td>
+        <td>${row['Precio ($)']}</td>
+        <td style="color:{color_pct}; font-weight:bold;">{row['Cambio %']}%</td>
+        <td>{row['Volumen']:,}</td>
+        <td>{row['Gap %']}%</td>
+        <td style="font-size:10px; color:#333;">{row['EMA20 (1 min)']}</td>
+        <td style="color:{color_macd}; font-weight:bold;">{row['MACD']}</td>
+    </tr>
+    """
+
+html_codigo += "</tbody></table>"
+components.html(html_codigo, height=500, scrolling=True)
