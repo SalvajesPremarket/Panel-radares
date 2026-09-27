@@ -874,46 +874,26 @@ def pantalla_autenticacion():
     st.stop()
 
 
-# Si no existe ninguna sesión, mostramos una presentación pública.
-# El visitante puede apreciar el producto, pero el motor y sus datos reales
-# no se inicializan hasta que exista una sesión válida.
-if (
+# =========================================================
+# 🌐 MODO PÚBLICO / AUTENTICACIÓN
+# =========================================================
+# El visitante entra directamente a la carátula del scanner.
+# La autenticación se abre solamente cuando pulsa REGISTRO / INICIAR SESIÓN.
+# Así puede conocer la interfaz antes de crear una cuenta.
+PUBLIC_PREVIEW = (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
-):
-    st.markdown(
-        """
-        <style>
-        .public-hero {
-            max-width: 980px; margin: 26px auto 16px; padding: 30px 24px;
-            border: 1px solid #29344a; border-radius: 18px;
-            background: linear-gradient(135deg,#0b0f16,#111827);
-            text-align:center; box-shadow: 0 18px 55px rgba(0,0,0,.32);
-        }
-        .public-title {font-size:clamp(30px,5vw,54px); font-weight:900; color:#d4af37; margin:0;}
-        .public-sub {color:#b8c0cc; letter-spacing:2px; margin-top:7px;}
-        .public-note {color:#7f8998; font-size:14px; max-width:720px; margin:16px auto 0;}
-        .plan-box {display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:20px auto;}
-        .plan {min-width:210px; padding:15px; border:1px solid #344054; border-radius:12px; background:#0d1118;}
-        .plan b {color:#fff;} .price {font-size:24px; font-weight:800; color:#d4af37; margin-top:5px;}
-        </style>
-        <div class="public-hero">
-          <div class="public-title">TRADE SCANNER</div>
-          <div class="public-sub">PRE MARKET · REAL TIME</div>
-          <div class="public-note">
-            Explora la interfaz y conoce el sistema antes de registrarte.
-            El acceso a datos reales y al motor requiere una cuenta activa.
-          </div>
-          <div class="plan-box">
-            <div class="plan"><b>🎁 PRUEBA GRATUITA</b><div class="price">30 días</div></div>
-            <div class="plan"><b>💳 MENSUAL</b><div class="price">$28 USD</div></div>
-            <div class="plan"><b>💳 ANUAL</b><div class="price">$240 USD</div></div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+)
+AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
+LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
+if LOGOUT_REQUESTED and not PUBLIC_PREVIEW:
+    cerrar_sesion()
+    st.query_params.clear()
+    st.rerun()
+
+if PUBLIC_PREVIEW and AUTH_REQUESTED:
     pantalla_autenticacion()
+    st.stop()
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -933,6 +913,8 @@ else:
     )
     FECHA_VENCIMIENTO_LICENCIA = "2099-01-01"
     TIPO_ACCESO = "usuario"
+
+USUARIO_AUTENTICADO = not PUBLIC_PREVIEW
 
 
 # Solo los tokens configurados como ADMIN pueden ser administradores.
@@ -967,7 +949,7 @@ ES_ADMIN = (
 LICENCIA_ACTUAL = None
 ESTADO_LICENCIA = "ADMIN" if ES_ADMIN else "SIN LICENCIA"
 VENCIMIENTO_LICENCIA_DT = None
-if not ES_ADMIN:
+if not ES_ADMIN and USUARIO_AUTENTICADO:
     _u = st.session_state.get("usuario_auth", {})
     LICENCIA_ACTUAL = obtener_licencia_usuario(
         _u.get("user_id", ""), _u.get("email", "")
@@ -1018,7 +1000,13 @@ if not ES_ADMIN:
 with st.sidebar:
     st.markdown("### 👤 Sesión")
 
-    if ES_ADMIN:
+    if PUBLIC_PREVIEW:
+        st.info("👀 Visitante")
+        st.caption("Puedes explorar la interfaz sin registrarte.")
+        if st.button("📝 REGISTRO / INICIAR SESIÓN", key="sidebar_auth_public", width="stretch"):
+            st.query_params["auth"] = "1"
+            st.rerun()
+    elif ES_ADMIN:
         st.success("Administrador")
     else:
         _email_ui = st.session_state.get("usuario_auth", {}).get(
@@ -1026,7 +1014,7 @@ with st.sidebar:
         )
         st.info(_email_ui)
 
-    if st.button(
+    if not PUBLIC_PREVIEW and st.button(
         "🚪 CERRAR SESIÓN",
         key="cerrar_sesion_global",
         width="stretch",
@@ -2613,10 +2601,15 @@ params_ui = {
     "top_n": 50,
 }
 
-try:
-    filas_reales = filtrar_resultados(list(servicio.resultados), params_ui)
-except Exception:
-    filas_reales = list(getattr(servicio, "resultados", []) or [])
+if PUBLIC_PREVIEW:
+    # La carátula pública muestra el diseño y las 10 líneas, pero no expone
+    # resultados reales del motor antes del registro/inicio de sesión.
+    filas_reales = []
+else:
+    try:
+        filas_reales = filtrar_resultados(list(servicio.resultados), params_ui)
+    except Exception:
+        filas_reales = list(getattr(servicio, "resultados", []) or [])
 
 
 def _num(v, default=0.0):
@@ -2744,6 +2737,23 @@ wnd_val = _qtxt("c_wnd", "Incrustada")
 broker_val = _qtxt("c_broker", st.session_state.get("bk_nombre", "Interactive Brokers"))
 bridge_val = _qtxt("c_url", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
 
+# 🔄 Refresco de la interfaz: visitante fijo en 15 minutos; usuario registrado
+# puede seleccionar desde 5 segundos y valores mayores.
+_refresh_raw = str(st.query_params.get("refresh_sec", "900"))
+try:
+    refresh_sec = max(5, int(float(_refresh_raw)))
+except Exception:
+    refresh_sec = 900
+if PUBLIC_PREVIEW:
+    refresh_sec = 900
+refresh_options = [5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600]
+if refresh_sec not in refresh_options:
+    refresh_options.append(refresh_sec)
+refresh_options = sorted(set(refresh_options))
+refresh_label = (f"{refresh_sec} s" if refresh_sec < 60 else (f"{refresh_sec//60} min" if refresh_sec % 60 == 0 else f"{refresh_sec} s"))
+fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
+_email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
+
 h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
 h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
 h += "<title>TradeScanner</title>"
@@ -2753,6 +2763,7 @@ h += "html,body{margin:0;padding:0;width:100%;min-height:100%;}body{background:#
 h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
 h += ".topbar{background:#efefef;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
 h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#111;white-space:nowrap;line-height:1.05;}.brand small{font-size:10px;font-weight:normal;color:#555;}"
+h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
 h += ".status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}"
 h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#c9c9c9;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
 h += ".tab{font-size:10px;font-weight:bold;padding:4px 9px;background:#eee;border:1px solid #777;cursor:pointer;}.tab.active{background:#fff;border-bottom:2px solid #111;}"
@@ -2790,10 +2801,23 @@ h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url
 h += "window.parent.location.search='?'+q.toString();}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
 h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
+h += "function cambiarRefresh(v){var q=new URLSearchParams(window.parent.location.search);q.set('refresh_sec',v);window.parent.location.search='?'+q.toString();}"
+h += f"setTimeout(function(){{try{{window.parent.location.reload();}}catch(e){{window.location.reload();}}}},{refresh_sec*1000});"
 h += "</script></head><body>"
 h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
-h += f"<div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div></div>"
+h += "<div class='top-actions'>"
+if PUBLIC_PREVIEW:
+    h += "<a class='auth-link' href='?auth=1' target='_parent'>📝 REGISTRO / INICIAR SESIÓN</a>"
+    h += "<div class='refresh-box'>REFRESH <select disabled><option>15 min</option></select></div>"
+else:
+    opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
+    h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
+    if _email_top:
+        h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
+    h += "<a class='auth-link' href='?logout=1' target='_parent'>SALIR</a>"
+h += f"<div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div>"
+h += f"<div class='refresh-box'>🕒 {fecha_hora_actual}</div></div></div>"
 h += "<div class='tabs'>"
 h += "<button class='tab active' onclick=\"showTab('panel-radar',this)\">RADAR</button>"
 h += "<button class='tab' onclick=\"showTab('panel-tecnicos',this)\">TÉCNICOS</button>"
