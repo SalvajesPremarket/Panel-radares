@@ -12,7 +12,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -55,19 +54,6 @@ st.markdown("""
         [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
         /* la tabla de resultados no se recorta: permite scroll horizontal */
         [data-testid="stDataFrame"] { overflow-x: auto !important; }
-    }
-
-    /* --- La carátula del scanner debe ocupar todo el ancho disponible --- */
-    .block-container {
-        max-width: 100% !important;
-        width: 100% !important;
-        padding-left: 0.35rem !important;
-        padding-right: 0.35rem !important;
-    }
-    [data-testid="stIFrame"],
-    [data-testid="stIFrame"] > iframe {
-        width: 100% !important;
-        max-width: 100% !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -181,149 +167,6 @@ def guardar_horario_en_disco(inicio_min, fin_min):
     except Exception:
         pass
 
-
-# ==========================================
-# 💳 MEMBRESÍAS Y COBRO SIMULADO (MODO PRUEBA)
-# ==========================================
-# Estos precios son únicamente de prueba. No hay cobro real ni tarjeta.
-PRECIO_MENSUAL_USD = 28.00
-PRECIO_ANUAL_USD = 240.00
-DIAS_PRUEBA_GRATIS = 30
-RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
-
-def _leer_licencias_simuladas():
-    try:
-        if os.path.exists(RUTA_LICENCIAS_SIMULADAS):
-            with open(RUTA_LICENCIAS_SIMULADAS, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
-    except Exception:
-        pass
-    return {}
-
-def _guardar_licencias_simuladas(data):
-    try:
-        with open(RUTA_LICENCIAS_SIMULADAS, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception:
-        return False
-
-def _ahora_utc():
-    return datetime.now(timezone.utc)
-
-def _iso(dt):
-    return dt.astimezone(timezone.utc).isoformat()
-
-def _parse_iso(value):
-    try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-    except Exception:
-        return None
-
-def crear_prueba_usuario(user_id, email):
-    """Crea una prueba de 30 días una sola vez por usuario."""
-    if not user_id:
-        return None
-    data = _leer_licencias_simuladas()
-    clave = str(user_id)
-    if clave in data:
-        return data[clave]
-    inicio = _ahora_utc()
-    licencia = {
-        "user_id": clave,
-        "email": str(email or "").strip().lower(),
-        "plan": "PRUEBA GRATIS",
-        "estado": "ACTIVO",
-        "inicio": _iso(inicio),
-        "vencimiento": _iso(inicio + timedelta(days=DIAS_PRUEBA_GRATIS)),
-        "origen": "registro",
-    }
-    data[clave] = licencia
-    _guardar_licencias_simuladas(data)
-    return licencia
-
-def obtener_licencia_usuario(user_id, email=""):
-    data = _leer_licencias_simuladas()
-    licencia = data.get(str(user_id))
-    if not licencia:
-        licencia = crear_prueba_usuario(user_id, email)
-    return licencia
-
-def estado_licencia(licencia):
-    if not licencia:
-        return "SIN LICENCIA", None
-    if licencia.get("estado") == "SUSPENDIDO":
-        return "SUSPENDIDO", _parse_iso(licencia.get("vencimiento"))
-    venc = _parse_iso(licencia.get("vencimiento"))
-    if venc and _ahora_utc() <= venc:
-        return "ACTIVO", venc
-    return "VENCIDO", venc
-
-def activar_plan_simulado(user_id, plan):
-    """Activa una suscripción simulada; NO procesa dinero real."""
-    data = _leer_licencias_simuladas()
-    clave = str(user_id)
-    actual = data.get(clave) or {"user_id": clave}
-    inicio = _ahora_utc()
-    if plan == "MENSUAL":
-        dias = 30
-        precio = PRECIO_MENSUAL_USD
-    elif plan == "ANUAL":
-        dias = 365
-        precio = PRECIO_ANUAL_USD
-    else:
-        return False, "Plan no válido."
-    # En simulación, cada activación extiende desde hoy o desde el vencimiento vigente.
-    base = _parse_iso(actual.get("vencimiento")) or inicio
-    if base < inicio:
-        base = inicio
-    actual.update({
-        "plan": plan,
-        "estado": "ACTIVO",
-        "inicio": _iso(inicio),
-        "vencimiento": _iso(base + timedelta(days=dias)),
-        "origen": "pago_simulado",
-        "ultimo_pago_simulado_usd": precio,
-    })
-    data[clave] = actual
-    ok = _guardar_licencias_simuladas(data)
-    return ok, ("Plan activado en modo simulación." if ok else "No se pudo guardar la licencia simulada.")
-
-def conceder_gratis_admin(user_id, dias, motivo="Cortesía del administrador"):
-    data = _leer_licencias_simuladas()
-    clave = str(user_id)
-    actual = data.get(clave) or {"user_id": clave}
-    inicio = _ahora_utc()
-    base = _parse_iso(actual.get("vencimiento")) or inicio
-    if base < inicio:
-        base = inicio
-    actual.update({
-        "plan": "GRATIS ADMIN",
-        "estado": "ACTIVO",
-        "inicio": _iso(inicio),
-        "vencimiento": _iso(base + timedelta(days=int(dias))),
-        "origen": "administrador",
-        "motivo": motivo,
-    })
-    data[clave] = actual
-    return _guardar_licencias_simuladas(data)
-
-def suspender_usuario_admin(user_id):
-    data = _leer_licencias_simuladas()
-    clave = str(user_id)
-    if clave not in data:
-        return False
-    data[clave]["estado"] = "SUSPENDIDO"
-    return _guardar_licencias_simuladas(data)
-
-def _resumen_licencia(licencia):
-    estado, venc = estado_licencia(licencia)
-    if venc:
-        venc_txt = venc.astimezone(ET).strftime("%d/%m/%Y %H:%M ET")
-    else:
-        venc_txt = "—"
-    return estado, venc_txt
 
 # ==========================================
 # 🔐 AUTENTICACIÓN — ADMIN + USUARIOS
@@ -630,12 +473,14 @@ def pantalla_autenticacion():
                 #030303 !important;
         }
         .auth-card {
+            width: min(520px, calc(100% - 24px));
             max-width: 520px;
-            margin: 30px auto 18px auto;
+            box-sizing: border-box;
+            margin: 28px auto 20px auto;
             background: #0d1118;
             border: 1px solid #2a3348;
             border-radius: 16px;
-            padding: 24px 26px 18px 26px;
+            padding: 24px 18px;
             box-shadow: 0 18px 50px rgba(0,0,0,.35);
             overflow: hidden;
         }
@@ -644,18 +489,35 @@ def pantalla_autenticacion():
             font-family: sans-serif;
             font-weight: 800;
             text-align: center;
-            margin-bottom: 4px;
+            margin: 0 0 6px 0;
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            line-height: 1.2;
+            font-size: clamp(18px, 5vw, 26px);
         }
         .auth-subtitle {
             color: #8e96a3;
             text-align: center;
             font-size: 11px;
             letter-spacing: 2px;
-            margin: 0 auto;
+            margin-bottom: 20px;
         }
-        @media(max-width:520px){
-            .auth-card{width:calc(100% - 18px);padding:20px 12px;margin-top:18px;}
-            .auth-title{font-size:19px;}
+        @media (max-width: 640px) {
+            .auth-card {
+                width: calc(100% - 18px);
+                padding: 20px 12px;
+                margin-top: 18px;
+            }
+            .auth-title {
+                font-size: 19px;
+            }
+            .auth-subtitle {
+                font-size: 10px;
+                letter-spacing: 1.5px;
+            }
         }
         </style>
         """,
@@ -666,7 +528,7 @@ def pantalla_autenticacion():
         """
         <div class="auth-card">
             <div class="auth-title">TRADE SCANNER INSTITUTIONAL</div>
-            <div class="auth-subtitle">ACCESO DE USUARIOS</div>
+            <div class="auth-subtitle">SCANNER</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -704,8 +566,6 @@ def pantalla_autenticacion():
                 st.error(f"❌ {error}")
             else:
                 _guardar_usuario_auth(data, tipo="usuario")
-                _u = data.get("user") or {}
-                crear_prueba_usuario(_u.get("id", ""), _u.get("email", email))
                 st.rerun()
 
         with st.expander("🔑 ¿Olvidaste tu contraseña?", expanded=bool(st.session_state.get("recovery_email"))):
@@ -835,14 +695,12 @@ def pantalla_autenticacion():
                     # que está activada la confirmación por correo.
                     if data and data.get("access_token"):
                         _guardar_usuario_auth(data, tipo="usuario")
-                        _u = data.get("user") or {}
-                        crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
-                        st.success("✅ Cuenta creada. Tu prueba gratuita de 30 días está activa.")
+                        st.success("Cuenta creada correctamente.")
                         st.rerun()
                     else:
                         st.success(
-                            "✅ Cuenta creada. Revisa tu correo para confirmar la cuenta. "
-                            "Al iniciar sesión se activará tu prueba gratuita de 30 días."
+                            "✅ Cuenta creada. Revisa tu correo para confirmar "
+                            "la cuenta y después inicia sesión."
                         )
 
     with tab_admin:
@@ -879,26 +737,13 @@ def pantalla_autenticacion():
     st.stop()
 
 
-# =========================================================
-# 🌐 MODO PÚBLICO / AUTENTICACIÓN
-# =========================================================
-# El visitante entra directamente a la carátula del scanner.
-# La autenticación se abre solamente cuando pulsa REGISTRO / INICIAR SESIÓN.
-# Así puede conocer la interfaz antes de crear una cuenta.
-PUBLIC_PREVIEW = (
+# Si no existe ninguna sesión, mostramos login/registro.
+if (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
-)
-AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
-LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
-if LOGOUT_REQUESTED and not PUBLIC_PREVIEW:
-    cerrar_sesion()
-    st.query_params.clear()
-    st.rerun()
-
-if PUBLIC_PREVIEW and AUTH_REQUESTED:
+):
     pantalla_autenticacion()
-    st.stop()
+
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -918,8 +763,6 @@ else:
     )
     FECHA_VENCIMIENTO_LICENCIA = "2099-01-01"
     TIPO_ACCESO = "usuario"
-
-USUARIO_AUTENTICADO = not PUBLIC_PREVIEW
 
 
 # Solo los tokens configurados como ADMIN pueden ser administradores.
@@ -948,70 +791,12 @@ ES_ADMIN = (
     and TOKEN_ACTIVO in ADMIN_TOKENS
 )
 
-# ==========================================
-# 💳 CONTROL DE LICENCIA DEL USUARIO
-# ==========================================
-LICENCIA_ACTUAL = None
-ESTADO_LICENCIA = "ADMIN" if ES_ADMIN else "SIN LICENCIA"
-VENCIMIENTO_LICENCIA_DT = None
-if not ES_ADMIN and USUARIO_AUTENTICADO:
-    _u = st.session_state.get("usuario_auth", {})
-    LICENCIA_ACTUAL = obtener_licencia_usuario(
-        _u.get("user_id", ""), _u.get("email", "")
-    )
-    ESTADO_LICENCIA, VENCIMIENTO_LICENCIA_DT = estado_licencia(LICENCIA_ACTUAL)
-
-    if ESTADO_LICENCIA != "ACTIVO":
-        st.markdown(
-            """
-            <style>
-            .paywall {max-width:850px;margin:55px auto;padding:30px;border:1px solid #334155;border-radius:18px;background:#0d1118;text-align:center;}
-            .paywall h1{color:#d4af37;margin-bottom:8px;}
-            .paywall p{color:#aeb7c5;}
-            </style>
-            <div class="paywall">
-              <h1>🔒 Tu acceso requiere una membresía</h1>
-              <p>La prueba gratuita terminó o la cuenta todavía no tiene una licencia activa.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown("### Elige un plan — COBRO SIMULADO")
-        st.caption("En esta versión de prueba no se realiza ningún cargo real ni se solicita tarjeta.")
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("#### 💳 Mensual — $28 USD")
-            if st.button("ACTIVAR MENSUAL (SIMULADO)", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL")
-                if ok:
-                    st.success("✅ Membresía mensual simulada activada.")
-                    st.rerun()
-                else:
-                    st.error(msg)
-        with c2:
-            st.markdown("#### 💳 Anual — $240 USD")
-            if st.button("ACTIVAR ANUAL (SIMULADO)", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL")
-                if ok:
-                    st.success("✅ Membresía anual simulada activada.")
-                    st.rerun()
-                else:
-                    st.error(msg)
-        st.info("Para esta prueba, el administrador también podrá concederte acceso gratuito sin pago.")
-        st.stop()
-
 
 # Barra discreta de sesión.
 with st.sidebar:
     st.markdown("### 👤 Sesión")
 
-    if PUBLIC_PREVIEW:
-        st.info("👀 Visitante")
-        st.caption("Puedes explorar la interfaz sin registrarte.")
-        if st.button("📝 REGISTRO / INICIAR SESIÓN", key="sidebar_auth_public", width="stretch"):
-            st.query_params["auth"] = "1"
-            st.rerun()
-    elif ES_ADMIN:
+    if ES_ADMIN:
         st.success("Administrador")
     else:
         _email_ui = st.session_state.get("usuario_auth", {}).get(
@@ -1019,36 +804,13 @@ with st.sidebar:
         )
         st.info(_email_ui)
 
-    if not PUBLIC_PREVIEW and st.button(
+    if st.button(
         "🚪 CERRAR SESIÓN",
         key="cerrar_sesion_global",
         width="stretch",
     ):
         cerrar_sesion()
         st.rerun()
-
-    if ES_ADMIN:
-        st.markdown("---")
-        st.markdown("### 👑 Administración")
-        st.caption("Modo de prueba: licencias y cobros simulados")
-        licencias = _leer_licencias_simuladas()
-        st.metric("Usuarios registrados", len(licencias))
-        if licencias:
-            activos = sum(1 for x in licencias.values() if estado_licencia(x)[0] == "ACTIVO")
-            vencidos = sum(1 for x in licencias.values() if estado_licencia(x)[0] == "VENCIDO")
-            st.write(f"Activos: **{activos}** · Vencidos: **{vencidos}**")
-            for uid, lic in list(licencias.items())[:25]:
-                estado, venc_txt = _resumen_licencia(lic)
-                st.markdown(f"**{lic.get('email','Usuario')}**  ")
-                st.caption(f"{lic.get('plan','—')} · {estado} · vence {venc_txt}")
-                if st.button("🎁 +30 días", key=f"grant_{uid}", width="stretch"):
-                    if conceder_gratis_admin(uid, 30):
-                        st.success("30 días gratuitos concedidos.")
-                        st.rerun()
-                if st.button("⛔ Suspender", key=f"suspend_{uid}", width="stretch"):
-                    if suspender_usuario_admin(uid):
-                        st.warning("Usuario suspendido.")
-                        st.rerun()
 
 
 # ==========================================
@@ -2180,10 +1942,7 @@ st.markdown("""
         background: #030303 !important;
     }
     .block-container {
-        max-width: 100% !important;
-        width: 100% !important;
-        padding-left: .35rem !important;
-        padding-right: .35rem !important;
+        max-width: 1500px;
         padding-top: .45rem;
         padding-bottom: 1.5rem;
     }
@@ -2540,9 +2299,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 # ==============================================================================
-# 🖥️ CARÁTULA FINVIZ — PRESENTACIÓN FINAL DEL SCANNER REAL
-#    Esta sección solo presenta/filtra los datos del motor existente.
-#    No reemplaza ni modifica el motor, sus hilos, cache, Alpaca, FMP ni pruebas.
+# 🖥️ NUEVA CARÁTULA INTEGRADA ESTILO FINVIZ (REEMPLAZO FINAL DEFINITIVO CORREGIDO)
 # ==============================================================================
 
 try:
@@ -2550,324 +2307,136 @@ try:
 except Exception:
     pass
 
-# Valores de interfaz seguros. Se leen de query_params para que los cambios
-# realizados desde la carátula puedan sobrevivir al rerun de Streamlit.
-def _qtxt(nombre, defecto):
-    try:
-        valor = st.query_params.get(nombre, defecto)
-        if isinstance(valor, list):
-            valor = valor[0] if valor else defecto
-        return str(valor)
-    except Exception:
-        return str(defecto)
+_hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
+_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
 
+# 1. Extracción y preparación de tus datos reales filtrados por el usuario
+filas_reales = filtrar_resultados(list(servicio.resultados), params) if "params" in locals() else list(servicio.resultados)
 
-def _qfloat(nombre, defecto):
-    try:
-        return float(_qtxt(nombre, defecto))
-    except Exception:
-        return float(defecto)
+# Formatear el dataset real para la inyección limpia en la cuadrícula HTML
+datos_formateados = []
+for row in filas_reales:
+    datos_formateados.append({
+        "Ticker": row.get("ticker", ""),
+        "Sector": row.get("sector", "N/A"),
+        "Precio": float(row.get("precio", 0.0)),
+        "Cambio": float(row.get("cambio_pct", 0.0)),
+        "Gap": float(row.get("cambio_pct", 0.0)), 
+        "Float": float(row.get("float_shares", 0.0)) / 1_000_000 if row.get("float_shares") else 0.0,
+        "EMA20": "Por encima" if row.get("cruzando_ema20") else ("Por debajo" if row.get("cruzando_ema20_abajo") else "Sin patrón"),
+        "MACD": "Positivo" if row.get("macd_positivo") else ("Negativo" if row.get("macd_negativo") else "Neutro"),
+        "Volumen": int(row.get("volumen_dia", 0)),
+        "Noticia": bool(row.get("tiene_noticia", False))
+    })
 
+# Conversión a JSON sanitizado para el motor de renderizado JavaScript
+json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False).replace("</", "<\\/")
 
-def _qint(nombre, defecto):
-    try:
-        return int(float(_qtxt(nombre, defecto)))
-    except Exception:
-        return int(defecto)
-
-
-precio_min_ui = _qfloat("f_price_min", 0.50)
-precio_max_ui = _qfloat("f_price_max", 20.00)
-gap_min_ui = _qfloat("f_gap_min", 3.00)
-gap_max_ui = _qfloat("f_gap_max", 50.00)
-float_max_ui = _qint("f_float_max", 20_000_000)
-volumen_min_ui = _qint("f_vol", 20_000)
-ema_ui = _qtxt("f_ema", "Hacia arriba")
-macd_ui = _qtxt("f_mac", "Positivo")
-orden_ui = _qtxt("f_order", "Actualizado")
-
-if ema_ui not in ("Hacia arriba", "Hacia abajo", "Neutro"):
-    ema_ui = "Hacia arriba"
-if macd_ui not in ("Positivo", "Negativo", "No exigir"):
-    macd_ui = "Positivo"
-if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
-    orden_ui = "Actualizado"
-
-params_ui = {
-    "precio_min": precio_min_ui,
-    "precio_max": precio_max_ui,
-    "gap_min": gap_min_ui,
-    "gap_max": gap_max_ui,
-    "flotacion_max": float_max_ui,
-    "volumen_min": volumen_min_ui,
-    "cruce_ema": ema_ui,
-    "macd": macd_ui,
-    "orden": orden_ui,
-    "top_n": 50,
-}
-
-if PUBLIC_PREVIEW:
-    # La carátula pública muestra el diseño y las 10 líneas, pero no expone
-    # resultados reales del motor antes del registro/inicio de sesión.
-    filas_reales = []
-else:
-    try:
-        filas_reales = filtrar_resultados(list(servicio.resultados), params_ui)
-    except Exception:
-        filas_reales = list(getattr(servicio, "resultados", []) or [])
-
-
-def _num(v, default=0.0):
-    try:
-        if v is None or v == "":
-            return default
-        return float(v)
-    except Exception:
-        return default
-
-
-def _entero(v, default=0):
-    try:
-        if v is None or v == "":
-            return default
-        return int(float(v))
-    except Exception:
-        return default
-
-
-def _safe_text(v, default=""):
-    return html_escape(str(v if v is not None else default))
-
-
-def _money(v):
-    return f"${_num(v):,.2f}"
-
-
-def _pct(v):
-    return f"{_num(v):+.2f}%"
-
-
-def _big(v):
-    n = _num(v)
-    if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n/1_000:.0f}K"
-    return f"{n:.0f}"
-
-
-def _row_html(row):
-    ticker = _safe_text(row.get("ticker", ""))
-    sector = _safe_text(row.get("sector", "N/A"))
-    precio = _num(row.get("precio"))
-    cambio = _num(row.get("cambio_pct"))
-    volumen = _entero(row.get("volumen_dia"))
-    flotacion = _num(row.get("float_shares")) / 1_000_000 if row.get("float_shares") else 0.0
-    ema_ok = bool(row.get("cruzando_ema20"))
-    ema_down = bool(row.get("cruzando_ema20_abajo"))
-    mac_pos = bool(row.get("macd_positivo"))
-    mac_neg = bool(row.get("macd_negativo"))
-    noticia = bool(row.get("tiene_noticia"))
-    fila = "fila-alza" if cambio > 0 else ("fila-baja" if cambio < 0 else "")
-    ema_txt = "Sobre EMA20" if ema_ok else ("Bajo EMA20" if ema_down else "Sin patrón")
-    mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
-    mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
-    news = " 🔥" if noticia else ""
-    return (
-        f"<tr class='{fila}'>"
-        f"<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
-        f"<option value=''>⚙️ Layout</option>"
-        f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
-        f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
-        f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
-        f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
-        f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-        f"</select></td>"
-        f"<td><b>{ticker}</b>{news}</td>"
-        f"<td>{sector}</td>"
-        f"<td class='num-col'>{_money(precio)}</td>"
-        f"<td class='num-col'>{_pct(cambio)}</td>"
-        f"<td class='num-col'>{_big(volumen)}</td>"
-        f"<td class='num-col'>{_pct(cambio)}</td>"
-        f"<td class='num-col'>{flotacion:.2f}M</td>"
-        f"<td>{ema_txt}</td>"
-        f"<td class='{mac_cls}'>{mac_txt}</td></tr>"
-    )
-
-
-# La sección RESULTADOS / VISUALIZACIÓN mantiene siempre las 10 líneas
-# horizontales del diseño. Cuando hay señales reales se colocan en las primeras
-# líneas; las restantes quedan disponibles con su engranaje de Layout.
-filas_visualizacion = list(filas_reales[:10])
-while len(filas_visualizacion) < 10:
-    filas_visualizacion.append(None)
-
-
-def _row_visualizacion(item, indice):
-    if item is None:
-        return (
-            "<tr class='fila-vacia'>"
-            "<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
-            "<option value=''>⚙️ Layout</option>"
-            "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
-            "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
-            "<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
-            "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
-            "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-            "</select></td>"
-            "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
-            "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
-            "<td class='num-col'>—</td><td>—</td><td class='macd-neutro'>—</td></tr>"
-        )
-    return _row_html(item)
-
-
-rows_html = "".join(_row_visualizacion(r, i + 1) for i, r in enumerate(filas_visualizacion))
+# 2. Construcción de la carátula rígida 2D encapsulada
+# ==============================================================================
+# 🖥️ CARÁTULA BLINDADA ESTILO FINVIZ - SOLUCIÓN COMPLETA ANTI-SYNTAXERROR
+# ==============================================================================
 
 try:
-    hora_ini = int(servicio.hora_inicio_auto_min)
-    hora_fin = int(servicio.hora_fin_auto_min)
+    servicio._esta_en_horario_automatico()
 except Exception:
-    hora_ini, hora_fin = 240, 960
+    pass
 
-_hora_txt = f"{hora_ini//60:02d}:{hora_ini%60:02d} - {hora_fin//60:02d}:{hora_fin%60:02d} ET"
-_estado_txt = "ON" if servicio.encendido and servicio.auto_en_horario else ("OFF" if not servicio.encendido else "ESPERA")
+_hora_txt = f"{servicio.hora_inicio_auto_min//60:02d}:{servicio.hora_inicio_auto_min%60:02d} - {servicio.hora_fin_auto_min//60:02d}:{servicio.hora_fin_auto_min%60:02d} ET"
+_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
 
-start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
-end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
+# Construcción de parámetros base seguros para evitar que colapse el motor de filtrado
+_estado_txt = "🟢 ON" if servicio.encendido and servicio.auto_en_horario else ("🔴 OFF" if not servicio.encendido else "🟡 ESPERA")
 
-active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
-lang_val = _qtxt("c_lang", "ESP")
-wnd_val = _qtxt("c_wnd", "Incrustada")
-broker_val = _qtxt("c_broker", st.session_state.get("bk_nombre", "Interactive Brokers"))
-bridge_val = _qtxt("c_url", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
-
-# 🔄 Refresco de la interfaz: visitante fijo en 15 minutos; usuario registrado
-# puede seleccionar desde 5 segundos y valores mayores.
-_refresh_raw = str(st.query_params.get("refresh_sec", "900"))
+# Extracción directa del flujo de Alpaca libre de funciones conflictivas
+# Restauración y enlace de los parámetros dinámicos globales para el motor
+# Bloque de contingencia seguro para evitar bloqueos del motor de filtrado
 try:
-    refresh_sec = max(5, int(float(_refresh_raw)))
+    if "params" in locals() or "params" in globals():
+        filas_reales = filtrar_resultados(list(servicio.resultados), params)
+    else:
+        params_backup = {
+            "precio_min": 0.5, "precio_max": 20.0, "gap_min": 3.0, "gap_max": 50.0,
+            "flotacion_max": 20000000, "volumen_min": 20000, "cruce_ema": "Cualquiera",
+            "macd": "Cualquiera", "orden": "Actualizado", "top_n": 50
+        }
+        filas_reales = filtrar_resultados(list(servicio.resultados), params_backup)
 except Exception:
-    refresh_sec = 900
-if PUBLIC_PREVIEW:
-    refresh_sec = 900
-refresh_options = [5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600]
-if refresh_sec not in refresh_options:
-    refresh_options.append(refresh_sec)
-refresh_options = sorted(set(refresh_options))
-refresh_label = (f"{refresh_sec} s" if refresh_sec < 60 else (f"{refresh_sec//60} min" if refresh_sec % 60 == 0 else f"{refresh_sec} s"))
-fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
-_email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
+    filas_reales = list(servicio.resultados)
 
+datos_formateados = []
+for row in filas_reales:
+    datos_formateados.append({
+        "Ticker": str(row.get("ticker", "")),
+        "Sector": str(row.get("sector", "N/A")),
+        "Precio": float(row.get("precio", 0.0)),
+        "Cambio": float(row.get("cambio_pct", 0.0)),
+        "Gap": float(row.get("cambio_pct", 0.0)), 
+        "Float": float(row.get("float_shares", 0.0)) / 1_000_000 if row.get("float_shares") else 0.0,
+        "EMA20": "Por encima" if row.get("cruzando_ema20") else ("Por debajo" if row.get("cruzando_ema20_abajo") else "Sin patrón"),
+        "MACD": "Positivo" if row.get("macd_positivo") else ("Negativo" if row.get("macd_negativo") else "Neutro"),
+        "Volumen": int(row.get("volumen_dia", 0)),
+        "Noticia": bool(row.get("tiene_noticia", False))
+    })
+
+json_rows_reales = json.dumps(datos_formateados, ensure_ascii=False)
+
+m_on = "selected" if st.session_state.get("scanner_active", True) else ""
+m_off = "selected" if not st.session_state.get("scanner_active", True) else ""
+l_esp = "selected" if st.session_state.get("selected_lang")=="ESP" else ""
+l_eng = "selected" if st.session_state.get("selected_lang")=="ENG" else ""
+w_inc = "selected" if st.session_state.get("window_type")=="Incrustada" else ""
+w_flo = "selected" if st.session_state.get("window_type")=="Flotante" else ""
+b_ib = "selected" if st.session_state.get("bk_nombre")=="Interactive Brokers (TWS)" else ""
+b_ts = "selected" if st.session_state.get("bk_nombre")=="Tradestation" else ""
+b_ot = "selected" if st.session_state.get("bk_nombre")=="Otro (webhook)" else ""
+
+f_pre_val = st.query_params.get("f_pre", "Cualquiera")
+f_gap_val = st.query_params.get("f_gap", "Cualquiera")
+f_flt_val = st.query_params.get("f_flt", "Cualquiera")
+f_ema_val = st.query_params.get("f_ema", "Cualquiera")
+f_mac_val = st.query_params.get("f_mac", "Cualquiera")
+
+# 2. Construcción por concatenación lineal (Elimina comillas triples conflictivas)
 h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
 h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
-h += "<title>TradeScanner</title>"
 h += "<style>"
-h += "*{box-sizing:border-box;}"
-h += "html,body{margin:0;padding:0;width:100%;min-height:100%;}body{background:#dcdcdc;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
-h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
-h += ".topbar{background:#efefef;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
-h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#111;white-space:nowrap;line-height:1.05;}.brand small{font-size:10px;font-weight:normal;color:#555;}"
-h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
-h += ".status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}"
-h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#c9c9c9;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
-h += ".tab{font-size:10px;font-weight:bold;padding:4px 9px;background:#eee;border:1px solid #777;cursor:pointer;}.tab.active{background:#fff;border-bottom:2px solid #111;}"
-h += ".filtros-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#fff;border:1px solid #888;padding:6px;margin-bottom:6px;}"
-h += ".filtro-item{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#f1f1f1;border:1px solid #aaa;padding:5px 7px;min-height:38px;}"
-h += ".filtro-item label{font-weight:bold;color:#111;font-size:10px;white-space:nowrap;}"
-h += "input,select,button{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #777;background:#fff;color:#000;border-radius:0;outline:none;}"
-h += "input{min-width:0;width:105px;padding:1px 4px;}select{min-width:105px;max-width:170px;padding:1px 3px;}button{cursor:pointer;background:#eaeaea;font-weight:bold;padding:2px 8px;}"
-h += ".range{display:flex;gap:2px;align-items:center;}.range span{font-size:8px;color:#555;}"
-h += ".logo{display:flex;align-items:center;justify-content:center;background:#e6e6e6;border:1px dashed #777;font-weight:900;color:#222;min-height:34px;font-size:14px;}"
-h += ".engine{font-weight:bold;}.subline{background:#eee;border:1px solid #999;padding:5px 7px;margin-bottom:6px;font-size:10px;display:flex;gap:16px;flex-wrap:wrap;}"
-h += ".result-title{background:#c9c9c9;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;}"
-h += ".table-wrapper{width:100%;overflow-x:auto;background:#fff;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
-h += "th{background:#c8c8c8;color:#000;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
-h += "td{padding:5px 7px;border:1px solid #aaa;font-size:11px;white-space:nowrap;height:27px;}"
-h += ".fila-alza{background:#edf7e8}.fila-baja{background:#fceceb}.fila-vacia{background:#fafafa;color:#777}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
-h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
-h += ".layout-col{width:120px;text-align:center;background:#f1f1f1;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
-h += ".footer-note{margin-top:4px;font-size:8px;color:#555;display:flex;justify-content:space-between;gap:8px;}"
-h += ".tab-panel{display:none;background:#f7f7f7;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#fff;border:1px solid #aaa;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;}.panel-card span{font-size:10px;}"
-h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
-h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;}.brand small{display:block;font-size:8px;margin-top:3px;}.status{font-size:9px;white-space:normal;text-align:center;width:100%;line-height:1.2;}.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.tab-panel{font-size:9px;padding:6px}}"
+h += "body { background-color: #dcdcdc; font-family: Verdana, Arial, sans-serif; font-size: 11px; color: #000000; margin: 4px; padding: 0; }"
+h += ".main-container { max-width: 1200px; margin: 15px auto; padding: 0 10px; box-sizing: border-box; }"
+h += ".filtros-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background-color: #ffffff; border: 1px solid #999999; padding: 6px; margin-bottom: 8px; }"
+h += ".filtro-item { display: flex; align-items: center; justify-content: space-between; background: #f1f1f1; border: 1px solid #aaaaaa; padding: 2px 5px; height: 24px; box-sizing: border-box; }"
+h += ".filtro-item label { font-weight: bold; color: #111111; font-size: 10px; white-space: nowrap; margin-right: 4px; }"
+h += ".logo-container { display: flex; align-items: center; justify-content: center; background-color: #e6e6e6; border: 1px dashed #777777; font-weight: bold; color: #444444; font-size: 11px; height: 24px; text-align: center; }"
+h += "input, select, button { font-family: Verdana; font-size: 10px; height: 18px; border: 1px solid #777777; background-color: #ffffff; border-radius: 0px; box-sizing: border-box; outline: none; }"
+h += "button { cursor: pointer; background-color: #eaeaea; font-weight: bold; }"
+h += "button:active { background-color: #cccccc; }"
+h += ".table-wrapper { width: 100%; overflow-x: auto; background-color: #ffffff; border: 1px solid #888888; }"
+h += "table { width: 100%; border-collapse: collapse; }"
+h += "th { background-color: #cccccc; color: #000000; font-weight: bold; padding: 4px 5px; border: 1px solid #888888; font-size: 10px; text-align: left; }"
+h += "td { padding: 4px 5px; border: 1px solid #888888; font-size: 11px; white-space: nowrap; height: 20px; text-align: left; }"
+h += ".fila-alza { background-color: #e2f0d9 !important; }"
+h += ".fila-baja { background-color: #fce4d6 !important; }"
+h += ".engranaje-select { font-size: 9px; font-weight: bold; height: 16px; width: 100%; color: #000000 !important; }"
+h += ".macd-positivo { background-color: #a9d08e !important; color: #155724; font-weight: bold; text-align: center; }"
+h += ".macd-negativo { background-color: #f4b084 !important; color: #721c24; font-weight: bold; text-align: center; }"
+h += ".macd-neutro { background-color: #e2e3e5 !important; text-align: center; }"
+h += ".num-col { text-align: right; }"
+h += "@media (max-width: 768px) { .filtros-grid { grid-template-columns: repeat(2, 1fr); } }"
 h += "</style>"
-h += "<script>window.addEventListener('load',function(){try{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0;}catch(e){}});"
-h += "function setQ(k,v){var q=new URLSearchParams(window.parent.location.search);q.set(k,v);window.parent.location.search='?'+q.toString();}"
-h += "function pushConfig(){var q=new URLSearchParams(window.parent.location.search);"
-h += "q.set('f_price_min',document.getElementById('price_min').value);q.set('f_price_max',document.getElementById('price_max').value);"
-h += "q.set('f_gap_min',document.getElementById('gap_min').value);q.set('f_gap_max',document.getElementById('gap_max').value);"
-h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_vol',document.getElementById('txt_vol').value);"
-h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
-h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
-h += "q.set('c_start',document.getElementById('cfg_start').value);q.set('c_end',document.getElementById('cfg_end').value);"
-h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);"
-h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
-h += "window.parent.location.search='?'+q.toString();}"
-h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
-h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-h += "function cambiarRefresh(v){var q=new URLSearchParams(window.parent.location.search);q.set('refresh_sec',v);window.parent.location.search='?'+q.toString();}"
-h += f"setTimeout(function(){{try{{window.parent.location.reload();}}catch(e){{window.location.reload();}}}},{refresh_sec*1000});"
-h += "</script></head><body>"
-h += "<div class='main-container'>"
-h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
-h += "<div class='top-actions'>"
-if PUBLIC_PREVIEW:
-    h += "<a class='auth-link' href='?auth=1' target='_parent'>📝 REGISTRO / INICIAR SESIÓN</a>"
-    h += "<div class='refresh-box'>REFRESH <select disabled><option>15 min</option></select></div>"
-else:
-    opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
-    h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
-    if _email_top:
-        h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
-    h += "<a class='auth-link' href='?logout=1' target='_parent'>SALIR</a>"
-h += f"<div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div>"
-h += f"<div class='refresh-box'>🕒 {fecha_hora_actual}</div></div></div>"
-h += "<div class='tabs'>"
-h += "<button class='tab active' onclick=\"showTab('panel-radar',this)\">RADAR</button>"
-h += "<button class='tab' onclick=\"showTab('panel-tecnicos',this)\">TÉCNICOS</button>"
-h += "<button class='tab' onclick=\"showTab('panel-config',this)\">CONFIGURACIÓN</button>"
-h += "<button class='tab' onclick=\"showTab('panel-resultados',this)\">RESULTADOS</button>"
-h += "</div>"
-h += "<div id='panel-radar' class='tab-panel active'><b>RADAR</b><br>Filtros principales del radar: precio, gap, flotación y volumen.</div>"
-h += "<div id='panel-tecnicos' class='tab-panel'><div class='panel-grid'>"
-h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
-h += f"<div class='panel-card'><b>MACD</b><span>Condición actual: {_safe_text(macd_ui)}.</span></div>"
-h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
-h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
-h += "</div></div>"
-h += "<div id='panel-config' class='tab-panel'><div class='panel-grid'>"
-h += f"<div class='panel-card'><b>MOTOR</b><span>{_safe_text(_estado_txt)} · Horario {_safe_text(_hora_txt)}</span></div>"
-h += f"<div class='panel-card'><b>BROKER</b><span>{_safe_text(broker_val)}</span></div>"
-h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
-h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
-h += "</div></div>"
-h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
-h += "<div class='filtros-grid'>"
-h += "<div class='logo'>TRADE SCANNER</div>"
-h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
-h += f"<div class='filtro-item'><label>HORARIO (ET)</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
-h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
-h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
-h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
-h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
-h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
-h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
-h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
-h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
-h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
-h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
-h += f"<div class='filtro-item'><label>PUENTE</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
-h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR FILTROS</button></div>"
-h += "</div>"
-h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span></div>"
-h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
-h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 (1 min)</th><th>MACD</th>"
-h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
-h += f"<div class='footer-note'><span>Motor real conectado · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
-h += "</div></body></html>"
-
-# La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
-# anterior de Streamlit no pueda ocultarla. El motor sigue ejecutándose fuera.
-components.html(h, height=1050, scrolling=True)
+h += "<script>"
+h += "function pushConfig(a){var e=new URLSearchParams(window.parent.location.search);e.set('action',a);if(a==='update_all'){e.set('c_active',document.getElementById('cfg_active').value);e.set('c_start',document.getElementById('cfg_start').value);e.set('c_end',document.getElementById('cfg_end').value);e.set('c_broker',document.getElementById('cfg_broker').value);e.set('c_cust_broker',document.getElementById('cfg_cust_broker').value);e.set('c_api',document.getElementById('cfg_api').value);e.set('c_secret',document.getElementById('cfg_secret').value);e.set('c_url',document.getElementById('cfg_url').value);e.set('c_lang',document.getElementById('cfg_lang').value);e.set('c_wnd',document.getElementById('cfg_wnd').value);e.set('f_vol',document.getElementById('txt_vol').value||0);e.set('f_pre',document.getElementById('sel_pre').value);e.set('f_gap',document.getElementById('sel_gap').value);e.set('f_flt',document.getElementById('sel_flt').value);e.set('f_ema',document.getElementById('sel_ema').value);e.set('f_mac',document.getElementById('sel_mac').value)}window.parent.location.search='?'+e.toString()}"
+h += "function toggleCustomBroker(){var a=document.getElementById('cfg_broker').value;document.getElementById('cfg_cust_broker').style.display=(a==='Otro')?'inline-block':'none'}"
+h += "function cambiarLayout(a,e){var t=e.value;if(t!==''){var l=new URLSearchParams(window.parent.location.search);l.set('link_ticker',a);l.set('layout_color',t);window.parent.history.replaceState(null,'','?'+l.toString());var r=document.getElementById('cfg_url').value;fetch(r,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:a,layout_color:t,broker:document.getElementById('cfg_broker').value,api_key:document.getElementById('cfg_api').value}),mode:'cors'}).catch(o=>console.log('Signal dispatched.'))}}"
+h += "</script>"
+h += "</head><body onload='toggleCustomBroker()'><div class='main-container'><div class='filtros-grid'>"
+h += "<div class='logo-container'>[ LOGOTIPO ]</div>"
+h += "<div class='filtro-item'><label>MOTOR:</label><select id='cfg_active' onchange='pushConfig(\"update_all\")'><option value=\"True\" @@M_ON@@>🟢 ON (@@ESTADO_TXT@@)</option><option value=\"False\" @@M_OFF@@>🔴 OFF</option></select></div>"
+h += "<div class='filtro-item'><label>LAPSO:</label><div style='display:flex; gap:2px;'><input type='time' id='cfg_start' value='@@START_TIME@@' onchange='pushConfig(\"update_all\")'><input type='time' id='cfg_end' value='@@END_TIME@@' onchange='pushConfig(\"update_all\")'></div></div>"
+h += "<div class='filtro-item'><label>IDIOMA:</label><select id='cfg_lang' onchange='pushConfig(\"update_all\")'><option value=\"ESP\" @@L_ESP@@>ESP</option><option value=\"ENG\" @@L_ENG@@>ENG</option></select></div>"
+h += "<div class='filtro-item'><label>VENTANA:</label><select id='cfg_wnd' onchange='pushConfig(\"update_all\")'><option value=\"Incrustada\" @@W_INC@@>Incrustada</option><option value=\"Flotante\" @@W_FLO@@>Flotante</option></select></div>"
+h += "<div class='filtro-item'><label>BROKER:</label><select id='cfg_broker' onchange='toggleCustomBroker(); pushConfig(\"update_all\");' style='width:50%;'><option value=\"Interactive Brokers\" @@B_IB@@>Interactive Brokers</option><option value=\"Tradestation\" @@B_TS@@>Tradestation</option><option value=\"Otro\" @@B_OT@@>Otro</option></select></div>"
+h += "<div class='filtro-item'><label>API KEY:</label><input type='text' id='cfg_api' value='' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>SECRET:</label><input type='password' id='cfg_secret' value='' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>PUENTE:</label><input type='text' id='cfg_url' value='@@BK_PUENTE_VAL@@' onchange='pushConfig(\"update_all\")' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>VOLUMEN &gt;</label><input type='number' id='txt_vol' value='@@TXT_VOL_VAL@@' onchange='pushConfig(\"update_all\")' style='width:60%;'></div>"
+h += "<div class='filtro-item'><label>PRECIO ($)</label><select id='sel_pre' onchange='pushConfig(\"update_all\")'><option value=\"Cualquiera\" @@PRE_CUA@@>Cualquiera</option><option value=\"under10\" @@PRE_U10@@>&lt; $10</option><option value=\"10to50\" @@PRE_1050@@>$10 - $50</option><option value=\"50to200\" @@PRE_50200@@>$50 - $200</option><option value=\"over200\" @@PRE_O200@@>&gt; $200</option></select></div>"
