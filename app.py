@@ -630,27 +630,55 @@ def pantalla_autenticacion():
                 #030303 !important;
         }
         .auth-card {
+            box-sizing: border-box;
+            width: min(520px, calc(100% - 24px));
             max-width: 520px;
-            margin: 45px auto 20px auto;
+            margin: 24px auto 20px auto;
             background: #0d1118;
             border: 1px solid #2a3348;
             border-radius: 16px;
-            padding: 30px;
+            padding: 24px 18px 22px 18px;
             box-shadow: 0 18px 50px rgba(0,0,0,.35);
+            overflow: hidden;
         }
         .auth-title {
+            box-sizing: border-box;
+            width: 100%;
             color: #d4af37;
             font-family: sans-serif;
             font-weight: 800;
+            font-size: clamp(18px, 5vw, 26px);
+            line-height: 1.2;
             text-align: center;
-            margin-bottom: 4px;
+            margin: 0 auto 6px auto;
+            padding: 0;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
         .auth-subtitle {
+            box-sizing: border-box;
+            width: 100%;
             color: #8e96a3;
             text-align: center;
             font-size: 11px;
             letter-spacing: 2px;
             margin-bottom: 20px;
+        }
+        @media (max-width: 640px) {
+            .auth-card {
+                width: calc(100% - 18px);
+                margin-top: 14px;
+                padding: 20px 12px 18px 12px;
+                border-radius: 14px;
+            }
+            .auth-title {
+                font-size: 19px;
+                line-height: 1.18;
+            }
+            .auth-subtitle {
+                font-size: 10px;
+                margin-bottom: 14px;
+            }
         }
         </style>
         """,
@@ -2808,7 +2836,7 @@ h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
-    h += "<a class='auth-link' href='?auth=1' target='_parent'>📝 REGISTRO / INICIAR SESIÓN</a>"
+    h += "<a class='auth-link' href='?auth=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.origin+window.top.location.pathname+'?auth=1';}catch(e){window.location.href='?auth=1';}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
     h += "<div class='refresh-box'>REFRESH <select disabled><option>15 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
