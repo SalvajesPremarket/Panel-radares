@@ -183,6 +183,149 @@ def guardar_horario_en_disco(inicio_min, fin_min):
 
 
 # ==========================================
+# 💳 MEMBRESÍAS Y COBRO SIMULADO (MODO PRUEBA)
+# ==========================================
+# Estos precios son únicamente de prueba. No hay cobro real ni tarjeta.
+PRECIO_MENSUAL_USD = 28.00
+PRECIO_ANUAL_USD = 240.00
+DIAS_PRUEBA_GRATIS = 30
+RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
+
+def _leer_licencias_simuladas():
+    try:
+        if os.path.exists(RUTA_LICENCIAS_SIMULADAS):
+            with open(RUTA_LICENCIAS_SIMULADAS, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+    except Exception:
+        pass
+    return {}
+
+def _guardar_licencias_simuladas(data):
+    try:
+        with open(RUTA_LICENCIAS_SIMULADAS, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception:
+        return False
+
+def _ahora_utc():
+    return datetime.now(timezone.utc)
+
+def _iso(dt):
+    return dt.astimezone(timezone.utc).isoformat()
+
+def _parse_iso(value):
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+def crear_prueba_usuario(user_id, email):
+    """Crea una prueba de 30 días una sola vez por usuario."""
+    if not user_id:
+        return None
+    data = _leer_licencias_simuladas()
+    clave = str(user_id)
+    if clave in data:
+        return data[clave]
+    inicio = _ahora_utc()
+    licencia = {
+        "user_id": clave,
+        "email": str(email or "").strip().lower(),
+        "plan": "PRUEBA GRATIS",
+        "estado": "ACTIVO",
+        "inicio": _iso(inicio),
+        "vencimiento": _iso(inicio + timedelta(days=DIAS_PRUEBA_GRATIS)),
+        "origen": "registro",
+    }
+    data[clave] = licencia
+    _guardar_licencias_simuladas(data)
+    return licencia
+
+def obtener_licencia_usuario(user_id, email=""):
+    data = _leer_licencias_simuladas()
+    licencia = data.get(str(user_id))
+    if not licencia:
+        licencia = crear_prueba_usuario(user_id, email)
+    return licencia
+
+def estado_licencia(licencia):
+    if not licencia:
+        return "SIN LICENCIA", None
+    if licencia.get("estado") == "SUSPENDIDO":
+        return "SUSPENDIDO", _parse_iso(licencia.get("vencimiento"))
+    venc = _parse_iso(licencia.get("vencimiento"))
+    if venc and _ahora_utc() <= venc:
+        return "ACTIVO", venc
+    return "VENCIDO", venc
+
+def activar_plan_simulado(user_id, plan):
+    """Activa una suscripción simulada; NO procesa dinero real."""
+    data = _leer_licencias_simuladas()
+    clave = str(user_id)
+    actual = data.get(clave) or {"user_id": clave}
+    inicio = _ahora_utc()
+    if plan == "MENSUAL":
+        dias = 30
+        precio = PRECIO_MENSUAL_USD
+    elif plan == "ANUAL":
+        dias = 365
+        precio = PRECIO_ANUAL_USD
+    else:
+        return False, "Plan no válido."
+    # En simulación, cada activación extiende desde hoy o desde el vencimiento vigente.
+    base = _parse_iso(actual.get("vencimiento")) or inicio
+    if base < inicio:
+        base = inicio
+    actual.update({
+        "plan": plan,
+        "estado": "ACTIVO",
+        "inicio": _iso(inicio),
+        "vencimiento": _iso(base + timedelta(days=dias)),
+        "origen": "pago_simulado",
+        "ultimo_pago_simulado_usd": precio,
+    })
+    data[clave] = actual
+    ok = _guardar_licencias_simuladas(data)
+    return ok, ("Plan activado en modo simulación." if ok else "No se pudo guardar la licencia simulada.")
+
+def conceder_gratis_admin(user_id, dias, motivo="Cortesía del administrador"):
+    data = _leer_licencias_simuladas()
+    clave = str(user_id)
+    actual = data.get(clave) or {"user_id": clave}
+    inicio = _ahora_utc()
+    base = _parse_iso(actual.get("vencimiento")) or inicio
+    if base < inicio:
+        base = inicio
+    actual.update({
+        "plan": "GRATIS ADMIN",
+        "estado": "ACTIVO",
+        "inicio": _iso(inicio),
+        "vencimiento": _iso(base + timedelta(days=int(dias))),
+        "origen": "administrador",
+        "motivo": motivo,
+    })
+    data[clave] = actual
+    return _guardar_licencias_simuladas(data)
+
+def suspender_usuario_admin(user_id):
+    data = _leer_licencias_simuladas()
+    clave = str(user_id)
+    if clave not in data:
+        return False
+    data[clave]["estado"] = "SUSPENDIDO"
+    return _guardar_licencias_simuladas(data)
+
+def _resumen_licencia(licencia):
+    estado, venc = estado_licencia(licencia)
+    if venc:
+        venc_txt = venc.astimezone(ET).strftime("%d/%m/%Y %H:%M ET")
+    else:
+        venc_txt = "—"
+    return estado, venc_txt
+
+# ==========================================
 # 🔐 AUTENTICACIÓN — ADMIN + USUARIOS
 # ==========================================
 # ADMIN:
@@ -556,6 +699,8 @@ def pantalla_autenticacion():
                 st.error(f"❌ {error}")
             else:
                 _guardar_usuario_auth(data, tipo="usuario")
+                _u = data.get("user") or {}
+                crear_prueba_usuario(_u.get("id", ""), _u.get("email", email))
                 st.rerun()
 
         with st.expander("🔑 ¿Olvidaste tu contraseña?", expanded=bool(st.session_state.get("recovery_email"))):
@@ -685,12 +830,14 @@ def pantalla_autenticacion():
                     # que está activada la confirmación por correo.
                     if data and data.get("access_token"):
                         _guardar_usuario_auth(data, tipo="usuario")
-                        st.success("Cuenta creada correctamente.")
+                        _u = data.get("user") or {}
+                        crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
+                        st.success("✅ Cuenta creada. Tu prueba gratuita de 30 días está activa.")
                         st.rerun()
                     else:
                         st.success(
-                            "✅ Cuenta creada. Revisa tu correo para confirmar "
-                            "la cuenta y después inicia sesión."
+                            "✅ Cuenta creada. Revisa tu correo para confirmar la cuenta. "
+                            "Al iniciar sesión se activará tu prueba gratuita de 30 días."
                         )
 
     with tab_admin:
@@ -727,13 +874,46 @@ def pantalla_autenticacion():
     st.stop()
 
 
-# Si no existe ninguna sesión, mostramos login/registro.
+# Si no existe ninguna sesión, mostramos una presentación pública.
+# El visitante puede apreciar el producto, pero el motor y sus datos reales
+# no se inicializan hasta que exista una sesión válida.
 if (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
 ):
+    st.markdown(
+        """
+        <style>
+        .public-hero {
+            max-width: 980px; margin: 26px auto 16px; padding: 30px 24px;
+            border: 1px solid #29344a; border-radius: 18px;
+            background: linear-gradient(135deg,#0b0f16,#111827);
+            text-align:center; box-shadow: 0 18px 55px rgba(0,0,0,.32);
+        }
+        .public-title {font-size:clamp(30px,5vw,54px); font-weight:900; color:#d4af37; margin:0;}
+        .public-sub {color:#b8c0cc; letter-spacing:2px; margin-top:7px;}
+        .public-note {color:#7f8998; font-size:14px; max-width:720px; margin:16px auto 0;}
+        .plan-box {display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:20px auto;}
+        .plan {min-width:210px; padding:15px; border:1px solid #344054; border-radius:12px; background:#0d1118;}
+        .plan b {color:#fff;} .price {font-size:24px; font-weight:800; color:#d4af37; margin-top:5px;}
+        </style>
+        <div class="public-hero">
+          <div class="public-title">TRADE SCANNER</div>
+          <div class="public-sub">PRE MARKET · REAL TIME</div>
+          <div class="public-note">
+            Explora la interfaz y conoce el sistema antes de registrarte.
+            El acceso a datos reales y al motor requiere una cuenta activa.
+          </div>
+          <div class="plan-box">
+            <div class="plan"><b>🎁 PRUEBA GRATUITA</b><div class="price">30 días</div></div>
+            <div class="plan"><b>💳 MENSUAL</b><div class="price">$28 USD</div></div>
+            <div class="plan"><b>💳 ANUAL</b><div class="price">$240 USD</div></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     pantalla_autenticacion()
-
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -781,6 +961,58 @@ ES_ADMIN = (
     and TOKEN_ACTIVO in ADMIN_TOKENS
 )
 
+# ==========================================
+# 💳 CONTROL DE LICENCIA DEL USUARIO
+# ==========================================
+LICENCIA_ACTUAL = None
+ESTADO_LICENCIA = "ADMIN" if ES_ADMIN else "SIN LICENCIA"
+VENCIMIENTO_LICENCIA_DT = None
+if not ES_ADMIN:
+    _u = st.session_state.get("usuario_auth", {})
+    LICENCIA_ACTUAL = obtener_licencia_usuario(
+        _u.get("user_id", ""), _u.get("email", "")
+    )
+    ESTADO_LICENCIA, VENCIMIENTO_LICENCIA_DT = estado_licencia(LICENCIA_ACTUAL)
+
+    if ESTADO_LICENCIA != "ACTIVO":
+        st.markdown(
+            """
+            <style>
+            .paywall {max-width:850px;margin:55px auto;padding:30px;border:1px solid #334155;border-radius:18px;background:#0d1118;text-align:center;}
+            .paywall h1{color:#d4af37;margin-bottom:8px;}
+            .paywall p{color:#aeb7c5;}
+            </style>
+            <div class="paywall">
+              <h1>🔒 Tu acceso requiere una membresía</h1>
+              <p>La prueba gratuita terminó o la cuenta todavía no tiene una licencia activa.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("### Elige un plan — COBRO SIMULADO")
+        st.caption("En esta versión de prueba no se realiza ningún cargo real ni se solicita tarjeta.")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("#### 💳 Mensual — $28 USD")
+            if st.button("ACTIVAR MENSUAL (SIMULADO)", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL")
+                if ok:
+                    st.success("✅ Membresía mensual simulada activada.")
+                    st.rerun()
+                else:
+                    st.error(msg)
+        with c2:
+            st.markdown("#### 💳 Anual — $240 USD")
+            if st.button("ACTIVAR ANUAL (SIMULADO)", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL")
+                if ok:
+                    st.success("✅ Membresía anual simulada activada.")
+                    st.rerun()
+                else:
+                    st.error(msg)
+        st.info("Para esta prueba, el administrador también podrá concederte acceso gratuito sin pago.")
+        st.stop()
+
 
 # Barra discreta de sesión.
 with st.sidebar:
@@ -801,6 +1033,29 @@ with st.sidebar:
     ):
         cerrar_sesion()
         st.rerun()
+
+    if ES_ADMIN:
+        st.markdown("---")
+        st.markdown("### 👑 Administración")
+        st.caption("Modo de prueba: licencias y cobros simulados")
+        licencias = _leer_licencias_simuladas()
+        st.metric("Usuarios registrados", len(licencias))
+        if licencias:
+            activos = sum(1 for x in licencias.values() if estado_licencia(x)[0] == "ACTIVO")
+            vencidos = sum(1 for x in licencias.values() if estado_licencia(x)[0] == "VENCIDO")
+            st.write(f"Activos: **{activos}** · Vencidos: **{vencidos}**")
+            for uid, lic in list(licencias.items())[:25]:
+                estado, venc_txt = _resumen_licencia(lic)
+                st.markdown(f"**{lic.get('email','Usuario')}**  ")
+                st.caption(f"{lic.get('plan','—')} · {estado} · vence {venc_txt}")
+                if st.button("🎁 +30 días", key=f"grant_{uid}", width="stretch"):
+                    if conceder_gratis_admin(uid, 30):
+                        st.success("30 días gratuitos concedidos.")
+                        st.rerun()
+                if st.button("⛔ Suspender", key=f"suspend_{uid}", width="stretch"):
+                    if suspender_usuario_admin(uid):
+                        st.warning("Usuario suspendido.")
+                        st.rerun()
 
 
 # ==========================================
