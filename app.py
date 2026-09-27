@@ -187,7 +187,7 @@ def guardar_horario_en_disco(inicio_min, fin_min):
 # ==========================================
 # Estos precios son únicamente de prueba. No hay cobro real ni tarjeta.
 PRECIO_MENSUAL_USD = 28.00
-PRECIO_ANUAL_USD = 240.00
+PRECIO_ANUAL_USD = 270.00
 DIAS_PRUEBA_GRATIS = 30
 RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
 
@@ -662,8 +662,33 @@ def pantalla_autenticacion():
             text-align: center;
             font-size: 11px;
             letter-spacing: 2px;
-            margin-bottom: 20px;
+            margin-bottom: 14px;
         }
+        .auth-offer {
+            box-sizing: border-box;
+            width: 100%;
+            margin: 8px auto 0 auto;
+            padding: 11px 10px 10px 10px;
+            border: 1px solid rgba(212,175,55,.55);
+            border-radius: 10px;
+            background: linear-gradient(180deg, rgba(212,175,55,.10), rgba(212,175,55,.035));
+            text-align: center;
+            color: #f3f3f3;
+        }
+        .auth-offer-title {
+            color: #f2d675;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: .8px;
+            margin-bottom: 7px;
+        }
+        .auth-offer-line {
+            font-size: 12px;
+            line-height: 1.55;
+            color: #d9dee7;
+        }
+        .auth-offer-free { color: #37c77a; font-weight: 800; }
+        .auth-offer-price { color: #f2d675; font-weight: 800; }
         @media (max-width: 640px) {
             .auth-card {
                 width: calc(100% - 18px);
@@ -677,7 +702,16 @@ def pantalla_autenticacion():
             }
             .auth-subtitle {
                 font-size: 10px;
-                margin-bottom: 14px;
+                margin-bottom: 10px;
+            }
+            .auth-offer {
+                padding: 10px 7px 9px 7px;
+            }
+            .auth-offer-title {
+                font-size: 12px;
+            }
+            .auth-offer-line {
+                font-size: 11px;
             }
         }
         </style>
@@ -690,6 +724,14 @@ def pantalla_autenticacion():
         <div class="auth-card">
             <div class="auth-title">TRADE SCANNER INSTITUTIONAL</div>
             <div class="auth-subtitle">SCANNER</div>
+            <div class="auth-offer">
+                <div class="auth-offer-title">🎁 OFERTA DE LANZAMIENTO</div>
+                <div class="auth-offer-line">
+                    Primer mes <span class="auth-offer-free">GRATIS</span> &nbsp;•&nbsp;
+                    Luego <span class="auth-offer-price">$28/mes</span> &nbsp;•&nbsp;
+                    Anual <span class="auth-offer-price">$270/año</span>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1012,7 +1054,7 @@ if not ES_ADMIN and USUARIO_AUTENTICADO:
                 else:
                     st.error(msg)
         with c2:
-            st.markdown("#### 💳 Anual — $240 USD")
+            st.markdown("#### 💳 Anual — $270 USD")
             if st.button("ACTIVAR ANUAL (SIMULADO)", width="stretch"):
                 ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL")
                 if ok:
