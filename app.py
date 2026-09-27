@@ -651,7 +651,11 @@ def pantalla_autenticacion():
             text-align: center;
             font-size: 11px;
             letter-spacing: 2px;
-            margin-bottom: 20px;
+            margin: 0 auto;
+        }
+        @media(max-width:520px){
+            .auth-card{width:calc(100% - 18px);padding:20px 12px;margin-top:18px;}
+            .auth-title{font-size:19px;}
         }
         </style>
         """,
@@ -2809,7 +2813,7 @@ h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
-    h += "<a class='auth-link' href='javascript:void(0)' onclick=\"var u=window.parent.location.href.split('?')[0];window.parent.location.href=u+'?auth=1';return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
+    h += "<a class='auth-link' href='?auth=1' target='_parent'>📝 REGISTRO / INICIAR SESIÓN</a>"
     h += "<div class='refresh-box'>REFRESH <select disabled><option>15 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
