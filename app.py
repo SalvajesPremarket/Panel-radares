@@ -188,7 +188,7 @@ def guardar_horario_en_disco(inicio_min, fin_min):
 # Estos precios son únicamente de prueba. No hay cobro real ni tarjeta.
 PRECIO_MENSUAL_USD = 28.00
 PRECIO_ANUAL_USD = 270.00
-DIAS_PRUEBA_GRATIS = 30
+DIAS_PRUEBA_GRATIS = 7
 RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
 
 def _leer_licencias_simuladas():
@@ -222,7 +222,7 @@ def _parse_iso(value):
         return None
 
 def crear_prueba_usuario(user_id, email):
-    """Crea una prueba de 30 días una sola vez por usuario."""
+    """Crea una prueba de 7 días una sola vez por usuario."""
     if not user_id:
         return None
     data = _leer_licencias_simuladas()
@@ -723,18 +723,12 @@ def pantalla_autenticacion():
 
     st.markdown(
         """
-        <div class="auth-card">
-            <div style="position:relative; z-index:2; width:100%; text-align:center;">
-                <div class="auth-title">TRADE SCANNER INSTITUTIONAL</div>
-                <div class="auth-subtitle">SCANNER</div>
-            </div>
-            <div class="auth-offer">
-                <div class="auth-offer-title">🎁 OFERTA DE LANZAMIENTO</div>
-                <div class="auth-offer-line">
-                    Primer mes <span class="auth-offer-free">GRATIS</span> &nbsp;•&nbsp;
-                    Luego <span class="auth-offer-price">$28/mes</span> &nbsp;•&nbsp;
-                    Anual <span class="auth-offer-price">$270/año</span>
-                </div>
+        <div style="box-sizing:border-box;width:min(520px,calc(100% - 18px));max-width:520px;margin:14px auto 20px auto;padding:18px 14px 14px;background:#0d1118;border:1px solid #2a3348;border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;text-align:center;">
+            <div style="box-sizing:border-box;width:100%;margin:0;padding:0 2px;color:#d4af37;font-family:Arial,sans-serif;font-weight:800;font-size:clamp(18px,5vw,26px);line-height:1.2;text-align:center;overflow-wrap:anywhere;word-break:break-word;">TRADE SCANNER INSTITUTIONAL</div>
+            <div style="width:100%;margin:5px 0 11px;color:#8e96a3;font-family:Arial,sans-serif;font-size:10px;letter-spacing:2px;text-align:center;">SCANNER</div>
+            <div style="box-sizing:border-box;width:100%;margin:0;padding:10px 8px 9px;border:1px solid rgba(212,175,55,.55);border-radius:10px;background:linear-gradient(180deg,rgba(212,175,55,.10),rgba(212,175,55,.035));text-align:center;color:#f3f3f3;">
+                <div style="color:#f2d675;font-family:Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.8px;margin-bottom:6px;">🎁 OFERTA DE LANZAMIENTO</div>
+                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.5;color:#d9dee7;">Prueba <span style="color:#37c77a;font-weight:800;">7 DÍAS GRATIS</span> &nbsp;•&nbsp; Luego <span style="color:#f2d675;font-weight:800;">$28/mes</span> &nbsp;•&nbsp; Anual <span style="color:#f2d675;font-weight:800;">$270/año</span></div>
             </div>
         </div>
         """,
@@ -906,12 +900,12 @@ def pantalla_autenticacion():
                         _guardar_usuario_auth(data, tipo="usuario")
                         _u = data.get("user") or {}
                         crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
-                        st.success("✅ Cuenta creada. Tu prueba gratuita de 30 días está activa.")
+                        st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
                         st.rerun()
                     else:
                         st.success(
                             "✅ Cuenta creada. Revisa tu correo para confirmar la cuenta. "
-                            "Al iniciar sesión se activará tu prueba gratuita de 30 días."
+                            "Al iniciar sesión se activará tu prueba gratuita de 7 días."
                         )
 
     with tab_admin:
@@ -1110,9 +1104,9 @@ with st.sidebar:
                 estado, venc_txt = _resumen_licencia(lic)
                 st.markdown(f"**{lic.get('email','Usuario')}**  ")
                 st.caption(f"{lic.get('plan','—')} · {estado} · vence {venc_txt}")
-                if st.button("🎁 +30 días", key=f"grant_{uid}", width="stretch"):
+                if st.button("🎁 +7 días", key=f"grant_{uid}", width="stretch"):
                     if conceder_gratis_admin(uid, 30):
-                        st.success("30 días gratuitos concedidos.")
+                        st.success("7 días gratuitos concedidos.")
                         st.rerun()
                 if st.button("⛔ Suspender", key=f"suspend_{uid}", width="stretch"):
                     if suspender_usuario_admin(uid):
@@ -2813,13 +2807,13 @@ bridge_val = _qtxt("c_url", st.session_state.get("bk_puente", "http://localhost:
 
 # 🔄 Refresco de la interfaz: visitante fijo en 15 minutos; usuario registrado
 # puede seleccionar desde 5 segundos y valores mayores.
-_refresh_raw = str(st.query_params.get("refresh_sec", "900"))
+_refresh_raw = str(st.query_params.get("refresh_sec", "180"))
 try:
     refresh_sec = max(5, int(float(_refresh_raw)))
 except Exception:
-    refresh_sec = 900
+    refresh_sec = 180
 if PUBLIC_PREVIEW:
-    refresh_sec = 900
+    refresh_sec = 180
 refresh_options = [5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600]
 if refresh_sec not in refresh_options:
     refresh_options.append(refresh_sec)
@@ -2883,7 +2877,7 @@ h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANN
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
     h += "<a class='auth-link' href='?auth=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.origin+window.top.location.pathname+'?auth=1';}catch(e){window.location.href='?auth=1';}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
-    h += "<div class='refresh-box'>REFRESH <select disabled><option>15 min</option></select></div>"
+    h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
     h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
