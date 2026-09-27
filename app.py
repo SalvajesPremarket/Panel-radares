@@ -630,6 +630,7 @@ def pantalla_autenticacion():
                 #030303 !important;
         }
         .auth-card {
+            position: relative;
             box-sizing: border-box;
             width: min(520px, calc(100% - 24px));
             max-width: 520px;
@@ -640,6 +641,7 @@ def pantalla_autenticacion():
             padding: 24px 18px 22px 18px;
             box-shadow: 0 18px 50px rgba(0,0,0,.35);
             overflow: hidden;
+            isolation: isolate;
         }
         .auth-title {
             box-sizing: border-box;
@@ -722,8 +724,10 @@ def pantalla_autenticacion():
     st.markdown(
         """
         <div class="auth-card">
-            <div class="auth-title">TRADE SCANNER INSTITUTIONAL</div>
-            <div class="auth-subtitle">SCANNER</div>
+            <div style="position:relative; z-index:2; width:100%; text-align:center;">
+                <div class="auth-title">TRADE SCANNER INSTITUTIONAL</div>
+                <div class="auth-subtitle">SCANNER</div>
+            </div>
             <div class="auth-offer">
                 <div class="auth-offer-title">🎁 OFERTA DE LANZAMIENTO</div>
                 <div class="auth-offer-line">
