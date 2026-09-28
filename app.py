@@ -1151,6 +1151,29 @@ if "token_verificado" not in st.session_state and "usuario_auth" not in st.sessi
     )
 
 # =========================================================
+# ACCESO NATIVO A REGISTRO / LOGIN
+# =========================================================
+# La carátula principal se renderiza dentro de components.html (iframe).
+# Para que el acceso no dependa de enlaces/target del iframe, ofrecemos
+# también un botón Streamlit nativo fuera del componente HTML.
+if PUBLIC_PREVIEW:
+    st.markdown(
+        "<div style=\"height:4px\"></div>",
+        unsafe_allow_html=True,
+    )
+    _c1, _c2, _c3 = st.columns([1, 2, 1])
+    with _c2:
+        if st.button(
+            "📝 REGISTRO / INICIAR SESIÓN",
+            key="native_auth_entry",
+            width="stretch",
+        ):
+            # Usar el mecanismo nativo de Streamlit evita cualquier navegación
+            # desde el iframe de la carátula.
+            st.query_params["auth"] = "1"
+            st.rerun()
+
+# =========================================================
 # IDENTIDAD ACTIVA
 # =========================================================
 if "token_verificado" in st.session_state:
@@ -3735,8 +3758,8 @@ h += ".tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;overflow:vi
 h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900}.technical-subtab.active{background:#3a4048}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
 h += "</style>"
 h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
-h += "function setQ(k,v){var q=new URLSearchParams(window.top.location.search||window.parent.location.search);q.set(k,v);_navegarMismaApp(q);}"
-h += "function cambiarTimeframeTecnico(v){try{var q=new URLSearchParams(window.top.location.search||window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}catch(e){var q=new URLSearchParams(window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);window.location.href='?'+q.toString();}}"
+h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
+h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
 h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
 h += "var TS_BASE_QUERY=" + json.dumps({str(k): str(v) for k, v in st.query_params.items()}, ensure_ascii=False) + ";"
 h += "var TS_AUTH_SESSION=" + json.dumps(str(st.query_params.get("auth_session", ""))) + ";"
@@ -3746,7 +3769,7 @@ h += "function _qtop(){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(e
 h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
 h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
 h += "function _restaurarUltimaConfiguracion(){if(!TS_AUTH)return;try{var cur=_qtop();var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';if(!raw)return;var o=JSON.parse(raw||'{}');if(!o||typeof o!=='object')return;var q=new URLSearchParams(cur.toString());var claves=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec'];var cambio=false;claves.forEach(function(k){if(!q.has(k)&&o[k]!==null&&o[k]!==undefined){q.set(k,o[k]);cambio=true}});var sid=cur.get('auth_session');if(sid&&!q.get('auth_session'))q.set('auth_session',sid);if(cambio)_navegarMismaApp(q)}catch(e){}}"
-h += "function _navegarMismaApp(q){try{window.top.location.replace(window.location.origin+'/?'+q.toString());}catch(e){try{window.parent.location.replace(window.location.origin+'/?'+q.toString());}catch(e2){}}}"
+h += "function _navegarMismaApp(q){try{var u='/?'+q.toString();var a=document.createElement('a');a.href=u;a.target='_top';a.rel='noopener';document.body.appendChild(a);a.click();setTimeout(function(){try{a.remove();}catch(e){}},50);}catch(e){}}"
 h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
 h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
 h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
@@ -3771,14 +3794,14 @@ h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{_navegarMismaAp
 h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
 h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);q.set('_ts',String(Date.now()));_guardarUltimaConfiguracion(q);_navegarMismaApp(q)}"
+h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);q.set('_ts',String(Date.now()));_guardarUltimaConfiguracion(q);var form=document.createElement('form');form.method='GET';form.action='/';form.target='_top';q.forEach(function(val,key){if(key==='_ts')return;var inp=document.createElement('input');inp.type='hidden';inp.name=key;inp.value=val;form.appendChild(inp)});document.body.appendChild(form);form.submit();setTimeout(function(){try{form.remove();}catch(e){}},1000)}"
 h += ""
 h += "</script></head><body>"
 h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
-    h += "<a class='auth-link' href='/?auth=1' onclick=\"try{window.top.location.replace(window.location.origin+'/?auth=1&_ts='+Date.now());}catch(e){} return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
+    h += "<a class='auth-link' href='/?auth=1' target='_top'>📝 REGISTRO / INICIAR SESIÓN</a>"
     h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
@@ -3786,8 +3809,8 @@ else:
     if _email_top:
         h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
     # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
-    h += "<a class='auth-link' href='/?auth=1' onclick=\"try{window.top.location.replace(window.location.origin+'/?auth=1&_ts='+Date.now());}catch(e){} return false;\">CUENTA / REGISTRO</a>"
-    h += "<a class='auth-link' href='/?logout=1' onclick=\"try{window.top.location.replace(window.location.origin+'/?logout=1&_ts='+Date.now());}catch(e){} return false;\">SALIR</a>"
+    h += "<a class='auth-link' href='/?auth=1' target='_top'>CUENTA / REGISTRO</a>"
+    h += "<a class='auth-link' href='/?logout=1' target='_top'>SALIR</a>"
 h += "</div>"
 h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
 h += "<div class='tabs'>"
