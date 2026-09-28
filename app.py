@@ -1052,6 +1052,13 @@ if LOGOUT_REQUESTED:
         pass
     st.rerun()
 
+# Si el usuario pidió explícitamente REGISTRO / INICIAR SESIÓN, la pantalla
+# de autenticación tiene prioridad. No debemos restaurar una sesión anterior
+# primero, porque eso hacía que el enlace de registro pareciera no funcionar.
+if AUTH_REQUESTED:
+    pantalla_autenticacion()
+    st.stop()
+
 # Recuperar automáticamente la sesión si el navegador hizo un refresh completo
 # o si una navegación de la carátula creó una nueva sesión de Streamlit.
 if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
@@ -1060,10 +1067,6 @@ if "token_verificado" not in st.session_state and "usuario_auth" not in st.sessi
         "token_verificado" not in st.session_state
         and "usuario_auth" not in st.session_state
     )
-
-if PUBLIC_PREVIEW and AUTH_REQUESTED:
-    pantalla_autenticacion()
-    st.stop()
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -1454,19 +1457,14 @@ def evaluar_tecnico(velas):
     durante la vela que nace, se compara el OPEN actual contra la EMA20
     calculada hasta la vela anterior.
     """
-    # MIN_VELAS_SENAL: mínimo real necesario para EMA20+MACD, igual que app_clean.py.
-    # EMA50/EMA200 son solo informativas (regla 7 y 12) y se calculan con el
-    # historial disponible aunque sea menor a 200-220 velas; no deben bloquear
-    # la señal principal ni dejar el radar sin candidatos.
-    MIN_VELAS_SENAL = 40
-    if velas is None or len(velas) < MIN_VELAS_SENAL:
+    if velas is None or len(velas) < 220:
         return (False, False, False, False, None, None, None, 0,
                 None, None, None, None, None, None, None, None, None)
 
     try:
         velas = velas.sort_index()
         cierres = velas["close"].astype(float).dropna()
-        if len(cierres) < MIN_VELAS_SENAL:
+        if len(cierres) < 220:
             return (False, False, False, False, None, None, None, 0,
                     None, None, None, None, None, None, None, None, None)
 
@@ -3685,13 +3683,15 @@ h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
-    h += "<a class='auth-link' href='https://jd6gih.streamlit.app/?auth=1' target='_top' onclick=\"try{window.top.location.href='https://jd6gih.streamlit.app/?auth=1';}catch(e){window.location.href='https://jd6gih.streamlit.app/?auth=1';}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
+    h += "<a class='auth-link' href='?auth=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.pathname+'?auth=1&_ts='+Date.now();}catch(e){window.location.href='?auth=1&_ts='+Date.now();}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
     h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
     h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
     if _email_top:
         h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
+    # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
+    h += "<a class='auth-link' href='?auth=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.pathname+'?auth=1&_ts='+Date.now();}catch(e){window.location.href='?auth=1&_ts='+Date.now();}return false;\">CUENTA / REGISTRO</a>"
     h += "<a class='auth-link' href='?logout=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.pathname+'?logout=1&_ts='+Date.now();}catch(e){window.location.href='?logout=1&_ts='+Date.now();}return false;\">SALIR</a>"
 h += "</div>"
 h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
