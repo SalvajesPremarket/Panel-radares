@@ -434,9 +434,16 @@ def supabase_auth_request(endpoint, payload):
             or data.get("message")
             or data.get("error_description")
             or data.get("error")
-            or "No se pudo completar la operación."
         )
-        return None, str(mensaje)
+        if not mensaje:
+            try:
+                detalle = respuesta.text.strip()
+            except Exception:
+                detalle = ""
+            mensaje = detalle or "No se pudo completar la operación."
+        codigo = str(data.get("code", "")).strip() if isinstance(data, dict) else ""
+        sufijo = f" [{codigo}]" if codigo else ""
+        return None, f"{mensaje}{sufijo} (HTTP {respuesta.status_code})"
 
     except Exception as e:
         return None, f"Error de conexión con el servicio de autenticación: {e}"
@@ -452,12 +459,11 @@ def registrar_usuario(email, password):
     if len(password) < 8:
         return None, "La contraseña debe tener al menos 8 caracteres."
 
-    # Supabase debe enviar el enlace de confirmación de vuelta a la
-    # aplicación pública del scanner, no a share.streamlit.io.
-    redirect_url = "https://jd6gih.streamlit.app"
-
+    # No forzamos una URL fija de Streamlit. Si Supabase requiere
+    # confirmación por correo, utiliza la Site URL / Redirect URLs configurada
+    # en Supabase. Así un cambio de dominio no rompe el registro.
     data, error = supabase_auth_request(
-        f"signup?redirect_to={quote(redirect_url, safe='')}",
+        "signup",
         {
             "email": email,
             "password": password,
@@ -686,7 +692,10 @@ def _crear_sesion_persistente(tipo, datos):
     try:
         _email = str((datos or {}).get("email", "")).strip().lower()
         if tipo == "usuario" and _email:
-            _cfg = _ULTIMA_CONFIG_USUARIOS.get(_email)
+            # Este helper se define antes del bloque de configuración de usuario.
+            # Nunca debe fallar el login/registro por una referencia adelantada.
+            _cfg_store = globals().get("_ULTIMA_CONFIG_USUARIOS", {})
+            _cfg = _cfg_store.get(_email) if isinstance(_cfg_store, dict) else None
             if isinstance(_cfg, dict) and _cfg:
                 _PERSISTENT_AUTH_SESSIONS[sid]["config"] = dict(_cfg)
     except Exception:
@@ -893,6 +902,17 @@ def pantalla_autenticacion():
         unsafe_allow_html=True,
     )
 
+    # Diagnóstico visible de configuración: no muestra la clave, solo confirma
+    # si Streamlit recibió los dos secretos necesarios para Supabase.
+    _sb_url, _sb_key = _supabase_config()
+    if not _sb_url or not _sb_key:
+        st.error(
+            "⚠️ El registro/login no está configurado todavía en este despliegue: "
+            "faltan SUPABASE_URL y/o SUPABASE_ANON_KEY en Streamlit Secrets."
+        )
+    else:
+        st.caption("🔐 Autenticación de usuarios: Supabase configurado")
+
     # Una sola ventana para todos.
     # El acceso de administrador está dentro de la misma pantalla y
     # requiere el token secreto configurado en Streamlit Secrets.
@@ -929,6 +949,7 @@ def pantalla_autenticacion():
                 crear_prueba_usuario(_u.get("id", ""), _u.get("email", email))
                 _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
                 st.query_params["auth_session"] = _sid
+                st.session_state["mostrar_auth"] = False
                 st.query_params.pop("auth", None)
                 st.rerun()
 
@@ -1063,6 +1084,7 @@ def pantalla_autenticacion():
                         crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
                         _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
                         st.query_params["auth_session"] = _sid
+                        st.session_state["mostrar_auth"] = False
                         st.query_params.pop("auth", None)
                         st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
                         st.rerun()
@@ -1112,11 +1134,6 @@ def pantalla_autenticacion():
 # =========================================================
 # 🌐 MODO PÚBLICO / AUTENTICACIÓN
 # =========================================================
-# El visitante entra directamente a la carátula del scanner.
-# La autenticación se abre solamente cuando pulsa REGISTRO / INICIAR SESIÓN.
-# Así puede conocer la interfaz antes de crear una cuenta.
-# Recuperar automáticamente la sesión si el navegador hizo un refresh completo
-# o si una navegación de la carátula creó una nueva sesión de Streamlit.
 PUBLIC_PREVIEW = (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
@@ -1124,25 +1141,36 @@ PUBLIC_PREVIEW = (
 AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
 LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
 
-# SALIR tiene prioridad absoluta: no restaurar la sesión persistente cuando
-# el usuario pidió explícitamente cerrar sesión.
+# Estado nativo de Streamlit: no depende de iframe, target, window.open ni
+# navegación del navegador.
+if "mostrar_auth" not in st.session_state:
+    st.session_state["mostrar_auth"] = False
+
 if LOGOUT_REQUESTED:
     cerrar_sesion()
+    st.session_state["mostrar_auth"] = False
     try:
         st.query_params.clear()
     except Exception:
         pass
     st.rerun()
 
-# Si el usuario pidió explícitamente REGISTRO / INICIAR SESIÓN, la pantalla
-# de autenticación tiene prioridad. No debemos restaurar una sesión anterior
-# primero, porque eso hacía que el enlace de registro pareciera no funcionar.
+# Si llega ?auth=1 desde una versión anterior, se convierte una sola vez al
+# estado nativo y se elimina el parámetro.
 if AUTH_REQUESTED:
+    st.session_state["mostrar_auth"] = True
+    try:
+        st.query_params.pop("auth", None)
+    except Exception:
+        pass
+
+# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
+# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
+if st.session_state.get("mostrar_auth") and not st.session_state.get("usuario_auth") and "token_verificado" not in st.session_state:
     pantalla_autenticacion()
     st.stop()
 
-# Recuperar automáticamente la sesión si el navegador hizo un refresh completo
-# o si una navegación de la carátula creó una nueva sesión de Streamlit.
+# Restauración normal de sesión solamente cuando no se está mostrando Auth.
 if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
     _restaurar_sesion_persistente()
     PUBLIC_PREVIEW = (
@@ -1153,14 +1181,8 @@ if "token_verificado" not in st.session_state and "usuario_auth" not in st.sessi
 # =========================================================
 # ACCESO NATIVO A REGISTRO / LOGIN
 # =========================================================
-# La carátula principal se renderiza dentro de components.html (iframe).
-# Para que el acceso no dependa de enlaces/target del iframe, ofrecemos
-# también un botón Streamlit nativo fuera del componente HTML.
 if PUBLIC_PREVIEW:
-    st.markdown(
-        "<div style=\"height:4px\"></div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div style=\"height:4px\"></div>", unsafe_allow_html=True)
     _c1, _c2, _c3 = st.columns([1, 2, 1])
     with _c2:
         if st.button(
@@ -1168,9 +1190,7 @@ if PUBLIC_PREVIEW:
             key="native_auth_entry",
             width="stretch",
         ):
-            # Usar el mecanismo nativo de Streamlit evita cualquier navegación
-            # desde el iframe de la carátula.
-            st.query_params["auth"] = "1"
+            st.session_state["mostrar_auth"] = True
             st.rerun()
 
 # =========================================================
@@ -1387,7 +1407,7 @@ with st.sidebar:
         st.info("👀 Visitante")
         st.caption("Puedes explorar la interfaz sin registrarte.")
         if st.button("📝 REGISTRO / INICIAR SESIÓN", key="sidebar_auth_public", width="stretch"):
-            st.query_params["auth"] = "1"
+            st.session_state["mostrar_auth"] = True
             st.rerun()
     elif ES_ADMIN:
         st.success("Administrador")
