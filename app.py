@@ -94,7 +94,7 @@ BASE_FLOTACION_MAX = 20_000_000
 # 🧪 ETAPA DE DEPURACIÓN DE FILTROS
 # 1 = solo precio + EMA20 + MACD. Telegram queda APAGADO.
 # Luego podremos pasar a 2, 3, 4... agregando un filtro por vez.
-ETAPA_PRUEBA_FILTROS = 4
+ETAPA_PRUEBA_FILTROS = 3
 
 # PRUEBA 7: medir alcanzabilidad de objetivos sobre la misma señal.
 PRUEBA7_OBJETIVOS_PCT = (0.25, 0.50, 1.00)
@@ -119,7 +119,7 @@ HORA_MERCADO_FIN_ET = 16
 HORA_AFTER_FIN_ET = 20
 TTL_CALENDARIO_MERCADO = 12 * 3600
 
-TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker más seguido que esto
+TTL_TECNICO_SEGUNDOS = 10              # no recalcular EMA/MACD de un ticker más seguido que esto
 VENTANA_CRUCE_EMA_MINUTOS = 1
 MARGEN_PROXIMIDAD_EMA = 0.05
 # PRUEBA 6: ventana fija de observación posterior a la detección.
@@ -161,7 +161,7 @@ VALORES_POR_DEFECTO = {
     "top_n": 50,
     "sesion": "PRE-MARKET",
     "timeframe": "1m",
-    "ema_dist_max": 1.0,
+    "ema_dist_max": 0.0,
     "rsi_min": 0.0,
     "rsi_max": 100.0,
 }
@@ -599,6 +599,14 @@ _PERSISTENT_AUTH_SESSIONS = _almacen_sesiones_persistentes()
 def _crear_sesion_persistente(tipo, datos):
     sid = secrets.token_urlsafe(32)
     _PERSISTENT_AUTH_SESSIONS[sid] = {"tipo": tipo, "datos": dict(datos or {})}
+    try:
+        _email = str((datos or {}).get("email", "")).strip().lower()
+        if tipo == "usuario" and _email:
+            _cfg = _ULTIMA_CONFIG_USUARIOS.get(_email)
+            if isinstance(_cfg, dict) and _cfg:
+                _PERSISTENT_AUTH_SESSIONS[sid]["config"] = dict(_cfg)
+    except Exception:
+        pass
     return sid
 
 def _restaurar_sesion_persistente():
@@ -1109,6 +1117,15 @@ def _restaurar_ultima_configuracion_servidor():
     if not email:
         return False
     guardada = _ULTIMA_CONFIG_USUARIOS.get(email)
+    try:
+        _sid_cfg = str(st.query_params.get("auth_session", "")).strip()
+        _ses_cfg = _PERSISTENT_AUTH_SESSIONS.get(_sid_cfg, {}) if _sid_cfg else {}
+        _cfg_sid = _ses_cfg.get("config") if isinstance(_ses_cfg, dict) else None
+        if isinstance(_cfg_sid, dict) and _cfg_sid:
+            guardada = _cfg_sid
+            _ULTIMA_CONFIG_USUARIOS[email] = dict(_cfg_sid)
+    except Exception:
+        pass
     if not isinstance(guardada, dict) or not guardada:
         return False
     cambio = False
@@ -1132,6 +1149,15 @@ def _guardar_ultima_configuracion_servidor():
     if estado:
         estado["_saved_at"] = datetime.now(timezone.utc).isoformat()
         _ULTIMA_CONFIG_USUARIOS[email] = estado
+        # También la asociamos a la sesión persistente actual. Así una
+        # navegación/refresh conserva exactamente el último estado aunque
+        # todavía no haya vuelto a Supabase.
+        try:
+            _sid_cfg = str(st.query_params.get("auth_session", "")).strip()
+            if _sid_cfg and _sid_cfg in _PERSISTENT_AUTH_SESSIONS:
+                _PERSISTENT_AUTH_SESSIONS[_sid_cfg]["config"] = dict(estado)
+        except Exception:
+            pass
         try:
             with open(_RUTA_ULTIMA_CONFIG_USUARIOS, "w", encoding="utf-8") as _f_cfg:
                 json.dump(_ULTIMA_CONFIG_USUARIOS, _f_cfg, ensure_ascii=False, indent=2)
@@ -1293,8 +1319,8 @@ def evaluar_tecnico(velas):
 
     Señal EMA20 solicitada:
       1) la vela actual NACE (abre) por encima de la EMA20 de la vela anterior;
-      2) su máximo es mayor que el máximo de la vela anterior;
-      3) su mínimo es mayor que el mínimo de la vela anterior.
+      2) su mínimo es mayor que el mínimo de la vela anterior.
+      El HIGH de la vela actual NO se usa porque la vela todavía está formándose.
 
     La EMA20 se calcula sobre cierres. Para evitar que la EMA "se mueva"
     durante la vela que nace, se compara el OPEN actual contra la EMA20
@@ -1481,32 +1507,21 @@ def filtrar_resultados(filas, p):
         ema_dist = c.get("ema_dist_pct")
         if ema_dist is not None and float(ema_dist) > float(p.get("ema_dist_max", 1.0)):
             continue
-        # Etapa 1: dejamos fuera gap, float y volumen para localizar
-        # exactamente qué filtro está provocando la caída a cero.
-        if ETAPA_PRUEBA_FILTROS >= 4:
-            if not (p["gap_min"] <= c["cambio_pct"] <= p["gap_max"]):
-                continue
-        if ETAPA_PRUEBA_FILTROS >= 3:
-            if c["float_shares"] is not None and c["float_shares"] > p["flotacion_max"]:
-                continue
-        if ETAPA_PRUEBA_FILTROS >= 2:
-            if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
-                continue
-        if ETAPA_PRUEBA_FILTROS == 1:
-            # PRUEBA 1 real: EMA20 = precio por encima de EMA20.
-            if not c.get("cruzando_ema20", False):
-                continue
-            macd = "Positivo"
-        else:
-            cruce = p.get("cruce_ema", "Neutro")
-            if cruce in ("Hacia arriba", "Vela nueva sobre EMA20 + HH/HL") and not c["cruzando_ema20"]:
-                continue
-            if cruce == "Hacia abajo" and not c["cruzando_ema20_abajo"]:
-                continue
-            macd = p.get("macd", "No exigir")
-        if macd == "Positivo" and not c["macd_positivo"]:
+        # REGLAS DURAS DEL SCANNER: estas condiciones SIEMPRE se aplican.
+        # Precio: $0.50-$20; GAP REAL: 3%-50%; Float <=20M; Volumen >=15K.
+        gap = c.get("gap_pct")
+        if gap is None or not (float(p.get("gap_min", 3.0)) <= float(gap) <= float(p.get("gap_max", 50.0))):
             continue
-        if macd == "Negativo" and not c["macd_negativo"]:
+        if c.get("float_shares") is None:
+            continue
+        if float(c.get("float_shares")) > float(p.get("flotacion_max", 20_000_000)):
+            continue
+        if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
+            continue
+        # REGLAS TÉCNICAS FIJAS SOLICITADAS: primera vela formándose sobre EMA20 + MACD positivo.
+        if not c.get("cruzando_ema20", False):
+            continue
+        if not c.get("macd_positivo", False):
             continue
         for _ek in ("ema20", "ema50", "ema200"):
             _want = p.get(f"{_ek}_estado", "Neutro")
@@ -1542,7 +1557,8 @@ def filtrar_eventos(eventos, p):
     for e in eventos:
         if not (p["precio_min"] <= e["precio"] <= p["precio_max"]):
             continue
-        if not (p["gap_min"] <= e["cambio_pct"] <= p["gap_max"]):
+        gap = e.get("gap_pct")
+        if gap is None or not (p["gap_min"] <= gap <= p["gap_max"]):
             continue
         if e["float_shares"] is not None and e["float_shares"] > p["flotacion_max"]:
             continue
@@ -1565,7 +1581,7 @@ class ServicioScanner:
         self.filtros_dueno = filtros_dueno
         self.sesion = filtros_dueno.get("sesion", "PRE-MARKET")
         self.timeframe = filtros_dueno.get("timeframe", "1m")
-        self.ema_dist_max = float(filtros_dueno.get("ema_dist_max", 1.0))
+        self.ema_dist_max = float(filtros_dueno.get("ema_dist_max", 0.0))
 
         self.trading = TradingClient(api_key, secret_key)
         self.data = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
@@ -1603,7 +1619,7 @@ class ServicioScanner:
             "final_tickers_mismo_ciclo": [],
             "eliminados_post_ema_macd": [],
             "eliminados_post_ema_macd_count": 0,
-            "gap_aplicado": ETAPA_PRUEBA_FILTROS >= 4,
+            "gap_aplicado": True,
             "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
             "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
         }
@@ -1797,7 +1813,7 @@ class ServicioScanner:
                 "macd_positivo": 0,
                 "ema_y_macd": 0,
                 "resultados": 0,
-                "gap_aplicado": ETAPA_PRUEBA_FILTROS >= 4,
+                "gap_aplicado": True,
                 "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
                 "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
             }
@@ -2300,9 +2316,21 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         if not self.universo or time.time() - self.universo_ts > 6 * 3600:
             self._cargar_universo()
         if not self.universo:
+            self.ultima_actualizacion = datetime.now(ET)
+            self.duracion_ciclo = time.monotonic() - inicio
+            if not self.ultimo_error:
+                self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
+            self.resultados = []
             return
 
         snapshots = self._descargar_snapshots()
+        if not snapshots:
+            self.ultima_actualizacion = datetime.now(ET)
+            self.duracion_ciclo = time.monotonic() - inicio
+            if not self.ultimo_error:
+                self.ultimo_error = "Alpaca no devolvió snapshots de mercado en este ciclo."
+            self.resultados = []
+            return
 
         base = []
         for ticker, snap in snapshots.items():
@@ -2315,12 +2343,18 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if not (BASE_PRECIO_MIN <= precio <= BASE_PRECIO_MAX):
                 continue
             cambio = ((precio - cierre_prev) / cierre_prev) * 100
-            if ETAPA_PRUEBA_FILTROS >= 4 and not (BASE_GAP_MIN <= cambio <= BASE_GAP_MAX):
-                continue
+            apertura_hoy = getattr(snap.daily_bar, "open", None)
+            try:
+                gap_pct = ((float(apertura_hoy) - float(cierre_prev)) / float(cierre_prev)) * 100 if apertura_hoy is not None else None
+            except Exception:
+                gap_pct = None
+            # GAP REAL: apertura de hoy frente al cierre previo. Es un filtro
+            # obligatorio del scanner; no se confunde con Cambio %.
             base.append({
                 "ticker": ticker,
                 "precio": precio,
                 "cambio_pct": cambio,
+                "gap_pct": gap_pct,
                 "volumen_dia": snap.daily_bar.volume or 0,
                 "actualizado": snap.latest_trade.timestamp,
             })
@@ -2355,7 +2389,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # en vez de BASE_FLOTACION_MAX (50,000,000), para que este
             # conteo de diagnóstico coincida con el filtro que de verdad
             # determina el resultado final en filtrar_resultados().
-            if ETAPA_PRUEBA_FILTROS >= 3 and float_shares is not None and float_shares > self.filtros_dueno.get("flotacion_max", 20_000_000):
+            limite_float = float(self.filtros_dueno.get("flotacion_max", 20_000_000))
+            if float_shares is None or float(float_shares) > limite_float:
                 continue
             c["float_shares"] = float_shares
             c["float_status"] = entrada.get(
@@ -2368,7 +2403,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         enriquecidos = []
         for c in tras_float:
-            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
+            if c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
                 continue
             # El porcentaje de subida se representa directamente con cambio_pct.
             c["volumen_relativo"] = c["cambio_pct"]
@@ -2445,7 +2480,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "tickers_unicos": tickers_enr_unicos,
             "duplicados": len(enriquecidos) - tickers_enr_unicos,
             "resultados": len(filtrar_resultados(enriquecidos, self.filtros_dueno)),
-            "gap_aplicado": ETAPA_PRUEBA_FILTROS >= 4,
+            "gap_aplicado": True,
             "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
             "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
         }
@@ -2522,6 +2557,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 ticker_txt = (noticia + ticker)[:6]
                 precio = float(c.get("precio") or 0)
                 cambio = float(c.get("cambio_pct") or 0)
+                gap = float(c.get("gap_pct") or 0)
                 volumen = _big(c.get("volumen_dia") or 0)
                 flotacion = _big(c.get("float_shares") or 0)
                 ema20 = ("UP" if c.get("cruzando_ema20") else
@@ -2533,7 +2569,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 macd = "POS" if c.get("macd_positivo") else ("NEG" if c.get("macd_negativo") else "--")
                 tabla += (
                     f"{ticker_txt:<7} {sector:<9} {precio:>6.2f} {cambio:>+5.1f}% "
-                    f"{volumen:>6} {cambio:>+5.1f}% {flotacion:>6} {ema20:>4} "
+                    f"{volumen:>6} {gap:>+5.1f}% {flotacion:>6} {ema20:>4} "
                     f"{ema50:>4} {ema200:>4} {macd:>5}\n"
                 )
             # Se llama aquí, inmediatamente después de publicar el resultado
@@ -2580,8 +2616,16 @@ servicio = obtener_servicio(
 
 # Vigilancia del hilo: si el hilo se detuvo, la siguiente ejecución lo vuelve a levantar.
 try:
-    if not getattr(servicio, "_hilo", None) or not servicio._hilo.is_alive():
-        print("⚠️ Hilo del scanner detenido; reiniciando automáticamente.")
+    _hilo_ok = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
+    _ultima = getattr(servicio, "ultima_actualizacion", None)
+    _stale = False
+    if _ultima is not None:
+        try:
+            _stale = (datetime.now(ET) - _ultima).total_seconds() > 45
+        except Exception:
+            _stale = False
+    if (not _hilo_ok) or (_ultima is not None and _stale and not getattr(servicio, "ultimo_error", None)):
+        print("⚠️ Watchdog: reiniciando hilo del scanner por detención o falta de actualización.")
         servicio.reiniciar_scanner()
 except Exception as _watchdog_error:
     print(f"⚠️ Watchdog del scanner: {_watchdog_error}")
@@ -3022,7 +3066,7 @@ macd_ui = _qtxt("f_mac", "Positivo")
 orden_ui = _qtxt("f_order", "Actualizado")
 sesion_ui = _qtxt("market_session", "PRE-MARKET")
 timeframe_ui = _qtxt("timeframe", "1m")
-ema_dist_max_ui = _qfloat("ema_dist_max", 1.0)
+ema_dist_max_ui = _qfloat("ema_dist_max", 0.0)
 rsi_min_ui = _qfloat("rsi_min", 0.0)
 rsi_max_ui = _qfloat("rsi_max", 100.0)
 if sesion_ui not in ("PRE-MARKET", "MERCADO ABIERTO", "AFTER-MARKET", "TODO EL MERCADO"):
@@ -3153,7 +3197,7 @@ def _row_html(row):
         f"<td class='num-col'>{_money(precio)}</td>"
         f"<td class='num-col'>{_pct(cambio)}</td>"
         f"<td class='num-col'>{_big(volumen)}</td>"
-        f"<td class='num-col'>{_pct(cambio)}</td>"
+        f"<td class='num-col'>{_pct(row.get('gap_pct'))}</td>"
         f"<td class='num-col'>{flotacion:.2f}M</td>"
         f"<td>{ema_txt}</td>"
         f"<td>{_safe_text(row.get('ema50_estado','Neutro'))}</td>"
@@ -3309,7 +3353,7 @@ else:
     h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
     if _email_top:
         h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
-    h += "<a class='auth-link' href='https://jd6gih.streamlit.app/?logout=1' target='_top' onclick=\"var u='https://jd6gih.streamlit.app/?logout=1&ts='+Date.now();try{window.top.open(u,'_self');}catch(e){try{window.parent.open(u,'_self');}catch(e2){window.open(u,'_blank');}}return false;\">SALIR</a>"
+    h += "<a class='auth-link' href='?logout=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.pathname+'?logout=1&_ts='+Date.now();}catch(e){window.location.href='?logout=1&_ts='+Date.now();}return false;\">SALIR</a>"
 h += "</div>"
 h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
 h += "<div class='tabs'>"
