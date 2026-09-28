@@ -99,20 +99,20 @@ ETAPA_PRUEBA_FILTROS = 3
 # PRUEBA 7: medir alcanzabilidad de objetivos sobre la misma señal.
 PRUEBA7_OBJETIVOS_PCT = (0.25, 0.50, 1.00)
 
-MAX_ENRIQUECER = 500                   # PRUEBA 3: ampliar temporalmente la muestra técnica; no es un filtro de trading
+MAX_ENRIQUECER = 300                   # Muestra técnica amplia, manteniendo ciclos rápidos.
 
 # Float: FMP es la fuente principal; volumen y velas técnicas se obtienen con Alpaca.
 FMP_API_URL = "https://financialmodelingprep.com/stable/shares-float"
-MAX_FUNDAMENTALES_POR_CICLO = 3        # FMP: varias consultas espaciadas; evita que el scanner tarde horas en conocer el float
-WORKERS_FUNDAMENTALES = 1               # FMP no se consulta en paralelo
+MAX_FUNDAMENTALES_POR_CICLO = 10       # Respaldo individual; la fuente preferida es el bulk.
+WORKERS_FUNDAMENTALES = 1               # Serializado con lock para respetar el ritmo de FMP.
 VIGENCIA_FUNDAMENTALES = 7 * 86400
 REINTENTO_FUNDAMENTALES = 300
 PAUSA_FMP_429_SEGUNDOS = 900            # tras HTTP 429, pausa FMP durante 15 min
-FMP_MIN_INTERVAL_SEGUNDOS = 20          # consultas espaciadas para no golpear el límite de FMP
+FMP_MIN_INTERVAL_SEGUNDOS = 0.50        # Ritmo rápido de respaldo; el lock evita ráfagas concurrentes.
 FMP_BULK_FLOAT_URL = "https://financialmodelingprep.com/stable/shares-float-all"
 FMP_BULK_FLOAT_TTL = 12 * 3600           # FMP actualiza All Shares Float diariamente; refrescamos como máximo 2 veces/día
 FMP_BULK_PAGE_SIZE = 5000
-FMP_BULK_MAX_PAGES = 40
+FMP_BULK_MAX_PAGES = 10                 # El universo de acciones de EE.UU. cabe normalmente en pocas páginas.
 FMP_BULK_MIN_INTERVAL_SEGUNDOS = 1.0
 
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
@@ -1571,8 +1571,8 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
     if not tickers:
         return salida
 
-    for i in range(0, len(tickers), 50):
-        lote = tickers[i:i + 50]
+    for i in range(0, len(tickers), 30):
+        lote = tickers[i:i + 30]
         try:
             # En Alpaca Basic conservamos el retraso histórico de ~20 minutos
             # que ya utilizaba la aplicación. La condición EMA20 se evalúa
@@ -1775,6 +1775,7 @@ class ServicioScanner:
         self._ultima_peticion_fmp = 0.0
         self._bulk_float_running = False
         self._bulk_float_lock = threading.Lock()
+        self._lock_fmp = threading.Lock()
 
         self._lock_ritmo = threading.Lock()
         self._ultima_peticion = 0.0
@@ -2062,19 +2063,20 @@ class ServicioScanner:
             paginas = 0
             for pagina in range(FMP_BULK_MAX_PAGES):
                 # Respetamos el mismo ritmo de FMP que las consultas individuales.
-                espera = self._ultima_peticion_fmp + FMP_BULK_MIN_INTERVAL_SEGUNDOS - time.time()
-                if espera > 0:
-                    time.sleep(espera)
-                self._ultima_peticion_fmp = time.time()
-                respuesta = requests.get(
-                    FMP_BULK_FLOAT_URL,
-                    params={
-                        "page": pagina,
-                        "limit": FMP_BULK_PAGE_SIZE,
-                        "apikey": self.fmp_api_key,
-                    },
-                    timeout=20,
-                )
+                with self._lock_fmp:
+                    espera = self._ultima_peticion_fmp + FMP_BULK_MIN_INTERVAL_SEGUNDOS - time.time()
+                    if espera > 0:
+                        time.sleep(espera)
+                    self._ultima_peticion_fmp = time.time()
+                    respuesta = requests.get(
+                        FMP_BULK_FLOAT_URL,
+                        params={
+                            "page": pagina,
+                            "limit": FMP_BULK_PAGE_SIZE,
+                            "apikey": self.fmp_api_key,
+                        },
+                        timeout=20,
+                    )
                 if respuesta.status_code == 429:
                     self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
                     self.ultimo_error = "FMP bulk devolvió HTTP 429; se usará la caché existente y luego el endpoint individual."
@@ -2142,16 +2144,17 @@ class ServicioScanner:
         try:
             # FMP tiene un límite separado del ritmo de Alpaca. Espaciamos las
             # consultas para evitar una cascada de HTTP 429.
-            ahora = time.time()
-            espera_fmp = self._ultima_peticion_fmp + FMP_MIN_INTERVAL_SEGUNDOS - ahora
-            if espera_fmp > 0:
-                time.sleep(espera_fmp)
-            self._ultima_peticion_fmp = time.time()
-            respuesta = requests.get(
-                FMP_API_URL,
-                params={"symbol": ticker, "apikey": self.fmp_api_key},
-                timeout=8,
-            )
+            with self._lock_fmp:
+                ahora = time.time()
+                espera_fmp = self._ultima_peticion_fmp + FMP_MIN_INTERVAL_SEGUNDOS - ahora
+                if espera_fmp > 0:
+                    time.sleep(espera_fmp)
+                self._ultima_peticion_fmp = time.time()
+                respuesta = requests.get(
+                    FMP_API_URL,
+                    params={"symbol": ticker, "apikey": self.fmp_api_key},
+                    timeout=8,
+                )
             if respuesta.status_code == 429:
                 self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
                 self.ultimo_error = (
@@ -2640,7 +2643,6 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # sobre candidatos técnicos reales y no sobre cientos de tickers.
         tickers_enr = [c["ticker"] for c in radar_gap]
         self._asegurar_tecnico(tickers_enr)
-        con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in radar_gap:
             tech = self.cache_tecnico.get(c["ticker"], (0, self.timeframe, False, False, False, False, None, None, None, 0, None, None, None, None, None, None, None, None, None))
@@ -2671,11 +2673,16 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["ema50_estado"] = "Por encima" if precio_actual_tec is not None and ema50_tec is not None and precio_actual_tec > ema50_tec else ("Por debajo" if precio_actual_tec is not None and ema50_tec is not None and precio_actual_tec < ema50_tec else "Neutro")
             c["ema200_estado"] = "Por encima" if precio_actual_tec is not None and ema200_tec is not None and precio_actual_tec > ema200_tec else ("Por debajo" if precio_actual_tec is not None and ema200_tec is not None and precio_actual_tec < ema200_tec else "Neutro")
             c["cruce_ema20_confirmado"] = bool(cruz_arriba and precio_prev_tec is not None and ema_prev_tec is not None)
-            c["tiene_noticia"] = c["ticker"] in con_noticia
+            c["tiene_noticia"] = False
 
         # Después de EMA/MACD, pedimos FLOAT solo a candidatos técnicos.
         # Esto elimina el cuello de botella que estaba dejando el scanner en 0.
         candidatos_tecnicos = [c for c in radar_gap if c.get("cruzando_ema20") and c.get("macd_positivo")]
+        # Las noticias son decorativas: consultamos solo una muestra de candidatos
+        # técnicos, nunca los cientos de símbolos del radar base.
+        con_noticia = self._noticias_recientes([c["ticker"] for c in candidatos_tecnicos[:100]])
+        for c in candidatos_tecnicos:
+            c["tiene_noticia"] = c["ticker"] in con_noticia
         self._asegurar_fundamentales([c["ticker"] for c in candidatos_tecnicos])
 
         limite_float = float(self.filtros_dueno.get("flotacion_max", 20_000_000))
@@ -2722,6 +2729,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self.diagnostico_filtros = {
             "radar_base": radar_base_total,
             "enviados_tecnico": len(radar_gap),
+            "lote_tecnico": 30,
+            "max_enriquecer": MAX_ENRIQUECER,
             "con_40_barras": tecnicos_validos,
             "ema_calculable": ema_calculable,
             "macd_calculable": macd_calculable,
