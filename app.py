@@ -161,6 +161,8 @@ VALORES_POR_DEFECTO = {
     "sesion": "PRE-MARKET",
     "timeframe": "1m",
     "ema_dist_max": 1.0,
+    "rsi_min": 0.0,
+    "rsi_max": 100.0,
 }
 
 
@@ -1137,7 +1139,7 @@ def formatear_numero_grande(numero):
 
 
 def evaluar_tecnico(velas):
-    """Calcula EMA20/MACD/Bollinger sobre velas de 1 minuto.
+    """Calcula EMA20/MACD/Bollinger/RSI sobre la temporalidad seleccionada.
 
     Señal EMA20 solicitada:
       1) la vela actual NACE (abre) por encima de la EMA20 de la vela anterior;
@@ -1150,7 +1152,7 @@ def evaluar_tecnico(velas):
     """
     if velas is None or len(velas) < 40:
         return (False, False, False, False, None, None, None, 0,
-                None, None, None, None, None, None)
+                None, None, None, None, None, None, None)
 
     try:
         velas = velas.sort_index()
@@ -1168,6 +1170,20 @@ def evaluar_tecnico(velas):
         vela_act = velas.iloc[-1]
         ema20 = cierres.ewm(span=20, adjust=False).mean()
         macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
+
+        # RSI(14) de Wilder sobre la misma temporalidad seleccionada.
+        delta = cierres.diff()
+        ganancias = delta.clip(lower=0)
+        perdidas = -delta.clip(upper=0)
+        avg_gain = ganancias.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+        avg_loss = perdidas.ewm(alpha=1/14, adjust=False, min_periods=14).mean()
+        rs = avg_gain / avg_loss.replace(0, pd.NA)
+        rsi_series = 100 - (100 / (1 + rs))
+        rsi_val = rsi_series.iloc[-1]
+        if pd.isna(rsi_val):
+            rsi_val = 100.0 if avg_loss.iloc[-1] == 0 and avg_gain.iloc[-1] > 0 else (50.0 if avg_loss.iloc[-1] == 0 else None)
+        else:
+            rsi_val = float(rsi_val)
 
         precio_act = float(vela_act["close"])
         precio_prev = float(vela_prev["close"])
@@ -1212,11 +1228,11 @@ def evaluar_tecnico(velas):
 
         return (cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo,
                 precio_act, ema_act, macd_val, len(cierres), precio_prev, ema_prev,
-                precio_act, ema_act, bb_upper_val, bb_dist_pct)
+                precio_act, ema_act, bb_upper_val, bb_dist_pct, rsi_val)
     except Exception as e:
         print(f"⚠️ Error evaluando EMA20/velas: {e}")
         return (False, False, False, False, None, None, None, 0,
-                None, None, None, None, None, None)
+                None, None, None, None, None, None, None)
 
 
 def _timeframe_alpaca(label):
@@ -1303,6 +1319,13 @@ def filtrar_resultados(filas, p):
     resultado = []
     for c in filas:
         if not (p["precio_min"] <= c["precio"] <= p["precio_max"]):
+            continue
+        rsi = c.get("rsi")
+        if rsi is not None and not (p.get("rsi_min", 0.0) <= float(rsi) <= p.get("rsi_max", 100.0)):
+            continue
+        # Distancia máxima configurable entre el precio actual y EMA20.
+        ema_dist = c.get("ema_dist_pct")
+        if ema_dist is not None and float(ema_dist) > float(p.get("ema_dist_max", 1.0)):
             continue
         # Etapa 1: dejamos fuera gap, float y volumen para localizar
         # exactamente qué filtro está provocando la caída a cero.
@@ -1496,16 +1519,33 @@ class ServicioScanner:
             print(f"⚠️ Error consultando calendario de Alpaca: {e}")
 
     def configurar_modo_operacion(self, sesion, timeframe, ema_dist_max=1.0):
-        self.sesion = str(sesion or "PRE-MARKET")
-        self.timeframe = str(timeframe or "1m")
+        nueva_sesion = str(sesion or "PRE-MARKET")
+        nuevo_timeframe = str(timeframe or "1m").lower()
         try:
-            self.ema_dist_max = max(0.0, float(ema_dist_max))
+            nueva_distancia = max(0.0, float(ema_dist_max))
         except Exception:
-            self.ema_dist_max = 1.0
+            nueva_distancia = 1.0
+
+        cambio = (
+            nueva_sesion != getattr(self, "sesion", "PRE-MARKET")
+            or nuevo_timeframe != getattr(self, "timeframe", "1m")
+            or abs(nueva_distancia - float(getattr(self, "ema_dist_max", 1.0))) > 1e-12
+        )
+
+        self.sesion = nueva_sesion
+        self.timeframe = nuevo_timeframe
+        self.ema_dist_max = nueva_distancia
         self.filtros_dueno["sesion"] = self.sesion
         self.filtros_dueno["timeframe"] = self.timeframe
         self.filtros_dueno["ema_dist_max"] = self.ema_dist_max
-        self.cache_tecnico = {}
+
+        # Nunca mostramos cálculos hechos con otra temporalidad/modo.
+        # Al cambiar un parámetro técnico se invalida el cache y se fuerza
+        # al hilo a producir un ciclo nuevo con la configuración actual.
+        if cambio:
+            self.cache_tecnico = {}
+            self.resultados = []
+            self.ultima_actualizacion = None
 
     def _esta_en_horario_automatico(self):
         """True solo de 04:00 a 16:00 ET en un día de mercado según Alpaca."""
@@ -1793,22 +1833,32 @@ class ServicioScanner:
     # ---------- EMA20 / MACD ----------
     def _asegurar_tecnico(self, tickers):
         ahora = time.time()
-        pendientes = [
-            t for t in tickers
-            if t not in self.cache_tecnico or ahora - self.cache_tecnico[t][0] > TTL_TECNICO_SEGUNDOS
-        ]
+        tf_actual = str(getattr(self, "timeframe", "1m")).lower()
+        pendientes = []
+        for t in tickers:
+            entrada = self.cache_tecnico.get(t)
+            if not entrada:
+                pendientes.append(t)
+                continue
+            # [0] = timestamp, [1] = timeframe calculado.
+            tf_cache = str(entrada[1]).lower() if len(entrada) > 1 else ""
+            ts_cache = float(entrada[0]) if entrada else 0.0
+            if tf_cache != tf_actual or ahora - ts_cache > TTL_TECNICO_SEGUNDOS:
+                pendientes.append(t)
+
         if not pendientes:
             return
-        series = descargar_cierres(self.data, pendientes, getattr(self, "timeframe", "1m"))
+
+        series = descargar_cierres(self.data, pendientes, tf_actual)
         for t in pendientes:
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
-             ema_actual, bb_upper, bb_dist_pct) = evaluar_tecnico(series.get(t))
+             ema_actual, bb_upper, bb_dist_pct, rsi_val) = evaluar_tecnico(series.get(t))
             self.cache_tecnico[t] = (
-                ahora, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
+                ahora, tf_actual, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
                 precio_act, ema_act, macd_val, barras_count,
                 precio_prev, ema_prev, precio_actual, ema_actual,
-                bb_upper, bb_dist_pct
+                bb_upper, bb_dist_pct, rsi_val
             )
 
     # ---------- noticias (una sola llamada para todos) ----------
@@ -2128,8 +2178,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in enriquecidos:
-            tech = self.cache_tecnico.get(c["ticker"], (0, False, False, False, False, None, None, None, 0, None, None, None, None, None, None))
-            _, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec, precio_prev_tec, ema_prev_tec, precio_actual_tec, ema_actual_tec, bb_upper_tec, bb_dist_tec = tech
+            tech = self.cache_tecnico.get(c["ticker"], (0, self.timeframe, False, False, False, False, None, None, None, 0, None, None, None, None, None, None, None))
+            _, tecnico_timeframe, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec, precio_prev_tec, ema_prev_tec, precio_actual_tec, ema_actual_tec, bb_upper_tec, bb_dist_tec, rsi_tec = tech
             c["cruzando_ema20"] = cruz_arriba
             c["cruzando_ema20_abajo"] = cruz_abajo
             c["macd_positivo"] = macd_pos
@@ -2137,6 +2187,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["tecnico_precio"] = precio_tec
             c["tecnico_ema20"] = ema_tec
             c["tecnico_macd"] = macd_tec
+            c["tecnico_timeframe"] = str(tecnico_timeframe).lower()
             c["tecnico_barras"] = barras_tec
             c["tecnico_precio_anterior"] = precio_prev_tec
             c["tecnico_ema20_anterior"] = ema_prev_tec
@@ -2148,6 +2199,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 c["ema_dist_pct"] = None
             c["bb_upper"] = bb_upper_tec
             c["bb_dist_pct"] = bb_dist_tec
+            c["rsi"] = rsi_tec
             c["cruce_ema20_confirmado"] = bool(cruz_arriba and precio_prev_tec is not None and ema_prev_tec is not None)
             c["tiene_noticia"] = c["ticker"] in con_noticia
 
@@ -2721,11 +2773,15 @@ orden_ui = _qtxt("f_order", "Actualizado")
 sesion_ui = _qtxt("market_session", "PRE-MARKET")
 timeframe_ui = _qtxt("timeframe", "1m")
 ema_dist_max_ui = _qfloat("ema_dist_max", 1.0)
+rsi_min_ui = _qfloat("rsi_min", 0.0)
+rsi_max_ui = _qfloat("rsi_max", 100.0)
 if sesion_ui not in ("PRE-MARKET", "MERCADO ABIERTO", "AFTER-MARKET", "TODO EL MERCADO"):
     sesion_ui = "PRE-MARKET"
 if timeframe_ui not in ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo"):
     timeframe_ui = "1m"
 ema_dist_max_ui = max(0.0, min(25.0, ema_dist_max_ui))
+rsi_min_ui = max(0.0, min(100.0, rsi_min_ui))
+rsi_max_ui = max(rsi_min_ui, min(100.0, rsi_max_ui))
 try:
     servicio.configurar_modo_operacion(sesion_ui, timeframe_ui, ema_dist_max_ui)
 except Exception:
@@ -2749,9 +2805,11 @@ params_ui = {
     "macd": macd_ui,
     "orden": orden_ui,
     "top_n": 50,
-    "sesion": "PRE-MARKET",
-    "timeframe": "1m",
-    "ema_dist_max": 1.0,
+    "sesion": sesion_ui,
+    "timeframe": timeframe_ui,
+    "ema_dist_max": ema_dist_max_ui,
+    "rsi_min": rsi_min_ui,
+    "rsi_max": rsi_max_ui,
 }
 
 if PUBLIC_PREVIEW:
@@ -2951,7 +3009,7 @@ h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_v
 h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
 h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
 h += "q.set('c_start',document.getElementById('cfg_start').value);q.set('c_end',document.getElementById('cfg_end').value);"
-h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session',document.getElementById('market_session').value);q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);"
+h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session',document.getElementById('market_session').value);q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);"
 h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
 h += "window.parent.location.search='?'+q.toString();}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
@@ -2993,8 +3051,8 @@ for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m"
     h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
 h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
 h += f"<div class='panel-card'><b>EMA20</b><span>{_safe_text('POR ENCIMA' if ema_ui=='Hacia arriba' else ('POR DEBAJO' if ema_ui=='Hacia abajo' else 'CUALQUIERA'))} · primera vela formándose · máximo {ema_dist_max_ui:.2f}% desde EMA20.</span></div>"
-h += f"<div class='panel-card'><b>RSI</b><span>14 · rango configurable.</span></div>"
-h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · calculado en {timeframe_ui.upper()}.</span></div>"
+h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
+h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()}.</span></div>"
 h += "<div class='panel-card'><b>MEDIAS</b><span>SMA20 · SMA50 · SMA200 · EMA20.</span></div>"
 h += "<div class='panel-card'><b>BOLLINGER</b><span>Bandas y distancia a banda.</span></div>"
 h += "<div class='panel-card'><b>MFI</b><span>Money Flow Index.</span></div>"
@@ -3037,12 +3095,12 @@ h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><op
 h += f"<div class='filtro-item'><label>PUENTE</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
 h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR FILTROS</button></div>"
 h += "</div>"
-h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span></div>"
+h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
 h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
 h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
 h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>MACD</th>"
 h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
-h += f"<div class='footer-note'><span>Motor real conectado · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
+h += f"<div class='footer-note'><span>Motor real conectado · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
 h += "</div></body></html>"
 
 # La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
