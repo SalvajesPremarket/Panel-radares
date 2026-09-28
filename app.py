@@ -1646,10 +1646,14 @@ def filtrar_resultados(filas, p):
             continue
         if not c.get("macd_positivo", False):
             continue
-        for _ek in ("ema20", "ema50", "ema200"):
-            _want = p.get(f"{_ek}_estado", "Neutro")
-            if _want != "Neutro" and c.get(f"{_ek}_estado", "Neutro") != _want:
-                continue
+        # En SCALPING, EMA50 y EMA200 son SOLO informativas.
+        # No pueden bloquear una señal aunque el precio esté por encima
+        # o por debajo de ellas. La única EMA que interviene en la señal
+        # es EMA20, mediante cruzando_ema20.
+        _want_ema20 = p.get("ema20_estado", "Neutro")
+        if _want_ema20 != "Neutro" and c.get("ema20_estado", "Neutro") != _want_ema20:
+            continue
+        # EMA50 y EMA200 quedan forzosamente en estado neutro para el filtro.
         # Distancia configurable desde EMA20 según la temporalidad seleccionada.
         try:
             dist_max = float(p.get("ema_dist_max", 1.0))
@@ -3209,6 +3213,10 @@ if ema_ui not in ("Hacia arriba", "Hacia abajo", "Neutro"):
 for _var in ("ema20_estado_ui", "ema50_estado_ui", "ema200_estado_ui"):
     if _var in globals() and globals()[_var] not in ("Por encima", "Por debajo", "Neutro"):
         globals()[_var] = "Neutro"
+# En la búsqueda de scalping, EMA50 y EMA200 nunca son filtros de dirección.
+# Se muestran en la tabla, pero su exigencia queda siempre en NEUTRO.
+ema50_estado_ui = "Neutro"
+ema200_estado_ui = "Neutro"
 if macd_ui not in ("Positivo", "Negativo", "No exigir"):
     macd_ui = "Positivo"
 if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
