@@ -15,7 +15,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
-from alpaca.data.timeframe import TimeFrame
+from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
@@ -112,6 +112,10 @@ FMP_MIN_INTERVAL_SEGUNDOS = 30          # máximo 2 consultas/minuto para no gol
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
 HORA_AUTO_INICIO_ET = 4
 HORA_AUTO_FIN_ET = 16
+HORA_MERCADO_INICIO_ET = 9
+MINUTO_MERCADO_INICIO_ET = 30
+HORA_MERCADO_FIN_ET = 16
+HORA_AFTER_FIN_ET = 20
 TTL_CALENDARIO_MERCADO = 12 * 3600
 
 TTL_TECNICO_SEGUNDOS = 30              # no recalcular EMA/MACD de un ticker más seguido que esto
@@ -154,6 +158,9 @@ VALORES_POR_DEFECTO = {
     "macd": "Positivo",
     "orden": "Actualizado",
     "top_n": 50,
+    "sesion": "PRE-MARKET",
+    "timeframe": "1m",
+    "ema_dist_max": 1.0,
 }
 
 
@@ -1187,7 +1194,6 @@ def evaluar_tecnico(velas):
         # EMA20 NUEVA: vela naciendo por encima + máximo y mínimo superiores.
         estructura_alcista = bool(
             open_act > ema_prev and
-            high_act > high_prev and
             low_act > low_prev
         )
 
@@ -1195,8 +1201,7 @@ def evaluar_tecnico(velas):
         # el selector existente de la interfaz.
         estructura_bajista = bool(
             open_act < ema_prev and
-            high_act < high_prev and
-            low_act < low_prev
+            high_act < high_prev
         )
 
         cruzo_arriba = estructura_alcista
@@ -1214,8 +1219,30 @@ def evaluar_tecnico(velas):
                 None, None, None, None, None, None)
 
 
-def descargar_cierres(data_client, tickers):
-    """Descarga OHLC de velas de 1 minuto de Alpaca para EMA20/MACD."""
+def _timeframe_alpaca(label):
+    """Convierte la selección de interfaz a un TimeFrame de Alpaca."""
+    label = str(label or "1m").strip().lower()
+    if label.endswith("m"):
+        n = int(label[:-1])
+        if n == 1:
+            return TimeFrame.Minute
+        return TimeFrame(n, TimeFrameUnit.Minute)
+    if label.endswith("h"):
+        n = int(label[:-1])
+        if n == 1:
+            return TimeFrame.Hour
+        return TimeFrame(n, TimeFrameUnit.Hour)
+    if label == "1d":
+        return TimeFrame.Day
+    if label == "1w":
+        return TimeFrame.Week
+    if label == "1mo":
+        return TimeFrame.Month
+    return TimeFrame.Minute
+
+
+def descargar_cierres(data_client, tickers, timeframe_label="1m"):
+    """Descarga OHLC de Alpaca usando la temporalidad seleccionada."""
     salida = {}
     if not tickers:
         return salida
@@ -1226,13 +1253,22 @@ def descargar_cierres(data_client, tickers):
             # En Alpaca Basic conservamos el retraso histórico de ~20 minutos
             # que ya utilizaba la aplicación. La condición EMA20 se evalúa
             # sobre la última vela disponible de ese histórico.
-            inicio = datetime.now(timezone.utc) - timedelta(days=2)
-            fin = datetime.now(timezone.utc) - timedelta(minutes=20)
+            tf = _timeframe_alpaca(timeframe_label)
+            label = str(timeframe_label).lower()
+            if label.endswith("m"):
+                inicio = datetime.now(timezone.utc) - timedelta(days=3)
+            elif label.endswith("h"):
+                inicio = datetime.now(timezone.utc) - timedelta(days=30)
+            elif label == "1d":
+                inicio = datetime.now(timezone.utc) - timedelta(days=500)
+            elif label == "1w":
+                inicio = datetime.now(timezone.utc) - timedelta(days=2500)
+            else:
+                inicio = datetime.now(timezone.utc) - timedelta(days=5000)
             solicitud = StockBarsRequest(
                 symbol_or_symbols=lote,
-                timeframe=TimeFrame.Minute,
+                timeframe=tf,
                 start=inicio,
-                end=fin,
                 limit=10000,
             )
             barras = data_client.get_stock_bars(solicitud)
@@ -1295,6 +1331,13 @@ def filtrar_resultados(filas, p):
             continue
         if macd == "Negativo" and not c["macd_negativo"]:
             continue
+        # Distancia configurable desde EMA20 según la temporalidad seleccionada.
+        try:
+            dist_max = float(p.get("ema_dist_max", 1.0))
+        except (TypeError, ValueError):
+            dist_max = 1.0
+        if dist_max > 0 and c.get("ema_dist_pct") is not None and c.get("ema_dist_pct") > dist_max:
+            continue
         resultado.append(c)
 
     claves = {
@@ -1339,6 +1382,9 @@ class ServicioScanner:
         self.tg_chat = tg_chat
         self.fmp_api_key = fmp_api_key
         self.filtros_dueno = filtros_dueno
+        self.sesion = filtros_dueno.get("sesion", "PRE-MARKET")
+        self.timeframe = filtros_dueno.get("timeframe", "1m")
+        self.ema_dist_max = float(filtros_dueno.get("ema_dist_max", 1.0))
 
         self.trading = TradingClient(api_key, secret_key)
         self.data = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
@@ -1449,14 +1495,36 @@ class ServicioScanner:
             self.ultimo_error = f"Calendario Alpaca: {e}"
             print(f"⚠️ Error consultando calendario de Alpaca: {e}")
 
+    def configurar_modo_operacion(self, sesion, timeframe, ema_dist_max=1.0):
+        self.sesion = str(sesion or "PRE-MARKET")
+        self.timeframe = str(timeframe or "1m")
+        try:
+            self.ema_dist_max = max(0.0, float(ema_dist_max))
+        except Exception:
+            self.ema_dist_max = 1.0
+        self.filtros_dueno["sesion"] = self.sesion
+        self.filtros_dueno["timeframe"] = self.timeframe
+        self.filtros_dueno["ema_dist_max"] = self.ema_dist_max
+        self.cache_tecnico = {}
+
     def _esta_en_horario_automatico(self):
         """True solo de 04:00 a 16:00 ET en un día de mercado según Alpaca."""
         ahora_et = datetime.now(ET)
         self._actualizar_calendario(ahora_et)
         es_dia_mercado = ahora_et.date() in self.dias_mercado_cache
         minuto_actual = ahora_et.hour * 60 + ahora_et.minute + ahora_et.second / 60
-        inicio = self.hora_inicio_auto_min
-        fin = self.hora_fin_auto_min
+        # La sesión seleccionada define la ventana real del scanner.
+        sesiones = {
+            "PRE-MARKET": (4 * 60, 9 * 60 + 30),
+            "MERCADO ABIERTO": (9 * 60 + 30, 16 * 60),
+            "AFTER-MARKET": (16 * 60, 20 * 60),
+            "TODO EL MERCADO": (4 * 60, 20 * 60),
+        }
+        if self.sesion in sesiones:
+            inicio, fin = sesiones[self.sesion]
+        else:
+            inicio = self.hora_inicio_auto_min
+            fin = self.hora_fin_auto_min
         if inicio == fin:
             en_ventana = False
         elif inicio < fin:
@@ -1731,7 +1799,7 @@ class ServicioScanner:
         ]
         if not pendientes:
             return
-        series = descargar_cierres(self.data, pendientes)
+        series = descargar_cierres(self.data, pendientes, getattr(self, "timeframe", "1m"))
         for t in pendientes:
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
@@ -2074,6 +2142,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["tecnico_ema20_anterior"] = ema_prev_tec
             c["tecnico_precio_actual"] = precio_actual_tec
             c["tecnico_ema20_actual"] = ema_actual_tec
+            try:
+                c["ema_dist_pct"] = abs(float(precio_actual_tec) - float(ema_actual_tec)) / float(ema_actual_tec) * 100.0 if precio_actual_tec is not None and ema_actual_tec not in (None, 0) else None
+            except Exception:
+                c["ema_dist_pct"] = None
             c["bb_upper"] = bb_upper_tec
             c["bb_dist_pct"] = bb_dist_tec
             c["cruce_ema20_confirmado"] = bool(cruz_arriba and precio_prev_tec is not None and ema_prev_tec is not None)
@@ -2221,22 +2293,20 @@ servicio = obtener_servicio(
 st.markdown("""
 <style>
     :root {
-        --ts-bg: #030303;
-        --ts-panel: #090909;
-        --ts-panel-2: #0d0d0d;
+        --ts-bg: #bdbdbd;
+        --ts-panel: #d4d4d4;
+        --ts-panel-2: #e1e1e1;
         --ts-gold: #d4af37;
         --ts-gold-bright: #f2d675;
         --ts-gold-dark: #7d641c;
-        --ts-text: #f3f3f3;
-        --ts-muted: #9a9a9a;
+        --ts-text: #111111;
+        --ts-muted: #555555;
         --ts-red: #d64545;
         --ts-green: #37c77a;
     }
 
     .stApp {
-        background:
-            radial-gradient(circle at 50% -10%, rgba(212,175,55,.09), transparent 34%),
-            linear-gradient(180deg, #080808 0%, #030303 55%, #000000 100%) !important;
+        background: #bdbdbd !important;
         color: var(--ts-text) !important;
     }
     [data-testid="stHeader"], [data-testid="stSidebar"] {
@@ -2648,6 +2718,18 @@ volumen_min_ui = _qint("f_vol", 20_000)
 ema_ui = _qtxt("f_ema", "Hacia arriba")
 macd_ui = _qtxt("f_mac", "Positivo")
 orden_ui = _qtxt("f_order", "Actualizado")
+sesion_ui = _qtxt("market_session", "PRE-MARKET")
+timeframe_ui = _qtxt("timeframe", "1m")
+ema_dist_max_ui = _qfloat("ema_dist_max", 1.0)
+if sesion_ui not in ("PRE-MARKET", "MERCADO ABIERTO", "AFTER-MARKET", "TODO EL MERCADO"):
+    sesion_ui = "PRE-MARKET"
+if timeframe_ui not in ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo"):
+    timeframe_ui = "1m"
+ema_dist_max_ui = max(0.0, min(25.0, ema_dist_max_ui))
+try:
+    servicio.configurar_modo_operacion(sesion_ui, timeframe_ui, ema_dist_max_ui)
+except Exception:
+    pass
 
 if ema_ui not in ("Hacia arriba", "Hacia abajo", "Neutro"):
     ema_ui = "Hacia arriba"
@@ -2667,6 +2749,9 @@ params_ui = {
     "macd": macd_ui,
     "orden": orden_ui,
     "top_n": 50,
+    "sesion": "PRE-MARKET",
+    "timeframe": "1m",
+    "ema_dist_max": 1.0,
 }
 
 if PUBLIC_PREVIEW:
@@ -2854,7 +2939,7 @@ h += ".footer-note{margin-top:4px;font-size:8px;color:#555;display:flex;justify-
 h += ".tab-panel{display:none;background:#f7f7f7;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#fff;border:1px solid #aaa;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;}.panel-card span{font-size:10px;}"
 h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
 h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
-h += ".tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.tab-panel{font-size:9px;padding:6px}}"
+h += ".tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.tab-panel{font-size:9px;padding:6px}}"
 h += "</style>"
 h += "<script>window.addEventListener('load',function(){try{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0;}catch(e){}});"
 h += "function setQ(k,v){var q=new URLSearchParams(window.parent.location.search);q.set(k,v);window.parent.location.search='?'+q.toString();}"
@@ -2865,7 +2950,7 @@ h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_v
 h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
 h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
 h += "q.set('c_start',document.getElementById('cfg_start').value);q.set('c_end',document.getElementById('cfg_end').value);"
-h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);"
+h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session',document.getElementById('market_session').value);q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);"
 h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
 h += "window.parent.location.search='?'+q.toString();}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
@@ -2890,6 +2975,7 @@ h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' el
 h += "<div class='tabs'>"
 h += "<button class='tab active' onclick=\"showTab('panel-radar',this)\">RADAR</button>"
 h += "<button class='tab' onclick=\"showTab('panel-tecnicos',this)\">TÉCNICOS</button>"
+h += "<button class='tab' onclick=\"showTab('panel-technical',this)\">TECHNICAL</button>"
 h += "<button class='tab' onclick=\"showTab('panel-config',this)\">CONFIGURACIÓN</button>"
 h += "<button class='tab' onclick=\"showTab('panel-resultados',this)\">RESULTADOS</button>"
 h += "</div>"
@@ -2900,9 +2986,21 @@ h += f"<div class='panel-card'><b>MACD</b><span>Condición actual: {_safe_text(m
 h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
 h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
 h += "</div></div>"
+h += "<div id='panel-technical' class='tab-panel'><div class='panel-grid'>"
+h += f"<div class='panel-card'><b>TIMEFRAME</b><span>{_safe_text(timeframe_ui.upper())}</span></div>"
+h += f"<div class='panel-card'><b>EMA20</b><span>{_safe_text('POR ENCIMA' if ema_ui=='Hacia arriba' else ('POR DEBAJO' if ema_ui=='Hacia abajo' else 'CUALQUIERA'))} · primera vela formándose · máximo {ema_dist_max_ui:.2f}% desde EMA20.</span></div>"
+h += f"<div class='panel-card'><b>RSI</b><span>14 · rango configurable.</span></div>"
+h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · calculado en {timeframe_ui.upper()}.</span></div>"
+h += "<div class='panel-card'><b>MEDIAS</b><span>SMA20 · SMA50 · SMA200 · EMA20.</span></div>"
+h += "<div class='panel-card'><b>BOLLINGER</b><span>Bandas y distancia a banda.</span></div>"
+h += "<div class='panel-card'><b>MFI</b><span>Money Flow Index.</span></div>"
+h += "<div class='panel-card'><b>VOLATILIDAD</b><span>ATR · Beta.</span></div>"
+h += "<div class='panel-card'><b>PERFORMANCE</b><span>Semana · mes · trimestre · YTD · año.</span></div>"
+h += "<div class='panel-card'><b>GAP / VOLUMEN</b><span>Gap % · volumen actual · volumen promedio · relativo.</span></div>"
+h += "</div></div>"
 h += "<div id='panel-config' class='tab-panel'><div class='panel-grid'>"
 h += f"<div class='panel-card'><b>MOTOR</b><span>{_safe_text(_estado_txt)} · Horario {_safe_text(_hora_txt)}</span></div>"
-h += f"<div class='panel-card'><b>BROKER</b><span>{_safe_text(broker_val)}</span></div>"
+h += f"<div class='panel-card'><b>BROKER</b><span>{_safe_text(broker_val)} · API Key/Secret Key se introducen en Configuración y no se muestran en resultados.</span></div>"
 h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
 h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
 h += "</div></div>"
@@ -2913,6 +3011,15 @@ h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onch
 h += f"<div class='filtro-item'><label>HORARIO (ET)</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
 h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
 h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
+h += f"<div class='filtro-item'><label>SESIÓN</label><select id='market_session' onchange='pushConfig()'>"
+for _s in ("PRE-MARKET", "MERCADO ABIERTO", "AFTER-MARKET", "TODO EL MERCADO"):
+    h += f"<option value='{_s}' {'selected' if sesion_ui==_s else ''}>{_s}</option>"
+h += "</select></div>"
+h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
+for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+    h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+h += "</select></div>"
+h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
 h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
 h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
 h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
@@ -2920,6 +3027,8 @@ h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' i
 h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
 h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
 h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+h += "<div class='filtro-item'><label>API KEY</label><input type='password' id='broker_api_key' placeholder='••••••••'></div>"
+h += "<div class='filtro-item'><label>SECRET KEY</label><input type='password' id='broker_secret_key' placeholder='••••••••'></div>"
 h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
 h += f"<div class='filtro-item'><label>PUENTE</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
 h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR FILTROS</button></div>"
@@ -2927,7 +3036,7 @@ h += "</div>"
 h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span></div>"
 h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
 h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 (1 min)</th><th>MACD</th>"
+h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>MACD</th>"
 h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
 h += f"<div class='footer-note'><span>Motor real conectado · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
 h += "</div></body></html>"
