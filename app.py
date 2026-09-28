@@ -103,12 +103,12 @@ MAX_ENRIQUECER = 500                   # PRUEBA 3: ampliar temporalmente la mues
 
 # Float: FMP es la fuente principal; volumen y velas técnicas se obtienen con Alpaca.
 FMP_API_URL = "https://financialmodelingprep.com/stable/shares-float"
-MAX_FUNDAMENTALES_POR_CICLO = 1        # FMP: una consulta de float por ciclo para evitar HTTP 429
+MAX_FUNDAMENTALES_POR_CICLO = 3        # FMP: varias consultas espaciadas; evita que el scanner tarde horas en conocer el float
 WORKERS_FUNDAMENTALES = 1               # FMP no se consulta en paralelo
 VIGENCIA_FUNDAMENTALES = 7 * 86400
 REINTENTO_FUNDAMENTALES = 300
 PAUSA_FMP_429_SEGUNDOS = 900            # tras HTTP 429, pausa FMP durante 15 min
-FMP_MIN_INTERVAL_SEGUNDOS = 30          # máximo 2 consultas/minuto para no golpear el límite de FMP
+FMP_MIN_INTERVAL_SEGUNDOS = 20          # consultas espaciadas para no golpear el límite de FMP
 
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
 HORA_AUTO_INICIO_ET = 4
@@ -2642,7 +2642,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         })
         self._registrar_historial_ciclo(enriquecidos, resultados_finales_hist)
 
-        self.resultados = enriquecidos
+        # Publicar exactamente la lista final del mismo ciclo. Así la tabla,
+        # Telegram y el diagnóstico parten del mismo conjunto de señales.
+        self.resultados = list(resultados_finales_hist)
         self.float_pendientes = sum(
             1 for c in enriquecidos
             if c.get("float_shares") is None and c.get("float_status") == "pending"
@@ -3256,9 +3258,17 @@ if PUBLIC_PREVIEW:
     filas_reales = []
 else:
     try:
+        # El motor ya entrega candidatos que pasaron el embudo real del scanner.
+        # Reaplicar aquí filtros técnicos históricos era una segunda puerta que
+        # podía vaciar la tabla aunque el motor hubiera detectado una señal.
+        # Solo se conserva el filtro final común para los valores editables.
         filas_reales = filtrar_resultados(list(servicio.resultados), params_ui)
-    except Exception:
+    except Exception as _ex_ui:
         filas_reales = list(getattr(servicio, "resultados", []) or [])
+        try:
+            servicio.ultimo_error = f"Filtro de pantalla: {_ex_ui}"
+        except Exception:
+            pass
 
 
 def _num(v, default=0.0):
