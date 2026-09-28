@@ -1015,19 +1015,31 @@ def pantalla_autenticacion():
 # Así puede conocer la interfaz antes de crear una cuenta.
 # Recuperar automáticamente la sesión si el navegador hizo un refresh completo
 # o si una navegación de la carátula creó una nueva sesión de Streamlit.
-if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
-    _restaurar_sesion_persistente()
-
 PUBLIC_PREVIEW = (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
 )
 AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
 LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
-if LOGOUT_REQUESTED and not PUBLIC_PREVIEW:
+
+# SALIR tiene prioridad absoluta: no restaurar la sesión persistente cuando
+# el usuario pidió explícitamente cerrar sesión.
+if LOGOUT_REQUESTED:
     cerrar_sesion()
-    st.query_params.clear()
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
     st.rerun()
+
+# Recuperar automáticamente la sesión si el navegador hizo un refresh completo
+# o si una navegación de la carátula creó una nueva sesión de Streamlit.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+    PUBLIC_PREVIEW = (
+        "token_verificado" not in st.session_state
+        and "usuario_auth" not in st.session_state
+    )
 
 if PUBLIC_PREVIEW and AUTH_REQUESTED:
     pantalla_autenticacion()
@@ -1053,6 +1065,83 @@ else:
     TIPO_ACCESO = "usuario"
 
 USUARIO_AUTENTICADO = not PUBLIC_PREVIEW
+
+# ------------------------------------------------------------------
+# Persistencia real de la última configuración por usuario.
+# La carátula vive dentro de un iframe y el localStorage del iframe no
+# es una base fiable para recuperar la configuración después de un
+# refresh/login. Por eso la última configuración también se conserva
+# en memoria del servidor, asociada al correo del usuario.
+# ------------------------------------------------------------------
+@st.cache_resource
+def _almacen_ultima_configuracion_usuarios():
+    return {}
+
+_ULTIMA_CONFIG_USUARIOS = _almacen_ultima_configuracion_usuarios()
+_RUTA_ULTIMA_CONFIG_USUARIOS = os.path.join(os.getcwd(), "ultima_config_usuarios.json")
+try:
+    if os.path.exists(_RUTA_ULTIMA_CONFIG_USUARIOS):
+        with open(_RUTA_ULTIMA_CONFIG_USUARIOS, "r", encoding="utf-8") as _f_cfg:
+            _disk_cfg = json.load(_f_cfg)
+            if isinstance(_disk_cfg, dict):
+                _ULTIMA_CONFIG_USUARIOS.update(_disk_cfg)
+except Exception:
+    pass
+_CONFIG_USUARIO_KEYS = (
+    "f_price_min", "f_price_max", "f_gap_min", "f_gap_max",
+    "f_float_max", "f_vol", "f_ema", "f_mac", "f_order",
+    "market_session", "timeframe", "ema_dist_max",
+    "rsi_min", "rsi_max", "ema20_estado", "ema50_estado",
+    "ema200_estado", "c_active", "c_start", "c_end",
+    "c_lang", "c_wnd", "c_broker", "c_url", "refresh_sec",
+)
+
+def _email_usuario_activo():
+    try:
+        return str(st.session_state.get("usuario_auth", {}).get("email", "")).strip().lower()
+    except Exception:
+        return ""
+
+def _restaurar_ultima_configuracion_servidor():
+    if not USUARIO_AUTENTICADO:
+        return False
+    email = _email_usuario_activo()
+    if not email:
+        return False
+    guardada = _ULTIMA_CONFIG_USUARIOS.get(email)
+    if not isinstance(guardada, dict) or not guardada:
+        return False
+    cambio = False
+    for clave in _CONFIG_USUARIO_KEYS:
+        if clave in guardada and str(st.query_params.get(clave, "")) == "":
+            st.query_params[clave] = str(guardada[clave])
+            cambio = True
+    return cambio
+
+def _guardar_ultima_configuracion_servidor():
+    if not USUARIO_AUTENTICADO:
+        return
+    email = _email_usuario_activo()
+    if not email:
+        return
+    estado = {}
+    for clave in _CONFIG_USUARIO_KEYS:
+        valor = st.query_params.get(clave, None)
+        if valor is not None and str(valor) != "":
+            estado[clave] = str(valor)
+    if estado:
+        estado["_saved_at"] = datetime.now(timezone.utc).isoformat()
+        _ULTIMA_CONFIG_USUARIOS[email] = estado
+        try:
+            with open(_RUTA_ULTIMA_CONFIG_USUARIOS, "w", encoding="utf-8") as _f_cfg:
+                json.dump(_ULTIMA_CONFIG_USUARIOS, _f_cfg, ensure_ascii=False, indent=2)
+        except Exception as _e_cfg:
+            print(f"⚠️ No se pudo persistir la configuración del usuario: {_e_cfg}")
+
+# Al volver a entrar con la misma cuenta, recuperar la última configuración
+# antes de construir la interfaz. Así el refresh tampoco vuelve a 3 minutos.
+if _restaurar_ultima_configuracion_servidor():
+    st.rerun()
 
 
 # Solo los tokens configurados como ADMIN pueden ser administradores.
@@ -1586,8 +1675,18 @@ class ServicioScanner:
             self.dias_mercado_cache = {c.date for c in calendario}
             self.calendario_ts = time.time()
         except Exception as e:
+            # El calendario es una ayuda para evitar ejecutar en fines de semana/feriados,
+            # pero un fallo temporal de la consulta de calendario NO debe detener el scanner.
+            # En ese caso usamos un fallback seguro de lunes a viernes y dejamos el error
+            # visible en diagnóstico.
             self.ultimo_error = f"Calendario Alpaca: {e}"
-            print(f"⚠️ Error consultando calendario de Alpaca: {e}")
+            print(f"⚠️ Error consultando calendario de Alpaca; usando fallback L-V: {e}")
+            self.dias_mercado_cache = {
+                ahora_et.date() + timedelta(days=i)
+                for i in range(15)
+                if (ahora_et.date() + timedelta(days=i)).weekday() < 5
+            }
+            self.calendario_ts = time.time()
 
     def configurar_modo_operacion(self, sesion, timeframe, ema_dist_max=1.0):
         nueva_sesion = str(sesion or "PRE-MARKET")
@@ -2449,8 +2548,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         while not self._detener_hilo.is_set():
             inicio = time.monotonic()
             try:
-                en_horario = self._esta_en_horario_automatico()
-                if self.encendido and en_horario:
+                # El motor es independiente del refresco de pantalla y trabaja
+                # en ciclos de 10 s mientras esté encendido. La sesión seleccionada
+                # se conserva para el contexto técnico/mercado, pero no bloquea
+                # el hilo completo; de lo contrario PRE-MARKET podía dejar el motor
+                # en ESPERA durante el mercado abierto y aparentar que no escaneaba.
+                self._esta_en_horario_automatico()
+                if self.encendido:
                     self._ciclo()
             except Exception as e:
                 self.ultimo_error = f"Ciclo: {e}"
@@ -2473,6 +2577,14 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
+
+# Vigilancia del hilo: si el hilo se detuvo, la siguiente ejecución lo vuelve a levantar.
+try:
+    if not getattr(servicio, "_hilo", None) or not servicio._hilo.is_alive():
+        print("⚠️ Hilo del scanner detenido; reiniciando automáticamente.")
+        servicio.reiniciar_scanner()
+except Exception as _watchdog_error:
+    print(f"⚠️ Watchdog del scanner: {_watchdog_error}")
 
 # ==========================================
 # 🎨 ESTILO OSCURO
@@ -2956,6 +3068,9 @@ params_ui = {
     "ema200_estado": ema200_estado_ui,
 }
 
+_guardar_ultima_configuracion_servidor()
+
+
 if PUBLIC_PREVIEW:
     # La carátula pública muestra el diseño y las 10 líneas, pero no expone
     # resultados reales del motor antes del registro/inicio de sesión.
@@ -3083,12 +3198,16 @@ except Exception:
     hora_ini, hora_fin = 240, 960
 
 _hora_txt = f"{hora_ini//60:02d}:{hora_ini%60:02d} - {hora_fin//60:02d}:{hora_fin%60:02d} ET"
-_estado_txt = "ON" if servicio.encendido and servicio.auto_en_horario else ("OFF" if not servicio.encendido else "ESPERA")
+_estado_txt = "ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA")
 
 start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
 end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
 
 active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
+try:
+    servicio.encendido = (active_val == "True")
+except Exception:
+    pass
 lang_val = _qtxt("c_lang", "ESP")
 wnd_val = _qtxt("c_wnd", "Incrustada")
 broker_val = _qtxt("c_broker", st.session_state.get("bk_nombre", "Interactive Brokers"))
@@ -3152,7 +3271,7 @@ h += "function cambiarTimeframeTecnico(v){try{var q=new URLSearchParams(window.t
 h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
 h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
 h += "function _qtop(){try{return new URLSearchParams(window.top.location.search||window.parent.location.search||window.location.search)}catch(e){return new URLSearchParams(window.location.search)}}"
-h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e){}}"
+h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
 h += "function _restaurarUltimaConfiguracion(){if(!TS_AUTH)return;try{var cur=_qtop();var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';if(!raw)return;var o=JSON.parse(raw||'{}');if(!o||typeof o!=='object')return;var q=new URLSearchParams(cur.toString());var claves=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec'];var cambio=false;claves.forEach(function(k){if(!q.has(k)&&o[k]!==null&&o[k]!==undefined){q.set(k,o[k]);cambio=true}});var sid=cur.get('auth_session');if(sid&&!q.get('auth_session'))q.set('auth_session',sid);if(cambio)window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(e){}}"
 h += "function _goto(q){try{var cur=_qtop();var sid=cur.get('auth_session');if(sid && !q.get('auth_session'))q.set('auth_session',sid);_guardarUltimaConfiguracion(q);window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(e){var cur=new URLSearchParams(window.location.search);var sid=cur.get('auth_session');if(sid && !q.get('auth_session'))q.set('auth_session',sid);_guardarUltimaConfiguracion(q);window.location.href='?'+q.toString()}}"
 h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
@@ -3173,24 +3292,24 @@ h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_activ
 h += "q.set('c_start',document.getElementById('cfg_start').value);q.set('c_end',document.getElementById('cfg_end').value);"
 h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session',document.getElementById('market_session').value);q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);q.set('ema20_estado',document.getElementById('ema20_estado')?document.getElementById('ema20_estado').value:'Neutro');q.set('ema50_estado',document.getElementById('ema50_estado')?document.getElementById('ema50_estado').value:'Neutro');q.set('ema200_estado',document.getElementById('ema200_estado')?document.getElementById('ema200_estado').value:'Neutro');"
 h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
-h += "_guardarUltimaConfiguracion(q);window.parent.location.search='?'+q.toString();}"
+h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{window.top.open(window.top.location.origin+window.top.location.pathname+'?'+q.toString(),'_self')}catch(e){window.parent.location.search='?'+q.toString();}}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
 h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',v);_guardarUltimaConfiguracion(q);window.top.location.href=window.top.location.pathname+'?'+q.toString();}"
+h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',v);q.set('_ts',Date.now());_guardarUltimaConfiguracion(q);try{window.top.open(window.top.location.origin+window.top.location.pathname+'?'+q.toString(),'_self')}catch(e){window.parent.location.href=window.parent.location.pathname+'?'+q.toString();}}"
 h += ""
 h += "</script></head><body>"
 h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
-    h += "<a class='auth-link' href='?auth=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.origin+window.top.location.pathname+'?auth=1';}catch(e){window.location.href='?auth=1';}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
+    h += "<a class='auth-link' href='https://jd6gih.streamlit.app/?auth=1' target='_top' onclick=\"try{window.top.location.href='https://jd6gih.streamlit.app/?auth=1';}catch(e){window.location.href='https://jd6gih.streamlit.app/?auth=1';}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
     h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
     h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
     if _email_top:
         h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
-    h += "<a class='auth-link' href='?logout=1' target='_parent'>SALIR</a>"
+    h += "<a class='auth-link' href='https://jd6gih.streamlit.app/?logout=1' target='_top' onclick=\"var u='https://jd6gih.streamlit.app/?logout=1&ts='+Date.now();try{window.top.open(u,'_self');}catch(e){try{window.parent.open(u,'_self');}catch(e2){window.open(u,'_blank');}}return false;\">SALIR</a>"
 h += "</div>"
 h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
 h += "<div class='tabs'>"
@@ -3266,7 +3385,14 @@ h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>
 h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
 h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50</th><th>EMA200</th><th>MACD</th>"
 h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
-h += f"<div class='footer-note'><span>Motor real conectado · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
+_ultima_scan_txt = servicio.ultima_actualizacion.strftime("%H:%M:%S ET") if servicio.ultima_actualizacion else "aún no ejecutado"
+_error_scan_txt = str(getattr(servicio, "ultimo_error", "") or "").strip()
+if len(_error_scan_txt) > 140:
+    _error_scan_txt = _error_scan_txt[:140] + "…"
+_hilo_vivo = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
+_hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
+_universo_txt = str(len(getattr(servicio, "universo", []) or []))
+h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
 h += "</div></body></html>"
 
 # La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
@@ -3285,5 +3411,15 @@ if _st_fragment is not None:
         else:
             st.session_state.setdefault("_ts_heartbeat", ahora)
     _heartbeat_refresco_scanner()
+
+# Botón nativo fuera del iframe: garantiza que SALIR ejecute el cierre de sesión
+# aunque el navegador bloquee la navegación desde el componente HTML.
+if USUARIO_AUTENTICADO:
+    _salir_col1, _salir_col2 = st.columns([0.92, 0.08])
+    with _salir_col2:
+        if st.button("SALIR", key="ts_native_logout", help="Cerrar sesión"):
+            cerrar_sesion()
+            st.query_params.clear()
+            st.rerun()
 
 components.html(h, height=1050, scrolling=True)
