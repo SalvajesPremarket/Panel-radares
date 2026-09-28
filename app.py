@@ -1623,13 +1623,8 @@ def filtrar_resultados(filas, p):
     for c in filas:
         if not (p["precio_min"] <= c["precio"] <= p["precio_max"]):
             continue
-        rsi = c.get("rsi")
-        if rsi is not None and not (p.get("rsi_min", 0.0) <= float(rsi) <= p.get("rsi_max", 100.0)):
-            continue
-        # Distancia máxima configurable entre el precio actual y EMA20.
-        ema_dist = c.get("ema_dist_pct")
-        if ema_dist is not None and float(ema_dist) > float(p.get("ema_dist_max", 1.0)):
-            continue
+        # RSI es informativo en SCALPING; no bloquea la señal.
+        # La distancia a EMA20 tampoco bloquea la señal por defecto.
         # REGLAS DURAS DEL SCANNER: estas condiciones SIEMPRE se aplican.
         # Precio: $0.50-$20; GAP REAL: 3%-50%; Float <=20M; Volumen >=15K.
         gap = c.get("gap_pct")
@@ -1653,14 +1648,8 @@ def filtrar_resultados(filas, p):
         _want_ema20 = p.get("ema20_estado", "Neutro")
         if _want_ema20 != "Neutro" and c.get("ema20_estado", "Neutro") != _want_ema20:
             continue
-        # EMA50 y EMA200 quedan forzosamente en estado neutro para el filtro.
-        # Distancia configurable desde EMA20 según la temporalidad seleccionada.
-        try:
-            dist_max = float(p.get("ema_dist_max", 1.0))
-        except (TypeError, ValueError):
-            dist_max = 1.0
-        if dist_max > 0 and c.get("ema_dist_pct") is not None and c.get("ema_dist_pct") > dist_max:
-            continue
+        # EMA50 y EMA200 son exclusivamente informativas.
+        # RSI y distancia EMA20 no bloquean la búsqueda de scalping.
         resultado.append(c)
 
     claves = {
@@ -1737,6 +1726,8 @@ class ServicioScanner:
         self.diagnostico_filtros = {
             "radar_base": 0,
             "tras_float": 0,
+            "float_sin_dato": 0,
+            "float_excede": 0,
             "tras_vol_rel": 0,
             "ema_arriba": 0,
             "macd_positivo": 0,
@@ -2506,6 +2497,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # separado (antes ambos se aplicaban en el mismo bucle y el panel
         # mostraba el mismo número para "tras_float" y "tras_vol_rel").
         tras_float = []
+        float_sin_dato_count = 0
+        float_excede_count = 0
         for c in base:
             entrada = self.cache_fund.get(c["ticker"], {})
             float_shares = entrada.get("float")
@@ -2517,7 +2510,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # conteo de diagnóstico coincida con el filtro que de verdad
             # determina el resultado final en filtrar_resultados().
             limite_float = float(self.filtros_dueno.get("flotacion_max", 20_000_000))
-            if float_shares is None or float(float_shares) > limite_float:
+            if float_shares is None:
+                float_sin_dato_count += 1
+                continue
+            if float(float_shares) > limite_float:
+                float_excede_count += 1
                 continue
             c["float_shares"] = float_shares
             c["float_status"] = entrada.get(
@@ -2599,6 +2596,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "ema_calculable": ema_calculable,
             "macd_calculable": macd_calculable,
             "tras_float": getattr(self, "n_tras_float", len(enriquecidos)),
+            "float_sin_dato": float_sin_dato_count,
+            "float_excede": float_excede_count,
             "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
@@ -3242,6 +3241,18 @@ params_ui = {
     "ema50_estado": ema50_estado_ui,
     "ema200_estado": ema200_estado_ui,
 }
+
+# IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
+# Antes el motor podía conservar una configuración vieja de cargar_config(),
+# mientras la pantalla mostraba otra, dejando el scanner aparentemente vacío.
+try:
+    servicio.filtros_dueno.update(params_ui)
+    servicio.filtros_dueno["ema50_estado"] = "Neutro"
+    servicio.filtros_dueno["ema200_estado"] = "Neutro"
+    servicio.sesion = sesion_ui
+    servicio.timeframe = timeframe_ui
+except Exception:
+    pass
 
 _guardar_ultima_configuracion_servidor()
 
