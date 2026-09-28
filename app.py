@@ -158,9 +158,9 @@ VALORES_POR_DEFECTO = {
     "macd": "Positivo",
     "orden": "Actualizado",
     "top_n": 50,
-    "sesion": sesion_ui,
-    "timeframe": timeframe_ui,
-    "ema_dist_max": ema_dist_max_ui,
+    "sesion": "PRE-MARKET",
+    "timeframe": "1m",
+    "ema_dist_max": 1.0,
 }
 
 
@@ -2749,9 +2749,9 @@ params_ui = {
     "macd": macd_ui,
     "orden": orden_ui,
     "top_n": 50,
-    "sesion": sesion_ui,
-    "timeframe": timeframe_ui,
-    "ema_dist_max": ema_dist_max_ui,
+    "sesion": "PRE-MARKET",
+    "timeframe": "1m",
+    "ema_dist_max": 1.0,
 }
 
 if PUBLIC_PREVIEW:
