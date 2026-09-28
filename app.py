@@ -2,6 +2,7 @@ import os
 import json
 import time
 import hashlib
+import hmac
 import secrets
 from urllib.parse import quote
 from html import escape as html_escape
@@ -608,8 +609,79 @@ def _almacen_sesiones_persistentes():
 
 _PERSISTENT_AUTH_SESSIONS = _almacen_sesiones_persistentes()
 
+def _admin_tokens_para_sesion():
+    """Obtiene los tokens admin configurados sin depender de variables definidas más abajo."""
+    candidatos = []
+    try:
+        t = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
+        if t:
+            candidatos.append((t, "2099-01-01"))
+    except Exception:
+        pass
+    try:
+        raw = st.secrets.get("ADMIN_TOKENS", "")
+        vals = raw if isinstance(raw, (list, tuple, set)) else str(raw).split(",")
+        for x in vals:
+            x = str(x).strip()
+            if x:
+                candidatos.append((x, "2099-01-01"))
+    except Exception:
+        pass
+    try:
+        legacy = obtener_tokens()
+        for token, venc in legacy.items():
+            token = str(token).strip()
+            if token:
+                candidatos.append((token, str(venc)))
+    except Exception:
+        pass
+    vistos = set()
+    return [(t, v) for t, v in candidatos if not (t in vistos or vistos.add(t))]
+
+
+def _crear_ticket_admin(token, fecha_vencimiento="2099-01-01"):
+    """Crea un ticket opaco firmado; nunca coloca el token admin en la URL."""
+    ts = str(int(time.time()))
+    secreto = f"{token}|{ts}|TradeScannerAdminSession".encode("utf-8")
+    firma = hmac.new(token.encode("utf-8"), secreto, hashlib.sha256).hexdigest()
+    return f"adm.{ts}.{firma}"
+
+
+def _validar_ticket_admin(ticket):
+    try:
+        partes = str(ticket).split(".")
+        if len(partes) != 3 or partes[0] != "adm":
+            return None
+        ts = int(partes[1])
+        if abs(time.time() - ts) > 60 * 60 * 24 * 30:
+            return None
+        firma_recibida = partes[2]
+        for token, venc in _admin_tokens_para_sesion():
+            esperado = hmac.new(
+                token.encode("utf-8"),
+                f"{token}|{ts}|TradeScannerAdminSession".encode("utf-8"),
+                hashlib.sha256,
+            ).hexdigest()
+            if hmac.compare_digest(firma_recibida, esperado):
+                if venc != "2099-01-01":
+                    try:
+                        if datetime.now().date() > datetime.strptime(venc, "%Y-%m-%d").date():
+                            return None
+                    except Exception:
+                        return None
+                return token, venc
+    except Exception:
+        return None
+    return None
+
+
 def _crear_sesion_persistente(tipo, datos):
-    sid = secrets.token_urlsafe(32)
+    if tipo == "admin":
+        token = str((datos or {}).get("token", "")).strip()
+        venc = str((datos or {}).get("fecha_vencimiento", "2099-01-01"))
+        sid = _crear_ticket_admin(token, venc) if token else secrets.token_urlsafe(32)
+    else:
+        sid = secrets.token_urlsafe(32)
     _PERSISTENT_AUTH_SESSIONS[sid] = {"tipo": tipo, "datos": dict(datos or {})}
     try:
         _email = str((datos or {}).get("email", "")).strip().lower()
@@ -621,21 +693,31 @@ def _crear_sesion_persistente(tipo, datos):
         pass
     return sid
 
+
 def _restaurar_sesion_persistente():
     try:
         sid = str(st.query_params.get("auth_session", "")).strip()
         if not sid:
             return False
         ses = _PERSISTENT_AUTH_SESSIONS.get(sid)
+        if not ses and sid.startswith("adm."):
+            validado = _validar_ticket_admin(sid)
+            if validado:
+                token, venc = validado
+                ses = {"tipo": "admin", "datos": {"token": token, "fecha_vencimiento": venc}}
+                _PERSISTENT_AUTH_SESSIONS[sid] = ses
         if not ses:
             return False
         tipo = ses.get("tipo")
         datos = ses.get("datos", {})
         if tipo == "admin":
-            st.session_state["token_verificado"] = datos.get("token", "")
+            token = str(datos.get("token", ""))
+            if not token:
+                return False
+            st.session_state["token_verificado"] = token
             st.session_state["fecha_vencimiento"] = datos.get("fecha_vencimiento", "2099-01-01")
             st.session_state["tipo_acceso"] = "admin"
-            return bool(st.session_state["token_verificado"])
+            return True
         if tipo == "usuario":
             st.session_state["usuario_auth"] = dict(datos)
             st.session_state["tipo_acceso"] = "usuario"
@@ -3646,10 +3728,12 @@ h += "<script>window.addEventListener('load',function(){try{var raw=window.top.l
 h += "function setQ(k,v){var q=new URLSearchParams(window.top.location.search||window.parent.location.search);q.set(k,v);window.parent.location.search='?'+q.toString();}"
 h += "function cambiarTimeframeTecnico(v){try{var q=new URLSearchParams(window.top.location.search||window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);var url=window.top.location.pathname+'?'+q.toString();window.top.location.href=url;}catch(e){var q=new URLSearchParams(window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);window.location.href='?'+q.toString();}}"
 h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
+h += "var TS_BASE_QUERY=" + json.dumps({str(k): str(v) for k, v in st.query_params.items()}, ensure_ascii=False) + ";"
+h += "var TS_AUTH_SESSION=" + json.dumps(str(st.query_params.get("auth_session", ""))) + ";"
 h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
 h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
-h += "function _qtop(){try{return new URLSearchParams(window.top.location.search||window.parent.location.search||window.location.search)}catch(e){return new URLSearchParams(window.location.search)}}"
-h += "function _authSid(){try{var q=_qtop();var sid=q.get('auth_session');if(sid){try{window.top.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.top.localStorage.getItem('tradeScannerAuthSession')||localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return localStorage.getItem('tradeScannerAuthSession')||''}}catch(e){return ''}}"
+h += "function _qtop(){try{var q=new URLSearchParams(TS_BASE_QUERY||{});return q}catch(e){return new URLSearchParams(window.location.search)}}"
+h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
 h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
 h += "function _restaurarUltimaConfiguracion(){if(!TS_AUTH)return;try{var cur=_qtop();var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';if(!raw)return;var o=JSON.parse(raw||'{}');if(!o||typeof o!=='object')return;var q=new URLSearchParams(cur.toString());var claves=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec'];var cambio=false;claves.forEach(function(k){if(!q.has(k)&&o[k]!==null&&o[k]!==undefined){q.set(k,o[k]);cambio=true}});var sid=cur.get('auth_session');if(sid&&!q.get('auth_session'))q.set('auth_session',sid);if(cambio)window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(e){}}"
 h += "function _goto(q){try{var cur=_qtop();var sid=cur.get('auth_session');if(sid && !q.get('auth_session'))q.set('auth_session',sid);_guardarUltimaConfiguracion(q);window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(e){var cur=new URLSearchParams(window.location.search);var sid=cur.get('auth_session');if(sid && !q.get('auth_session'))q.set('auth_session',sid);_guardarUltimaConfiguracion(q);window.location.href='?'+q.toString()}}"
@@ -3676,14 +3760,14 @@ h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{window.top.loca
 h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);window.top.location.href=window.top.location.pathname+'?'+q.toString();}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(err){window.parent.location.href=window.parent.location.pathname+'?'+q.toString();}}"
 h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',v);var sid=q.get('auth_session')||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);q.set('_ts',Date.now());_guardarUltimaConfiguracion(q);var url=window.top.location.origin+window.top.location.pathname+'?'+q.toString();try{window.top.location.replace(url)}catch(e){try{window.parent.location.replace(window.parent.location.pathname+'?'+q.toString())}catch(e2){window.location.replace('?'+q.toString())}}}"
+h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',v);var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);q.set('_ts',Date.now());_guardarUltimaConfiguracion(q);var url=window.location.origin+window.location.pathname+'?'+q.toString();try{window.parent.location.replace(url)}catch(e){try{window.top.location.replace(url)}catch(e2){window.location.replace(url)}}}"
 h += ""
 h += "</script></head><body>"
 h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>PRE MARKET · REAL TIME</small></div>"
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
-    h += "<a class='auth-link' href='?auth=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.pathname+'?auth=1&_ts='+Date.now();}catch(e){window.location.href='?auth=1&_ts='+Date.now();}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
+    h += "<a class='auth-link' href='?auth=1' onclick=\"try{window.parent.location.replace(window.location.origin+window.location.pathname+'?auth=1&_ts='+Date.now());}catch(e){window.location.replace('?auth=1&_ts='+Date.now());}return false;\">📝 REGISTRO / INICIAR SESIÓN</a>"
     h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
@@ -3691,8 +3775,8 @@ else:
     if _email_top:
         h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
     # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
-    h += "<a class='auth-link' href='?auth=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.pathname+'?auth=1&_ts='+Date.now();}catch(e){window.location.href='?auth=1&_ts='+Date.now();}return false;\">CUENTA / REGISTRO</a>"
-    h += "<a class='auth-link' href='?logout=1' target='_top' onclick=\"try{window.top.location.href=window.top.location.pathname+'?logout=1&_ts='+Date.now();}catch(e){window.location.href='?logout=1&_ts='+Date.now();}return false;\">SALIR</a>"
+    h += "<a class='auth-link' href='?auth=1' onclick=\"try{window.parent.location.replace(window.location.origin+window.location.pathname+'?auth=1&_ts='+Date.now());}catch(e){window.location.replace('?auth=1&_ts='+Date.now());}return false;\">CUENTA / REGISTRO</a>"
+    h += "<a class='auth-link' href='?logout=1' onclick=\"try{window.parent.location.replace(window.location.origin+window.location.pathname+'?logout=1&_ts='+Date.now());}catch(e){window.location.replace('?logout=1&_ts='+Date.now());}return false;\">SALIR</a>"
 h += "</div>"
 h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
 h += "<div class='tabs'>"
