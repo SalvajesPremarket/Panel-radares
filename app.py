@@ -149,7 +149,7 @@ VALORES_POR_DEFECTO = {
     "gap_min": 3.0,
     "gap_max": 50.0,
     "flotacion_max": 20_000_000,
-    "volumen_min": 20_000,
+    "volumen_min": 15_000,
     "intervalo_refresco": 5,
     # Valores técnicos usados por el motor compartido/diagnóstico.
     # Antes faltaban aquí y filtrar_resultados() podía lanzar KeyError
@@ -1152,23 +1152,25 @@ def evaluar_tecnico(velas):
     """
     if velas is None or len(velas) < 40:
         return (False, False, False, False, None, None, None, 0,
-                None, None, None, None, None, None, None)
+                None, None, None, None, None, None, None, None, None)
 
     try:
         velas = velas.sort_index()
         cierres = velas["close"].astype(float).dropna()
         if len(cierres) < 40:
             return (False, False, False, False, None, None, None, 0,
-                    None, None, None, None, None, None)
+                    None, None, None, None, None, None, None, None, None)
 
         # Aseguramos que OHLC y cierres correspondan a las últimas dos velas.
         if not all(col in velas.columns for col in ("open", "high", "low", "close")):
             return (False, False, False, False, None, None, None, 0,
-                    None, None, None, None, None, None)
+                    None, None, None, None, None, None, None, None, None)
 
         vela_prev = velas.iloc[-2]
         vela_act = velas.iloc[-1]
         ema20 = cierres.ewm(span=20, adjust=False).mean()
+        ema50 = cierres.ewm(span=50, adjust=False).mean()
+        ema200 = cierres.ewm(span=200, adjust=False).mean()
         macd_line = cierres.ewm(span=12, adjust=False).mean() - cierres.ewm(span=26, adjust=False).mean()
 
         # RSI(14) de Wilder sobre la misma temporalidad seleccionada.
@@ -1189,6 +1191,8 @@ def evaluar_tecnico(velas):
         precio_prev = float(vela_prev["close"])
         ema_act = float(ema20.iloc[-1])
         ema_prev = float(ema20.iloc[-2])
+        ema50_act = float(ema50.iloc[-1]) if not pd.isna(ema50.iloc[-1]) else None
+        ema200_act = float(ema200.iloc[-1]) if not pd.isna(ema200.iloc[-1]) else None
         macd_actual = macd_line.iloc[-1]
         macd_val = float(macd_actual) if not pd.isna(macd_actual) else None
 
@@ -1205,7 +1209,7 @@ def evaluar_tecnico(velas):
 
         if pd.isna(ema_act) or ema_act <= 0 or pd.isna(ema_prev) or ema_prev <= 0:
             return (False, False, False, False, precio_act, None, macd_val, len(cierres),
-                    precio_prev, ema_prev, precio_act, ema_act, bb_upper_val, None)
+                    precio_prev, ema_prev, precio_act, ema_act, bb_upper_val, None, None, ema50_act, ema200_act)
 
         # EMA20 NUEVA: vela naciendo por encima + máximo y mínimo superiores.
         estructura_alcista = bool(
@@ -1228,11 +1232,11 @@ def evaluar_tecnico(velas):
 
         return (cruzo_arriba, cruzo_abajo, macd_positivo, macd_negativo,
                 precio_act, ema_act, macd_val, len(cierres), precio_prev, ema_prev,
-                precio_act, ema_act, bb_upper_val, bb_dist_pct, rsi_val)
+                precio_act, ema_act, bb_upper_val, bb_dist_pct, rsi_val, ema50_act, ema200_act)
     except Exception as e:
         print(f"⚠️ Error evaluando EMA20/velas: {e}")
         return (False, False, False, False, None, None, None, 0,
-                None, None, None, None, None, None, None)
+                None, None, None, None, None, None, None, None, None)
 
 
 def _timeframe_alpaca(label):
@@ -1336,7 +1340,7 @@ def filtrar_resultados(filas, p):
             if c["float_shares"] is not None and c["float_shares"] > p["flotacion_max"]:
                 continue
         if ETAPA_PRUEBA_FILTROS >= 2:
-            if c.get("volumen_dia", 0) < p.get("volumen_min", 20_000):
+            if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
                 continue
         if ETAPA_PRUEBA_FILTROS == 1:
             # PRUEBA 1 real: EMA20 = precio por encima de EMA20.
@@ -1354,6 +1358,10 @@ def filtrar_resultados(filas, p):
             continue
         if macd == "Negativo" and not c["macd_negativo"]:
             continue
+        for _ek in ("ema20", "ema50", "ema200"):
+            _want = p.get(f"{_ek}_estado", "Neutro")
+            if _want != "Neutro" and c.get(f"{_ek}_estado", "Neutro") != _want:
+                continue
         # Distancia configurable desde EMA20 según la temporalidad seleccionada.
         try:
             dist_max = float(p.get("ema_dist_max", 1.0))
@@ -1388,7 +1396,7 @@ def filtrar_eventos(eventos, p):
             continue
         if e["float_shares"] is not None and e["float_shares"] > p["flotacion_max"]:
             continue
-        if e.get("volumen_dia", 0) < p.get("volumen_min", 20_000):
+        if e.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
             continue
         salida.append(e)
     return salida
@@ -1853,12 +1861,12 @@ class ServicioScanner:
         for t in pendientes:
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
-             ema_actual, bb_upper, bb_dist_pct, rsi_val) = evaluar_tecnico(series.get(t))
+             ema_actual, bb_upper, bb_dist_pct, rsi_val, ema50_act, ema200_act) = evaluar_tecnico(series.get(t))
             self.cache_tecnico[t] = (
                 ahora, tf_actual, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
                 precio_act, ema_act, macd_val, barras_count,
                 precio_prev, ema_prev, precio_actual, ema_actual,
-                bb_upper, bb_dist_pct, rsi_val
+                bb_upper, bb_dist_pct, rsi_val, ema50_act, ema200_act
             )
 
     # ---------- noticias (una sola llamada para todos) ----------
@@ -2167,7 +2175,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         enriquecidos = []
         for c in tras_float:
-            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 20_000):
+            if ETAPA_PRUEBA_FILTROS >= 2 and c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
                 continue
             # El porcentaje de subida se representa directamente con cambio_pct.
             c["volumen_relativo"] = c["cambio_pct"]
@@ -2178,8 +2186,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         con_noticia = self._noticias_recientes(tickers_enr)
 
         for c in enriquecidos:
-            tech = self.cache_tecnico.get(c["ticker"], (0, self.timeframe, False, False, False, False, None, None, None, 0, None, None, None, None, None, None, None))
-            _, tecnico_timeframe, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec, precio_prev_tec, ema_prev_tec, precio_actual_tec, ema_actual_tec, bb_upper_tec, bb_dist_tec, rsi_tec = tech
+            tech = self.cache_tecnico.get(c["ticker"], (0, self.timeframe, False, False, False, False, None, None, None, 0, None, None, None, None, None, None, None, None, None))
+            _, tecnico_timeframe, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec, precio_prev_tec, ema_prev_tec, precio_actual_tec, ema_actual_tec, bb_upper_tec, bb_dist_tec, rsi_tec, ema50_tec, ema200_tec = tech
             c["cruzando_ema20"] = cruz_arriba
             c["cruzando_ema20_abajo"] = cruz_abajo
             c["macd_positivo"] = macd_pos
@@ -2200,6 +2208,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["bb_upper"] = bb_upper_tec
             c["bb_dist_pct"] = bb_dist_tec
             c["rsi"] = rsi_tec
+            c["ema50"] = ema50_tec
+            c["ema200"] = ema200_tec
+            c["ema20_estado"] = "Por encima" if precio_actual_tec is not None and ema_actual_tec is not None and precio_actual_tec > ema_actual_tec else ("Por debajo" if precio_actual_tec is not None and ema_actual_tec is not None and precio_actual_tec < ema_actual_tec else "Neutro")
+            c["ema50_estado"] = "Por encima" if precio_actual_tec is not None and ema50_tec is not None and precio_actual_tec > ema50_tec else ("Por debajo" if precio_actual_tec is not None and ema50_tec is not None and precio_actual_tec < ema50_tec else "Neutro")
+            c["ema200_estado"] = "Por encima" if precio_actual_tec is not None and ema200_tec is not None and precio_actual_tec > ema200_tec else ("Por debajo" if precio_actual_tec is not None and ema200_tec is not None and precio_actual_tec < ema200_tec else "Neutro")
             c["cruce_ema20_confirmado"] = bool(cruz_arriba and precio_prev_tec is not None and ema_prev_tec is not None)
             c["tiene_noticia"] = c["ticker"] in con_noticia
 
@@ -2766,8 +2779,11 @@ precio_max_ui = _qfloat("f_price_max", 20.00)
 gap_min_ui = _qfloat("f_gap_min", 3.00)
 gap_max_ui = _qfloat("f_gap_max", 50.00)
 float_max_ui = _qint("f_float_max", 20_000_000)
-volumen_min_ui = _qint("f_vol", 20_000)
+volumen_min_ui = _qint("f_vol", 15_000)
 ema_ui = _qtxt("f_ema", "Hacia arriba")
+ema20_estado_ui = _qtxt("ema20_estado", "Neutro")
+ema50_estado_ui = _qtxt("ema50_estado", "Neutro")
+ema200_estado_ui = _qtxt("ema200_estado", "Neutro")
 macd_ui = _qtxt("f_mac", "Positivo")
 orden_ui = _qtxt("f_order", "Actualizado")
 sesion_ui = _qtxt("market_session", "PRE-MARKET")
@@ -2789,6 +2805,9 @@ except Exception:
 
 if ema_ui not in ("Hacia arriba", "Hacia abajo", "Neutro"):
     ema_ui = "Hacia arriba"
+for _var in ("ema20_estado_ui", "ema50_estado_ui", "ema200_estado_ui"):
+    if _var in globals() and globals()[_var] not in ("Por encima", "Por debajo", "Neutro"):
+        globals()[_var] = "Neutro"
 if macd_ui not in ("Positivo", "Negativo", "No exigir"):
     macd_ui = "Positivo"
 if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
@@ -2810,6 +2829,9 @@ params_ui = {
     "ema_dist_max": ema_dist_max_ui,
     "rsi_min": rsi_min_ui,
     "rsi_max": rsi_max_ui,
+    "ema20_estado": ema20_estado_ui,
+    "ema50_estado": ema50_estado_ui,
+    "ema200_estado": ema200_estado_ui,
 }
 
 if PUBLIC_PREVIEW:
@@ -2897,6 +2919,8 @@ def _row_html(row):
         f"<td class='num-col'>{_pct(cambio)}</td>"
         f"<td class='num-col'>{flotacion:.2f}M</td>"
         f"<td>{ema_txt}</td>"
+        f"<td>{_safe_text(row.get('ema50_estado','Neutro'))}</td>"
+        f"<td>{_safe_text(row.get('ema200_estado','Neutro'))}</td>"
         f"<td class='{mac_cls}'>{mac_txt}</td></tr>"
     )
 
@@ -2923,7 +2947,7 @@ def _row_visualizacion(item, indice):
             "</select></td>"
             "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
             "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
-            "<td class='num-col'>—</td><td>—</td><td class='macd-neutro'>—</td></tr>"
+            "<td class='num-col'>—</td><td>—</td><td>—</td><td>—</td><td class='macd-neutro'>—</td></tr>"
         )
     return _row_html(item)
 
@@ -2998,10 +3022,21 @@ h += ".tab-panel{display:none;background:#20252b;color:#dce1e6;border:1px solid 
 h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
 h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
 h += ".tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.technical-control select{min-width:0;width:100%;}.tab-panel{font-size:9px;padding:6px}}"
+h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900}.technical-subtab.active{background:#3a4048}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
 h += "</style>"
 h += "<script>window.addEventListener('load',function(){try{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0;}catch(e){}});"
 h += "function setQ(k,v){var q=new URLSearchParams(window.parent.location.search);q.set(k,v);window.parent.location.search='?'+q.toString();}"
 h += "function cambiarTimeframeTecnico(v){try{var q=new URLSearchParams(window.top.location.search||window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);var url=window.top.location.pathname+'?'+q.toString();window.top.location.href=url;}catch(e){var q=new URLSearchParams(window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);window.location.href='?'+q.toString();}}"
+h += "function _qtop(){try{return new URLSearchParams(window.top.location.search||window.parent.location.search||window.location.search)}catch(e){return new URLSearchParams(window.location.search)}}"
+h += "function _goto(q){try{window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(e){window.location.href='?'+q.toString()}}"
+h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
+h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
+h += "function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var o=cfgActual();o.nombre=n;['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)o[k]=e.value});var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}a=a.filter(function(x){return x.nombre.toLowerCase()!==n.toLowerCase()});a.unshift(o);localStorage.setItem('tradeScannerConfigs',JSON.stringify(a.slice(0,50)));document.getElementById('config_name').value='';renderConfiguraciones();}"
+h += "function cargarConfiguracionPersonal(n){var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}var o=a.find(function(x){return x.nombre===n});if(!o)return;var q=new URLSearchParams();Object.keys(o).forEach(function(k){if(k!=='nombre')q.set(k,o[k])});_goto(q)}"
+h += "function borrarConfiguracionPersonal(n){var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}a=a.filter(function(x){return x.nombre!==n});localStorage.setItem('tradeScannerConfigs',JSON.stringify(a));renderConfiguraciones();}"
+h += "function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
+h += "function renderConfiguraciones(){var b=document.getElementById('saved_configs_list');if(!b)return;var t=(document.getElementById('config_search').value||'').toLowerCase();var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}a=a.filter(function(x){return (x.nombre||'').toLowerCase().indexOf(t)>=0});b.innerHTML=a.length?a.map(function(x){var n=String(x.nombre).replace(/[<>]/g,'');return '<div class=\"saved-config\"><b>'+n+'</b><span>'+String(x.timeframe||'1m')+' · EMA20 '+String(x.ema20_estado||'Neutro')+' · EMA50 '+String(x.ema50_estado||'Neutro')+' · EMA200 '+String(x.ema200_estado||'Neutro')+'</span><button onclick=\"cargarConfiguracionPersonal('+JSON.stringify(x.nombre)+')\">CARGAR</button><button onclick=\"borrarConfiguracionPersonal('+JSON.stringify(x.nombre)+')\">ELIMINAR</button></div>'}).join(''):'<span class=\"saved-empty\">No hay configuraciones guardadas.</span>'; }"
+h += "document.addEventListener('DOMContentLoaded',function(){setTimeout(renderConfiguraciones,100)});"
 h += "function pushConfig(){var q=new URLSearchParams(window.parent.location.search);"
 h += "q.set('f_price_min',document.getElementById('price_min').value);q.set('f_price_max',document.getElementById('price_max').value);"
 h += "q.set('f_gap_min',document.getElementById('gap_min').value);q.set('f_gap_max',document.getElementById('gap_max').value);"
@@ -3009,7 +3044,7 @@ h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_v
 h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
 h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
 h += "q.set('c_start',document.getElementById('cfg_start').value);q.set('c_end',document.getElementById('cfg_end').value);"
-h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session',document.getElementById('market_session').value);q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);"
+h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session',document.getElementById('market_session').value);q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);q.set('ema20_estado',document.getElementById('ema20_estado')?document.getElementById('ema20_estado').value:'Neutro');q.set('ema50_estado',document.getElementById('ema50_estado')?document.getElementById('ema50_estado').value:'Neutro');q.set('ema200_estado',document.getElementById('ema200_estado')?document.getElementById('ema200_estado').value:'Neutro');"
 h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
 h += "window.parent.location.search='?'+q.toString();}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
@@ -3050,16 +3085,20 @@ h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='tech
 for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
     h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
 h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
-h += f"<div class='panel-card'><b>EMA20</b><span>{_safe_text('POR ENCIMA' if ema_ui=='Hacia arriba' else ('POR DEBAJO' if ema_ui=='Hacia abajo' else 'CUALQUIERA'))} · primera vela formándose · máximo {ema_dist_max_ui:.2f}% desde EMA20.</span></div>"
+for _ename, _eid, _eval in (("EMA20", "ema20_estado", ema20_estado_ui), ("EMA50", "ema50_estado", ema50_estado_ui), ("EMA200", "ema200_estado", ema200_estado_ui)):
+    h += f"<div class='panel-card technical-control'><b>{_ename}</b><select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>POR ENCIMA</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>POR DEBAJO</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select><span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
 h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
 h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()} · EMA20/MACD/RSI usan esta misma temporalidad.</span></div>"
-h += "<div class='panel-card'><b>MEDIAS</b><span>SMA20 · SMA50 · SMA200 · EMA20.</span></div>"
+h += "<div class='panel-card'><b>MEDIAS</b><span>EMA20 · EMA50 · EMA200 calculadas en el timeframe seleccionado.</span></div>"
 h += "<div class='panel-card'><b>BOLLINGER</b><span>Bandas y distancia a banda.</span></div>"
 h += "<div class='panel-card'><b>MFI</b><span>Money Flow Index.</span></div>"
 h += "<div class='panel-card'><b>VOLATILIDAD</b><span>ATR · Beta.</span></div>"
 h += "<div class='panel-card'><b>PERFORMANCE</b><span>Semana · mes · trimestre · YTD · año.</span></div>"
 h += "<div class='panel-card'><b>GAP / VOLUMEN</b><span>Gap % · volumen actual · volumen promedio · relativo.</span></div>"
 h += "</div></div>"
+h += "<div class='technical-subtabs'><button class='technical-subtab active' onclick=\"showTechnicalSubTab('save-config-panel',this)\">💾 GUARDAR CONFIGURACIÓN</button><button class='technical-subtab' onclick=\"showTechnicalSubTab('load-config-panel',this)\">📂 MIS CONFIGURACIONES</button></div>"
+h += "<div id='save-config-panel' class='technical-subpanel active'><div class='panel-card technical-control'><b>💾 GUARDAR CONFIGURACIÓN PERSONAL</b><div class='range'><input id='config_name' type='text' placeholder='Nombre de configuración'><button onclick='guardarConfiguracionPersonal()'>GUARDAR</button></div><span>Guarda todos los filtros actuales en este navegador.</span></div></div>"
+h += "<div id='load-config-panel' class='technical-subpanel'><div class='panel-card technical-control'><b>📂 MIS CONFIGURACIONES</b><input id='config_search' type='text' placeholder='Buscar configuración' oninput='renderConfiguraciones()'><div id='saved_configs_list'></div></div></div>"
 h += "<div id='panel-config' class='tab-panel'><div class='panel-grid'>"
 h += f"<div class='panel-card'><b>MOTOR</b><span>{_safe_text(_estado_txt)} · Horario {_safe_text(_hora_txt)}</span></div>"
 h += f"<div class='panel-card'><b>BROKER</b><span>{_safe_text(broker_val)} · API Key/Secret Key se introducen en Configuración y no se muestran en resultados.</span></div>"
@@ -3098,7 +3137,7 @@ h += "</div>"
 h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
 h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
 h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>MACD</th>"
+h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50</th><th>EMA200</th><th>MACD</th>"
 h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
 h += f"<div class='footer-note'><span>Motor real conectado · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) visible(s)</span><span>Último estado: {_safe_text(_estado_txt)} · { _safe_text(_hora_txt) }</span></div>"
 h += "</div></body></html>"
