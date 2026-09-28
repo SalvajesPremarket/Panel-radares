@@ -2407,16 +2407,36 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # que pueda dejar la pantalla con datos y Telegram sin datos.
         top = list(resultados_finales_hist)
         if top:
-            tabla = f"{'TICK':<8}|{'PRE':>7}|{'CHG%':>6}|{'VOL':>8}|{'FLT':>8}\n" + "-" * 45 + "\n"
+            # Telegram usa la misma información que la tabla de RESULTADOS,
+            # pero en una versión compacta de ancho fijo para que todos los
+            # campos queden en una sola fila horizontal por ticker.
+            tabla = (
+                f"{'TICK':<7} {'SEC':<9} {'PREC':>6} {'CHG%':>6} "
+                f"{'VOL':>6} {'GAP%':>6} {'FLT':>6} {'E20':>4} "
+                f"{'E50':>4} {'E200':>4} {'MACD':>5}\n"
+                + "-" * 83 + "\n"
+            )
             for c in top:
-                ticker = str(c.get("ticker", ""))
+                ticker = str(c.get("ticker", ""))[:6]
+                sector = str(c.get("sector", "N/A"))[:8]
                 noticia = "🔥" if c.get("tiene_noticia") else ""
+                ticker_txt = (noticia + ticker)[:6]
                 precio = float(c.get("precio") or 0)
                 cambio = float(c.get("cambio_pct") or 0)
-                volumen = formatear_numero_grande(c.get("volumen_dia") or 0)
-                flotacion = formatear_numero_grande(c.get("float_shares") or 0)
-                tabla += (f"{noticia}{ticker:<7}|{precio:>7.2f}|{cambio:>5.1f}%|"
-                          f"{volumen:>8}|{flotacion:>8}\n")
+                volumen = _big(c.get("volumen_dia") or 0)
+                flotacion = _big(c.get("float_shares") or 0)
+                ema20 = ("UP" if c.get("cruzando_ema20") else
+                         ("DN" if c.get("cruzando_ema20_abajo") else "--"))
+                ema50_raw = str(c.get("ema50_estado", "Neutro"))
+                ema200_raw = str(c.get("ema200_estado", "Neutro"))
+                ema50 = "UP" if ema50_raw == "Por encima" else ("DN" if ema50_raw == "Por debajo" else "--")
+                ema200 = "UP" if ema200_raw == "Por encima" else ("DN" if ema200_raw == "Por debajo" else "--")
+                macd = "POS" if c.get("macd_positivo") else ("NEG" if c.get("macd_negativo") else "--")
+                tabla += (
+                    f"{ticker_txt:<7} {sector:<9} {precio:>6.2f} {cambio:>+5.1f}% "
+                    f"{volumen:>6} {cambio:>+5.1f}% {flotacion:>6} {ema20:>4} "
+                    f"{ema50:>4} {ema200:>4} {macd:>5}\n"
+                )
             # Se llama aquí, inmediatamente después de publicar el resultado
             # del ciclo. Si cambia la señal, se actualiza Telegram; si es igual,
             # se evita duplicarla mediante el hash.
