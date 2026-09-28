@@ -2,6 +2,7 @@ import os
 import json
 import time
 import hashlib
+import secrets
 from urllib.parse import quote
 from html import escape as html_escape
 import threading
@@ -585,8 +586,54 @@ def limpiar_recuperacion():
     ):
         st.session_state.pop(clave, None)
 
+# Sesiones persistentes para que un refresh/navegación de la carátula no obligue
+# al usuario a volver a escribir sus credenciales. El identificador que viaja
+# en la URL es aleatorio y no contiene la contraseña ni el token de admin.
+# La información sensible permanece únicamente en memoria del servidor.
+@st.cache_resource
+def _almacen_sesiones_persistentes():
+    return {}
+
+_PERSISTENT_AUTH_SESSIONS = _almacen_sesiones_persistentes()
+
+def _crear_sesion_persistente(tipo, datos):
+    sid = secrets.token_urlsafe(32)
+    _PERSISTENT_AUTH_SESSIONS[sid] = {"tipo": tipo, "datos": dict(datos or {})}
+    return sid
+
+def _restaurar_sesion_persistente():
+    try:
+        sid = str(st.query_params.get("auth_session", "")).strip()
+        if not sid:
+            return False
+        ses = _PERSISTENT_AUTH_SESSIONS.get(sid)
+        if not ses:
+            return False
+        tipo = ses.get("tipo")
+        datos = ses.get("datos", {})
+        if tipo == "admin":
+            st.session_state["token_verificado"] = datos.get("token", "")
+            st.session_state["fecha_vencimiento"] = datos.get("fecha_vencimiento", "2099-01-01")
+            st.session_state["tipo_acceso"] = "admin"
+            return bool(st.session_state["token_verificado"])
+        if tipo == "usuario":
+            st.session_state["usuario_auth"] = dict(datos)
+            st.session_state["tipo_acceso"] = "usuario"
+            return bool(st.session_state["usuario_auth"].get("email") or st.session_state["usuario_auth"].get("user_id"))
+    except Exception:
+        return False
+    return False
+
+
 def cerrar_sesion():
-    """Limpia la sesión local de Streamlit."""
+    """Limpia la sesión local y la sesión persistente del navegador."""
+    try:
+        sid = str(st.query_params.get("auth_session", "")).strip()
+        if sid:
+            _PERSISTENT_AUTH_SESSIONS.pop(sid, None)
+        st.query_params.pop("auth_session", None)
+    except Exception:
+        pass
     for clave in (
         "usuario_auth",
         "token_verificado",
@@ -778,6 +825,9 @@ def pantalla_autenticacion():
                 _guardar_usuario_auth(data, tipo="usuario")
                 _u = data.get("user") or {}
                 crear_prueba_usuario(_u.get("id", ""), _u.get("email", email))
+                _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
+                st.query_params["auth_session"] = _sid
+                st.query_params.pop("auth", None)
                 st.rerun()
 
         with st.expander("🔑 ¿Olvidaste tu contraseña?", expanded=bool(st.session_state.get("recovery_email"))):
@@ -909,6 +959,9 @@ def pantalla_autenticacion():
                         _guardar_usuario_auth(data, tipo="usuario")
                         _u = data.get("user") or {}
                         crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
+                        _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
+                        st.query_params["auth_session"] = _sid
+                        st.query_params.pop("auth", None)
                         st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
                         st.rerun()
                     else:
@@ -940,6 +993,9 @@ def pantalla_autenticacion():
                     st.session_state["token_verificado"] = token_limpio
                     st.session_state["fecha_vencimiento"] = estado
                     st.session_state["tipo_acceso"] = "admin"
+                    _sid = _crear_sesion_persistente("admin", {"token": token_limpio, "fecha_vencimiento": estado})
+                    st.query_params["auth_session"] = _sid
+                    st.query_params.pop("auth", None)
                     st.rerun()
                 elif estado == "EXPIRADO":
                     st.error("🔒 Token expirado.")
@@ -957,6 +1013,11 @@ def pantalla_autenticacion():
 # El visitante entra directamente a la carátula del scanner.
 # La autenticación se abre solamente cuando pulsa REGISTRO / INICIAR SESIÓN.
 # Así puede conocer la interfaz antes de crear una cuenta.
+# Recuperar automáticamente la sesión si el navegador hizo un refresh completo
+# o si una navegación de la carátula creó una nueva sesión de Streamlit.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+
 PUBLIC_PREVIEW = (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
@@ -1460,6 +1521,8 @@ class ServicioScanner:
 
         self.tg_msg_id = None
         self.tg_ultimo_hash = None
+        self.telegram_estado = "No probado"
+        self.telegram_ultimo_error = None
 
         self.eventos = []                    # cuadro "Eventos en vivo" (el más nuevo primero)
         self._ultimo_precio_evento = {}
@@ -1893,38 +1956,69 @@ class ServicioScanner:
 
     # ---------- Telegram ----------
     def _enviar_telegram(self, texto_tabla):
-        if not self.tg_token or not self.tg_chat:
+        """Envía/actualiza la señal en el grupo de Telegram.
+        El token y el chat_id nunca se muestran en la interfaz.
+        """
+        if not self.tg_token:
+            self.telegram_estado = "ERROR: TELEGRAM_BOT_TOKEN no configurado"
+            self.telegram_ultimo_error = self.telegram_estado
+            print("❌ Telegram: falta TELEGRAM_BOT_TOKEN en st.secrets")
             return
+        if not self.tg_chat:
+            self.telegram_estado = "ERROR: TELEGRAM_CHAT_ID no configurado"
+            self.telegram_ultimo_error = self.telegram_estado
+            print("❌ Telegram: falta TELEGRAM_CHAT_ID en st.secrets")
+            return
+
         hash_actual = hashlib.md5(texto_tabla.encode("utf-8")).hexdigest()
         if hash_actual == self.tg_ultimo_hash:
+            self.telegram_estado = "OK: sin cambios; se conserva el mensaje actual"
             return
         try:
             payload = {
                 "chat_id": self.tg_chat,
-                "text": f"⚡️ <b>SCANNER</b>\n<pre>{texto_tabla}</pre>",
+                "text": f"⚡️ <b>SCANNER</b>\n<pre>{html_escape(texto_tabla)}</pre>",
                 "parse_mode": "HTML",
             }
-            cabeceras = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+            cabeceras = {"User-Agent": "TradeScanner/1.0"}
             if self.tg_msg_id is None:
                 url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
                 r = requests.post(url, json=payload, headers=cabeceras, timeout=15)
-                if r.status_code == 200:
-                    self.tg_msg_id = r.json()["result"]["message_id"]
+                if r.ok:
+                    data = r.json()
+                    self.tg_msg_id = data.get("result", {}).get("message_id")
                     self.tg_ultimo_hash = hash_actual
+                    self.telegram_estado = "OK: mensaje enviado al grupo"
+                    self.telegram_ultimo_error = None
                 else:
-                    print(f"❌ Telegram rechazó el mensaje: {r.status_code} - {r.text}")
+                    detalle = r.text[:500]
+                    self.telegram_estado = f"ERROR Telegram {r.status_code}: {detalle}"
+                    self.telegram_ultimo_error = self.telegram_estado
+                    print(self.telegram_estado)
             else:
                 url = f"https://api.telegram.org/bot{self.tg_token}/editMessageText"
                 payload["message_id"] = self.tg_msg_id
                 r = requests.post(url, json=payload, headers=cabeceras, timeout=15)
-                if r.status_code == 200 or "message is not modified" in r.text:
+                if r.ok or "message is not modified" in r.text:
                     self.tg_ultimo_hash = hash_actual
-                elif "not found" in r.text:
-                    self.tg_msg_id = None  # el mensaje fue borrado: se envía uno nuevo en el próximo ciclo
+                    self.telegram_estado = "OK: mensaje de Telegram actualizado"
+                    self.telegram_ultimo_error = None
+                elif "message is not modified" in r.text:
+                    self.tg_ultimo_hash = hash_actual
+                    self.telegram_estado = "OK: Telegram sin cambios"
+                elif "message to edit not found" in r.text.lower() or "message not found" in r.text.lower():
+                    self.tg_msg_id = None
+                    self.telegram_estado = "Aviso: mensaje anterior no existe; se creará uno nuevo"
+                    self.telegram_ultimo_error = None
                 else:
-                    print(f"❌ Error al editar en Telegram: {r.status_code} - {r.text}")
+                    detalle = r.text[:500]
+                    self.telegram_estado = f"ERROR al editar Telegram {r.status_code}: {detalle}"
+                    self.telegram_ultimo_error = self.telegram_estado
+                    print(self.telegram_estado)
         except Exception as e:
-            print(f"⚠️ Error de red con Telegram: {e}")
+            self.telegram_estado = f"ERROR de red Telegram: {e}"
+            self.telegram_ultimo_error = self.telegram_estado
+            print(self.telegram_estado)
 
     def _escribir_html(self, texto_tabla):
         contenido = f"""<!DOCTYPE html>
@@ -2308,20 +2402,28 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self.duracion_ciclo = time.monotonic() - inicio
         self._registrar_eventos(enriquecidos)
 
-        # 🛑 TELEGRAM APAGADO DURANTE LA DEPURACIÓN.
-        # No se envía nada al grupo mientras comprobamos los filtros.
-        p = dict(self.filtros_dueno)
-        p.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
-        top = filtrar_resultados(enriquecidos, p)
+        # TELEGRAM INMEDIATO: usa exactamente los resultados que el motor acaba
+        # de publicar en self.resultados. No hace una segunda pasada de filtros
+        # que pueda dejar la pantalla con datos y Telegram sin datos.
+        top = list(resultados_finales_hist)
         if top:
-            tabla = f"{'TICK':<5}|{'PRE':>5}|{'CHG%':>4}|{'VOL':>5}|{'FLT':>5}\n" + "-" * 28 + "\n"
+            tabla = f"{'TICK':<8}|{'PRE':>7}|{'CHG%':>6}|{'VOL':>8}|{'FLT':>8}\n" + "-" * 45 + "\n"
             for c in top:
-                nombre = f"🔥{c['ticker']}" if c["tiene_noticia"] else c["ticker"]
-                tabla += (f"{nombre:<5}|{c['precio']:>5.2f}|{c['cambio_pct']:>3.0f}%|"
-                          f"{formatear_numero_grande(c['volumen_dia']):>5}|{formatear_numero_grande(c['float_shares']):>5}\n")
-            # Telegram permanece desactivado en las pruebas.
-            # self._enviar_telegram(tabla)
+                ticker = str(c.get("ticker", ""))
+                noticia = "🔥" if c.get("tiene_noticia") else ""
+                precio = float(c.get("precio") or 0)
+                cambio = float(c.get("cambio_pct") or 0)
+                volumen = formatear_numero_grande(c.get("volumen_dia") or 0)
+                flotacion = formatear_numero_grande(c.get("float_shares") or 0)
+                tabla += (f"{noticia}{ticker:<7}|{precio:>7.2f}|{cambio:>5.1f}%|"
+                          f"{volumen:>8}|{flotacion:>8}\n")
+            # Se llama aquí, inmediatamente después de publicar el resultado
+            # del ciclo. Si cambia la señal, se actualiza Telegram; si es igual,
+            # se evita duplicarla mediante el hash.
+            self._enviar_telegram(tabla)
             self._escribir_html(tabla)
+        else:
+            self.telegram_estado = "Sin resultados para Telegram en este ciclo"
 
     def _bucle(self):
         while not self._detener_hilo.is_set():
