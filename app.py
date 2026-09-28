@@ -1583,7 +1583,8 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
             elif label == "1w":
                 inicio = datetime.now(timezone.utc) - timedelta(days=2500)
             else:
-                inicio = datetime.now(timezone.utc) - timedelta(days=5000)
+                # 1 MES necesita al menos ~220 velas para EMA200 + señal.
+                inicio = datetime.now(timezone.utc) - timedelta(days=9000)
             solicitud = StockBarsRequest(
                 symbol_or_symbols=lote,
                 timeframe=tf,
@@ -2460,19 +2461,43 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if not (BASE_PRECIO_MIN <= precio <= BASE_PRECIO_MAX):
                 continue
             cambio = ((precio - cierre_prev) / cierre_prev) * 100
+
+            # GAP REAL, adaptado a la sesión:
+            # - PRE/AFTER: antes de existir una apertura regular de hoy, la
+            #   referencia operable es el último precio negociado vs. cierre previo.
+            # - MERCADO ABIERTO: una vez emitida la daily bar, usamos la apertura
+            #   regular de hoy vs. cierre previo.
+            # Alpaca documenta que las daily bars se emiten después de abrir el
+            # mercado, por lo que usar daily_bar.open en PRE-MARKET puede dejar el
+            # radar sin GAP aunque haya movimiento real.
+            sesion_actual = str(self.sesion or "PRE-MARKET").upper()
             apertura_hoy = getattr(snap.daily_bar, "open", None)
+            usar_precio_gap = sesion_actual in ("PRE-MARKET", "AFTER-MARKET")
             try:
-                gap_pct = ((float(apertura_hoy) - float(cierre_prev)) / float(cierre_prev)) * 100 if apertura_hoy is not None else None
+                if usar_precio_gap:
+                    gap_pct = ((float(precio) - float(cierre_prev)) / float(cierre_prev)) * 100
+                elif apertura_hoy is not None and float(apertura_hoy) > 0:
+                    gap_pct = ((float(apertura_hoy) - float(cierre_prev)) / float(cierre_prev)) * 100
+                else:
+                    gap_pct = None
             except Exception:
                 gap_pct = None
-            # GAP REAL: apertura de hoy frente al cierre previo. Es un filtro
-            # obligatorio del scanner; no se confunde con Cambio %.
+
+            # Volumen: durante mercado abierto/after usamos la daily bar. En
+            # PRE-MARKET conservamos la mejor lectura disponible del snapshot;
+            # no inventamos volumen acumulado que Alpaca no entrega en la daily bar
+            # antes de la apertura regular.
+            volumen_dia = getattr(snap.daily_bar, "volume", 0) or 0
+            if usar_precio_gap and not volumen_dia:
+                minuto = getattr(snap, "minute_bar", None)
+                volumen_dia = getattr(minuto, "volume", 0) or 0
+
             base.append({
                 "ticker": ticker,
                 "precio": precio,
                 "cambio_pct": cambio,
                 "gap_pct": gap_pct,
-                "volumen_dia": snap.daily_bar.volume or 0,
+                "volumen_dia": volumen_dia,
                 "actualizado": snap.latest_trade.timestamp,
             })
 
@@ -2600,6 +2625,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "gap_aplicado": True,
             "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
             "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
+            "sesion": str(self.sesion),
+            "gap_modo": "precio_vs_cierre" if str(self.sesion).upper() in ("PRE-MARKET", "AFTER-MARKET") else "apertura_vs_cierre",
         }
 
         # Guardamos una fotografía del resultado REAL de este ciclo antes de publicar
@@ -3202,8 +3229,9 @@ try:
 except Exception:
     pass
 
-if ema_ui not in ("Hacia arriba", "Hacia abajo", "Neutro"):
-    ema_ui = "Hacia arriba"
+# Regla fija del scanner: la señal es siempre EMA20 hacia arriba.
+# El selector sigue visible, pero no puede cambiar la lógica dura del motor.
+ema_ui = "Hacia arriba"
 for _var in ("ema20_estado_ui", "ema50_estado_ui", "ema200_estado_ui"):
     if _var in globals() and globals()[_var] not in ("Por encima", "Por debajo", "Neutro"):
         globals()[_var] = "Neutro"
@@ -3211,8 +3239,9 @@ for _var in ("ema20_estado_ui", "ema50_estado_ui", "ema200_estado_ui"):
 # Se muestran en la tabla, pero su exigencia queda siempre en NEUTRO.
 ema50_estado_ui = "Neutro"
 ema200_estado_ui = "Neutro"
-if macd_ui not in ("Positivo", "Negativo", "No exigir"):
-    macd_ui = "Positivo"
+# Regla fija del scanner: MACD positivo es obligatorio.
+# El selector queda normalizado para que la interfaz no contradiga al motor.
+macd_ui = "Positivo"
 if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
     orden_ui = "Actualizado"
 
@@ -3491,7 +3520,9 @@ h += "function setQ(k,v){var q=new URLSearchParams(window.top.location.search||w
 h += "function cambiarTimeframeTecnico(v){try{var q=new URLSearchParams(window.top.location.search||window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);var url=window.top.location.pathname+'?'+q.toString();window.top.location.href=url;}catch(e){var q=new URLSearchParams(window.location.search);q.set('timeframe',v);q.set('technical_timeframe',v);window.location.href='?'+q.toString();}}"
 h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
 h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
+h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
 h += "function _qtop(){try{return new URLSearchParams(window.top.location.search||window.parent.location.search||window.location.search)}catch(e){return new URLSearchParams(window.location.search)}}"
+h += "function _authSid(){try{var q=_qtop();var sid=q.get('auth_session');if(sid){try{window.top.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.top.localStorage.getItem('tradeScannerAuthSession')||localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return localStorage.getItem('tradeScannerAuthSession')||''}}catch(e){return ''}}"
 h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
 h += "function _restaurarUltimaConfiguracion(){if(!TS_AUTH)return;try{var cur=_qtop();var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';if(!raw)return;var o=JSON.parse(raw||'{}');if(!o||typeof o!=='object')return;var q=new URLSearchParams(cur.toString());var claves=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec'];var cambio=false;claves.forEach(function(k){if(!q.has(k)&&o[k]!==null&&o[k]!==undefined){q.set(k,o[k]);cambio=true}});var sid=cur.get('auth_session');if(sid&&!q.get('auth_session'))q.set('auth_session',sid);if(cambio)window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(e){}}"
 h += "function _goto(q){try{var cur=_qtop();var sid=cur.get('auth_session');if(sid && !q.get('auth_session'))q.set('auth_session',sid);_guardarUltimaConfiguracion(q);window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(e){var cur=new URLSearchParams(window.location.search);var sid=cur.get('auth_session');if(sid && !q.get('auth_session'))q.set('auth_session',sid);_guardarUltimaConfiguracion(q);window.location.href='?'+q.toString()}}"
@@ -3517,7 +3548,7 @@ h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{window.top.open
 h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);window.top.location.href=window.top.location.pathname+'?'+q.toString();}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(err){window.parent.location.href=window.parent.location.pathname+'?'+q.toString();}}"
 h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',v);q.set('_ts',Date.now());_guardarUltimaConfiguracion(q);try{window.top.open(window.top.location.origin+window.top.location.pathname+'?'+q.toString(),'_self')}catch(e){window.parent.location.href=window.parent.location.pathname+'?'+q.toString();}}"
+h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',v);var sid=q.get('auth_session')||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);q.set('_ts',Date.now());_guardarUltimaConfiguracion(q);var url=window.top.location.origin+window.top.location.pathname+'?'+q.toString();try{window.top.location.replace(url)}catch(e){try{window.parent.location.replace(window.parent.location.pathname+'?'+q.toString())}catch(e2){window.location.replace('?'+q.toString())}}}"
 h += ""
 h += "</script></head><body>"
 h += "<div class='main-container'>"
@@ -3621,6 +3652,17 @@ _layout_status = str(st.session_state.get("layout_send_status", ""))
 if _layout_status:
     h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
 h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
+# Diagnóstico compacto del embudo: no expone credenciales ni datos sensibles.
+_diag = getattr(servicio, "diagnostico_filtros", {}) or {}
+_diag_html = (
+    f"<div class='footer-note' style='margin-top:4px;'>"
+    f"<span>Embudo: base {_entero(_diag.get('radar_base'))} → GAP/vol {_entero(_diag.get('tras_gap_volumen'))} → "
+    f"EMA {_entero(_diag.get('ema_arriba'))} → MACD {_entero(_diag.get('macd_positivo'))} → "
+    f"Float {_entero(_diag.get('tras_float'))} → FINAL {_entero(_diag.get('resultados'))}</span>"
+    f"<span>{_safe_text(getattr(servicio, 'auto_motivo', ''))}</span></div>"
+)
+h += _diag_html
+
 h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
 h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
 h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50</th><th>EMA200</th><th>MACD</th>"
