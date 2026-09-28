@@ -1623,8 +1623,7 @@ def filtrar_resultados(filas, p):
     for c in filas:
         if not (p["precio_min"] <= c["precio"] <= p["precio_max"]):
             continue
-        # RSI es informativo en SCALPING; no bloquea la señal.
-        # La distancia a EMA20 tampoco bloquea la señal por defecto.
+        # RSI y distancia a EMA20 son informativos en SCALPING; no bloquean la señal.
         # REGLAS DURAS DEL SCANNER: estas condiciones SIEMPRE se aplican.
         # Precio: $0.50-$20; GAP REAL: 3%-50%; Float <=20M; Volumen >=15K.
         gap = c.get("gap_pct")
@@ -2477,67 +2476,33 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "actualizado": snap.latest_trade.timestamp,
             })
 
-        # Conservar el total real del radar para la interfaz/diagnóstico.
-        # Después se limita el enriquecimiento a MAX_ENRIQUECER para no saturar
-        # las APIs, pero eso no debe convertir 532 candidatos en "0" ni en 120.
-        radar_base_total = len(base)
-        self.n_radar_base = radar_base_total
-        base.sort(key=lambda c: c["volumen_dia"], reverse=True)
-        base = base[:MAX_ENRIQUECER]
-
-        if ETAPA_PRUEBA_FILTROS >= 3:
-            self._asegurar_fundamentales([c["ticker"] for c in base])
-        else:
-            # Etapa 1: no consultar FMP/float. Así aislamos EMA + MACD
-            # y evitamos que el límite HTTP 429 contamine la prueba.
-            self.ultimo_error = None
-
-        # PRUEBA 2: separamos el filtro de float y el de volumen en dos pasadas
-        # para poder medir, en el diagnóstico, cuánto recorta CADA UNO por
-        # separado (antes ambos se aplicaban en el mismo bucle y el panel
-        # mostraba el mismo número para "tras_float" y "tras_vol_rel").
-        tras_float = []
-        float_sin_dato_count = 0
-        float_excede_count = 0
+        # Primero aplicamos SOLO los filtros baratos y disponibles en Alpaca.
+        # IMPORTANTE: NO pedimos FLOAT aquí. FMP solo entrega aproximadamente
+        # un ticker por intervalo y pedirlo antes de EMA/MACD hacía que casi
+        # todo el universo quedara descartado por float desconocido.
+        radar_gap = []
         for c in base:
-            entrada = self.cache_fund.get(c["ticker"], {})
-            float_shares = entrada.get("float")
-            # En la etapa 1 no usamos float ni volumen como filtros.
-            # Tampoco consultamos float en esta etapa para evitar HTTP 429 de FMP.
-            # PRUEBA 3: se usa el mismo umbral que el resto de la app
-            # (self.filtros_dueno["flotacion_max"], 20,000,000 por defecto)
-            # en vez de BASE_FLOTACION_MAX (50,000,000), para que este
-            # conteo de diagnóstico coincida con el filtro que de verdad
-            # determina el resultado final en filtrar_resultados().
-            limite_float = float(self.filtros_dueno.get("flotacion_max", 20_000_000))
-            if float_shares is None:
-                float_sin_dato_count += 1
+            gap = c.get("gap_pct")
+            if gap is None or not (float(self.filtros_dueno.get("gap_min", 3.0)) <= float(gap) <= float(self.filtros_dueno.get("gap_max", 50.0))):
                 continue
-            if float(float_shares) > limite_float:
-                float_excede_count += 1
-                continue
-            c["float_shares"] = float_shares
-            c["float_status"] = entrada.get(
-                "float_status",
-                "pending" if not entrada else "no_data"
-            )
-            c["float_source"] = entrada.get("float_source", "")
-            tras_float.append(c)
-        self.n_tras_float = len(tras_float)
-
-        enriquecidos = []
-        for c in tras_float:
             if c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
                 continue
-            # El porcentaje de subida se representa directamente con cambio_pct.
             c["volumen_relativo"] = c["cambio_pct"]
-            enriquecidos.append(c)
+            radar_gap.append(c)
 
-        tickers_enr = [c["ticker"] for c in enriquecidos]
+        radar_base_total = len(base)
+        self.n_radar_base = radar_base_total
+        self.n_radar_gap = len(radar_gap)
+        radar_gap.sort(key=lambda c: c["volumen_dia"], reverse=True)
+        radar_gap = radar_gap[:MAX_ENRIQUECER]
+
+        # EMA/MACD se calculan ANTES del float. Así FMP se usa únicamente
+        # sobre candidatos técnicos reales y no sobre cientos de tickers.
+        tickers_enr = [c["ticker"] for c in radar_gap]
         self._asegurar_tecnico(tickers_enr)
         con_noticia = self._noticias_recientes(tickers_enr)
 
-        for c in enriquecidos:
+        for c in radar_gap:
             tech = self.cache_tecnico.get(c["ticker"], (0, self.timeframe, False, False, False, False, None, None, None, 0, None, None, None, None, None, None, None, None, None))
             _, tecnico_timeframe, cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_tec, ema_tec, macd_tec, barras_tec, precio_prev_tec, ema_prev_tec, precio_actual_tec, ema_actual_tec, bb_upper_tec, bb_dist_tec, rsi_tec, ema50_tec, ema200_tec = tech
             c["cruzando_ema20"] = cruz_arriba
@@ -2568,9 +2533,34 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["cruce_ema20_confirmado"] = bool(cruz_arriba and precio_prev_tec is not None and ema_prev_tec is not None)
             c["tiene_noticia"] = c["ticker"] in con_noticia
 
+        # Después de EMA/MACD, pedimos FLOAT solo a candidatos técnicos.
+        # Esto elimina el cuello de botella que estaba dejando el scanner en 0.
+        candidatos_tecnicos = [c for c in radar_gap if c.get("cruzando_ema20") and c.get("macd_positivo")]
+        self._asegurar_fundamentales([c["ticker"] for c in candidatos_tecnicos])
+
+        limite_float = float(self.filtros_dueno.get("flotacion_max", 20_000_000))
+        enriquecidos = []
+        float_sin_dato_count = 0
+        float_excede_count = 0
+        for c in candidatos_tecnicos:
+            entrada = self.cache_fund.get(c["ticker"], {})
+            float_shares = entrada.get("float")
+            if float_shares is None:
+                float_sin_dato_count += 1
+                continue
+            if float(float_shares) > limite_float:
+                float_excede_count += 1
+                continue
+            c["float_shares"] = float_shares
+            c["float_status"] = entrada.get("float_status", "ok")
+            c["float_source"] = entrada.get("float_source", "FMP")
+            enriquecidos.append(c)
+
+        self.n_tras_float = len(enriquecidos)
+
         # Diagnóstico del embudo: no cambia ningún filtro ni el resultado del scanner.
-        ema_arriba_count = sum(1 for c in enriquecidos if c.get("cruzando_ema20"))
-        macd_positivo_count = sum(1 for c in enriquecidos if c.get("macd_positivo"))
+        ema_arriba_count = sum(1 for c in radar_gap if c.get("cruzando_ema20"))
+        macd_positivo_count = sum(1 for c in radar_gap if c.get("macd_positivo"))
         ema_y_macd_count = sum(
             1 for c in enriquecidos
             if c.get("cruzando_ema20") and c.get("macd_positivo")
@@ -2578,10 +2568,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # El filtro de volumen ya se aplicó al construir 'enriquecidos', así
         # que ese conteo ES el resultado "tras volumen". El paso previo
         # (antes de aplicar volumen) queda guardado en self.n_tras_float.
-        tras_vol_rel_count = len(enriquecidos)
-        tecnicos_validos = sum(1 for c in enriquecidos if c.get("tecnico_barras", 0) >= 40)
-        ema_calculable = sum(1 for c in enriquecidos if c.get("tecnico_ema20") is not None)
-        macd_calculable = sum(1 for c in enriquecidos if c.get("tecnico_macd") is not None)
+        tras_vol_rel_count = len(radar_gap)
+        tecnicos_validos = sum(1 for c in radar_gap if c.get("tecnico_barras", 0) >= 40)
+        ema_calculable = sum(1 for c in radar_gap if c.get("tecnico_ema20") is not None)
+        macd_calculable = sum(1 for c in radar_gap if c.get("tecnico_macd") is not None)
         tickers_enr_unicos = len({c.get("ticker") for c in enriquecidos})
         # Conteo bruto que cumple EMA20 + MACD antes del límite de presentación.
         # En PRUEBA 4 top_n=50, por lo que el resultado final podrá mostrar hasta 50.
@@ -2591,13 +2581,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         )
         self.diagnostico_filtros = {
             "radar_base": radar_base_total,
-            "enviados_tecnico": len(enriquecidos),
+            "enviados_tecnico": len(radar_gap),
             "con_40_barras": tecnicos_validos,
             "ema_calculable": ema_calculable,
             "macd_calculable": macd_calculable,
             "tras_float": getattr(self, "n_tras_float", len(enriquecidos)),
             "float_sin_dato": float_sin_dato_count,
             "float_excede": float_excede_count,
+            "tras_gap_volumen": tras_vol_rel_count,
             "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
@@ -2619,10 +2610,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         # PRUEBA 6: iniciar/actualizar observaciones posteriores a la señal.
         # Esto se ejecuta antes de publicar el resultado y no modifica ningún filtro.
-        self._actualizar_prueba6(enriquecidos, snapshots)
+        self._actualizar_prueba6(candidatos_tecnicos, snapshots)
 
         # PRUEBA 4B: conservar las dos listas del MISMO ciclo.
-        candidatos_raw_actual = [c for c in enriquecidos if c.get("cruzando_ema20") and c.get("macd_positivo")]
+        # El "raw" representa EMA20+MACD antes del filtro de float,
+        # mientras que "final" representa la señal que ya cumple todos los filtros.
+        candidatos_raw_actual = list(candidatos_tecnicos)
         self.candidatos_ema_macd_actual = list(candidatos_raw_actual)
         self.finales_ema_macd_actual = list(resultados_finales_hist)
         raw_tickers = {c.get("ticker") for c in candidatos_raw_actual}
