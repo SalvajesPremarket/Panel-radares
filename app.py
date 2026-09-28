@@ -141,6 +141,13 @@ OPCIONES_CRUCE_EMA = ["Vela nueva sobre EMA20 + HH/HL", "Hacia abajo", "Neutro"]
 OPCIONES_MACD = ["Positivo", "Negativo", "No exigir"]
 
 NOMBRE_ARCHIVO_HTML = "radar.html"
+
+# Charles Schwab: OAuth 2.0. Las credenciales sensibles deben ir en
+# Streamlit Secrets (SCHWAB_CLIENT_ID / SCHWAB_CLIENT_SECRET /
+# SCHWAB_REDIRECT_URI). Nunca se escriben en el HTML ni en localStorage.
+SCHWAB_AUTHORIZE_URL = "https://api.schwabapi.com/v1/oauth/authorize"
+SCHWAB_TOKEN_URL = "https://api.schwabapi.com/v1/oauth/token"
+SCHWAB_API_BASE = "https://api.schwabapi.com"
 RUTA_CACHE_FUNDAMENTALES = os.path.join(os.getcwd(), "cache_fundamentales.json")
 RUTA_CONFIG = os.path.join(os.getcwd(), "config_filtros.json")
 
@@ -1300,6 +1307,122 @@ with st.sidebar:
 
 
 # ==========================================
+# 🔐 CHARLES SCHWAB / OAUTH 2.0
+# ==========================================
+def _schwab_secret(nombre, default=""):
+    try:
+        return str(st.secrets.get(nombre, default) or default).strip()
+    except Exception:
+        return str(default or "").strip()
+
+
+def _schwab_client_id():
+    return str(st.session_state.get("schwab_client_id") or _schwab_secret("SCHWAB_CLIENT_ID"))
+
+
+def _schwab_client_secret():
+    return str(st.session_state.get("schwab_client_secret") or _schwab_secret("SCHWAB_CLIENT_SECRET"))
+
+
+def _schwab_redirect_uri():
+    return str(st.session_state.get("schwab_redirect_uri") or _schwab_secret("SCHWAB_REDIRECT_URI", "")).strip()
+
+
+def _schwab_exchange_code(code):
+    cid = _schwab_client_id()
+    secret = _schwab_client_secret()
+    redirect = _schwab_redirect_uri()
+    if not cid or not secret or not redirect or not code:
+        return False, "Faltan SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET, SCHWAB_REDIRECT_URI o code."
+    try:
+        r = requests.post(
+            SCHWAB_TOKEN_URL,
+            data={
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect,
+            },
+            auth=(cid, secret),
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return False, f"Schwab token HTTP {r.status_code}: {r.text[:300]}"
+        tok = r.json()
+        st.session_state["schwab_token"] = tok
+        st.session_state["schwab_connected"] = True
+        return True, "Charles Schwab conectado correctamente."
+    except Exception as e:
+        return False, f"Error OAuth Schwab: {e}"
+
+
+def _schwab_access_token():
+    tok = st.session_state.get("schwab_token")
+    if not isinstance(tok, dict):
+        return ""
+    return str(tok.get("access_token") or "")
+
+
+def _schwab_authorize_url():
+    cid = _schwab_client_id()
+    redirect = _schwab_redirect_uri()
+    if not cid or not redirect:
+        return ""
+    return (SCHWAB_AUTHORIZE_URL + "?client_id=" + quote(cid, safe="") +
+            "&redirect_uri=" + quote(redirect, safe="") + "&response_type=code")
+
+
+def _schwab_callback():
+    try:
+        code = str(st.query_params.get("code", "")).strip()
+        if not code:
+            return
+        ok, msg = _schwab_exchange_code(code)
+        st.session_state["schwab_status"] = msg
+        # No conservar el authorization code en la URL.
+        q = dict(st.query_params)
+        q.pop("code", None)
+        q.pop("state", None)
+        if q:
+            st.query_params.clear()
+            for k, v in q.items():
+                st.query_params[k] = v
+        else:
+            st.query_params.clear()
+        st.rerun()
+    except Exception as e:
+        st.session_state["schwab_status"] = f"Error procesando callback Schwab: {e}"
+
+
+def _schwab_send_layout_bridge(ticker, layout_color, bridge_url):
+    """Envía el ticker al puente local configurado por el usuario.
+    El API oficial de Schwab se usa para autorización; el concepto de
+    'layout' de thinkorswim no es un endpoint oficial documentado de la API.
+    Por eso el puente existente sigue siendo el mecanismo de layout.
+    """
+    if not bridge_url:
+        return False, "No hay PUENTE DE LAYOUT configurado."
+    try:
+        r = requests.post(
+            bridge_url,
+            json={
+                "broker": "Charles Schwab",
+                "ticker": str(ticker),
+                "layout_color": str(layout_color),
+                "schwab_connected": bool(_schwab_access_token()),
+                "timestamp": time.time(),
+            },
+            timeout=5,
+        )
+        if 200 <= r.status_code < 300:
+            return True, "Ticker enviado al puente de layout."
+        return False, f"Puente HTTP {r.status_code}: {r.text[:200]}"
+    except Exception as e:
+        return False, f"No se pudo contactar el puente: {e}"
+
+_schwab_callback()
+
+# ==========================================
 # 🧮 LÓGICA PURA (indicadores y filtros)
 # ==========================================
 def formatear_numero_grande(numero):
@@ -1326,14 +1449,14 @@ def evaluar_tecnico(velas):
     durante la vela que nace, se compara el OPEN actual contra la EMA20
     calculada hasta la vela anterior.
     """
-    if velas is None or len(velas) < 40:
+    if velas is None or len(velas) < 220:
         return (False, False, False, False, None, None, None, 0,
                 None, None, None, None, None, None, None, None, None)
 
     try:
         velas = velas.sort_index()
         cierres = velas["close"].astype(float).dropna()
-        if len(cierres) < 40:
+        if len(cierres) < 220:
             return (False, False, False, False, None, None, None, 0,
                     None, None, None, None, None, None, None, None, None)
 
@@ -1387,7 +1510,7 @@ def evaluar_tecnico(velas):
             return (False, False, False, False, precio_act, None, macd_val, len(cierres),
                     precio_prev, ema_prev, precio_act, ema_act, bb_upper_val, None, None, ema50_act, ema200_act)
 
-        # EMA20 NUEVA: vela naciendo por encima + máximo y mínimo superiores.
+        # EMA20 NUEVA: vela naciendo por encima + mínimo superior. El HIGH actual NO participa.
         estructura_alcista = bool(
             open_act > ema_prev and
             low_act > low_prev
@@ -3178,7 +3301,18 @@ def _row_html(row):
     mac_neg = bool(row.get("macd_negativo"))
     noticia = bool(row.get("tiene_noticia"))
     fila = "fila-alza" if cambio > 0 else ("fila-baja" if cambio < 0 else "")
-    ema_txt = "Sobre EMA20" if ema_ok else ("Bajo EMA20" if ema_down else "Sin patrón")
+    ema20_val = row.get("tecnico_ema20_actual", row.get("tecnico_ema20"))
+    ema50_val = row.get("ema50")
+    ema200_val = row.get("ema200")
+    def _ema_cell(valor, estado):
+        try:
+            txt = f"${float(valor):.4f}"
+        except Exception:
+            txt = "N/D"
+        return f"{txt} · {estado}"
+    ema_txt = _ema_cell(ema20_val, "Por encima" if ema_ok else ("Por debajo" if ema_down else "Neutro"))
+    ema50_txt = _ema_cell(ema50_val, row.get("ema50_estado", "Neutro"))
+    ema200_txt = _ema_cell(ema200_val, row.get("ema200_estado", "Neutro"))
     mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
     mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
     news = " 🔥" if noticia else ""
@@ -3199,9 +3333,9 @@ def _row_html(row):
         f"<td class='num-col'>{_big(volumen)}</td>"
         f"<td class='num-col'>{_pct(row.get('gap_pct'))}</td>"
         f"<td class='num-col'>{flotacion:.2f}M</td>"
-        f"<td>{ema_txt}</td>"
-        f"<td>{_safe_text(row.get('ema50_estado','Neutro'))}</td>"
-        f"<td>{_safe_text(row.get('ema200_estado','Neutro'))}</td>"
+        f"<td>{_safe_text(ema_txt)}</td>"
+        f"<td>{_safe_text(ema50_txt)}</td>"
+        f"<td>{_safe_text(ema200_txt)}</td>"
         f"<td class='{mac_cls}'>{mac_txt}</td></tr>"
     )
 
@@ -3256,6 +3390,27 @@ lang_val = _qtxt("c_lang", "ESP")
 wnd_val = _qtxt("c_wnd", "Incrustada")
 broker_val = _qtxt("c_broker", st.session_state.get("bk_nombre", "Interactive Brokers"))
 bridge_val = _qtxt("c_url", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
+
+# Enlace REAL entre el resultado del scanner y el puente de layout.
+# El navegador solicita el envío y Python ejecuta el POST, de modo que
+# el estado de Charles Schwab se conoce en el servidor y no se expone
+# ningún token OAuth al HTML/JavaScript.
+_pending_ticker = str(st.query_params.get("layout_send_ticker", "")).strip()
+_pending_layout = str(st.query_params.get("layout_send_color", "")).strip()
+if _pending_ticker and _pending_layout:
+    try:
+        if broker_val == "Charles Schwab" and not _schwab_access_token():
+            _ok_layout, _msg_layout = False, "Charles Schwab no está conectado. Autoriza Schwab antes de enviar activos."
+        else:
+            _ok_layout, _msg_layout = _schwab_send_layout_bridge(_pending_ticker, _pending_layout, bridge_val)
+        st.session_state["layout_send_status"] = ("🟢 " if _ok_layout else "🔴 ") + _msg_layout
+    except Exception as _ex_layout:
+        st.session_state["layout_send_status"] = "🔴 Error enviando layout: " + str(_ex_layout)
+    try:
+        del st.query_params["layout_send_ticker"]
+        del st.query_params["layout_send_color"]
+    except Exception:
+        pass
 
 # 🔄 Refresco de la interfaz: visitante fijo en 3 minutos; usuario registrado
 # puede seleccionar desde 5 segundos y valores mayores.
@@ -3337,7 +3492,8 @@ h += "q.set('c_start',document.getElementById('cfg_start').value);q.set('c_end',
 h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session',document.getElementById('market_session').value);q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);q.set('ema20_estado',document.getElementById('ema20_estado')?document.getElementById('ema20_estado').value:'Neutro');q.set('ema50_estado',document.getElementById('ema50_estado')?document.getElementById('ema50_estado').value:'Neutro');q.set('ema200_estado',document.getElementById('ema200_estado')?document.getElementById('ema200_estado').value:'Neutro');"
 h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
 h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{window.top.open(window.top.location.origin+window.top.location.pathname+'?'+q.toString(),'_self')}catch(e){window.parent.location.search='?'+q.toString();}}"
-h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=new URLSearchParams(window.parent.location.search);q.set('link_ticker',t);q.set('layout_color',v);window.parent.history.replaceState(null,'','?'+q.toString());var u=document.getElementById('cfg_url').value;fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t,layout_color:v}),mode:'cors'}).catch(function(){});}"
+h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);window.top.location.href=window.top.location.pathname+'?'+q.toString();}"
+h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{window.top.location.href=window.top.location.pathname+'?'+q.toString()}catch(err){window.parent.location.href=window.parent.location.pathname+'?'+q.toString();}}"
 h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
 h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',v);q.set('_ts',Date.now());_guardarUltimaConfiguracion(q);try{window.top.open(window.top.location.origin+window.top.location.pathname+'?'+q.toString(),'_self')}catch(e){window.parent.location.href=window.parent.location.pathname+'?'+q.toString();}}"
 h += ""
@@ -3389,7 +3545,10 @@ h += "</div></div>"
 h += "<div class='technical-subtabs'><button type='button' class='technical-subtab active' data-subtab-target='save-config-panel'>💾 GUARDAR CONFIGURACIÓN</button><button type='button' class='technical-subtab' data-subtab-target='load-config-panel'>📂 MIS CONFIGURACIONES</button></div>"
 h += "<div id='save-config-panel' class='technical-subpanel active'><div class='panel-card technical-control'><b>💾 GUARDAR CONFIGURACIÓN PERSONAL</b><div class='range'><input id='config_name' type='text' placeholder='Nombre de configuración'><button type='button' class='btn-guardar-config'>GUARDAR</button></div><span>Guarda todos los filtros actuales en este navegador.</span></div></div>"
 h += "<div id='load-config-panel' class='technical-subpanel'><div class='panel-card technical-control'><b>📂 MIS CONFIGURACIONES</b><input id='config_search' type='text' placeholder='Buscar configuración' oninput='renderConfiguraciones()'><div id='saved_configs_list'></div></div></div>"
-h += "<div id='panel-config' class='tab-panel'><div class='panel-grid'>"
+h += "<div id='panel-config' class='tab-panel'><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
+h += f"<b style='font-size:12px;color:#d4af37;'>🔗 BROKER ENTRELAZADO CON EL SCANNER</b><span style='display:block;margin-bottom:5px;'>Broker activo: <strong>{_safe_text(broker_val)}</strong> · Los activos encontrados pueden enviarse desde el engranaje de Layout.</span>"
+h += "<span style='display:block;'>Charles Schwab: OAuth 2.0 · Credenciales: <strong>SCHWAB_CLIENT_ID</strong>, <strong>SCHWAB_CLIENT_SECRET</strong> y <strong>SCHWAB_REDIRECT_URI</strong> en Streamlit Secrets.</span>"
+h += "</div><div class='panel-grid'>"
 h += f"<div class='panel-card'><b>MOTOR</b><span>{_safe_text(_estado_txt)} · Horario {_safe_text(_hora_txt)}</span></div>"
 h += f"<div class='panel-card'><b>BROKER</b><span>{_safe_text(broker_val)} · API Key/Secret Key se introducen en Configuración y no se muestran en resultados.</span></div>"
 h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
@@ -3418,12 +3577,27 @@ h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' i
 h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
 h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
 h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
-h += "<div class='filtro-item'><label>API KEY</label><input type='password' id='broker_api_key' placeholder='••••••••'></div>"
-h += "<div class='filtro-item'><label>SECRET KEY</label><input type='password' id='broker_secret_key' placeholder='••••••••'></div>"
-h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
-h += f"<div class='filtro-item'><label>PUENTE</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
-h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR FILTROS</button></div>"
+h += "<div class='filtro-item'><label>SCHWAB CREDENCIALES</label><span style='font-size:9px;line-height:1.25;color:#b8c0ca;'>Se leen desde Streamlit Secrets. No se guardan en URL ni navegador.</span></div>"
+h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
+h += f"<div class='filtro-item'><label>PUENTE DE LAYOUT</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
+h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
+h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
 h += "</div>"
+_schwab_status_txt = str(st.session_state.get("schwab_status", ""))
+_schwab_connected = bool(_schwab_access_token())
+_schwab_url = _schwab_authorize_url()
+if str(st.query_params.get("schwab_connect", "0")) == "1":
+    if _schwab_url:
+        h += f"<div class='panel-card' style='margin:6px 0;'><b>CHARLES SCHWAB</b><span>Autoriza tu cuenta con OAuth 2.0.</span><a href='{_safe_text(_schwab_url)}' target='_top' style='display:inline-block;margin-top:5px;padding:5px 9px;background:#d4af37;color:#000;text-decoration:none;font-weight:800;border-radius:3px;'>ABRIR AUTORIZACIÓN SCHWAB</a></div>"
+    else:
+        h += "<div class='panel-card' style='margin:6px 0;'><b>CHARLES SCHWAB</b><span>Configura SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET y SCHWAB_REDIRECT_URI en Streamlit Secrets.</span></div>"
+if _schwab_status_txt:
+    h += f"<div class='panel-card' style='margin:6px 0;'><b>ESTADO SCHWAB</b><span>{_safe_text(_schwab_status_txt)}</span></div>"
+if _schwab_connected:
+    h += "<div class='panel-card' style='margin:6px 0;border-color:#37c77a;'><b>🟢 CHARLES SCHWAB CONECTADO</b><span>La autorización OAuth está activa en esta sesión.</span></div>"
+_layout_status = str(st.session_state.get("layout_send_status", ""))
+if _layout_status:
+    h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
 h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
 h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
 h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
