@@ -1454,14 +1454,19 @@ def evaluar_tecnico(velas):
     durante la vela que nace, se compara el OPEN actual contra la EMA20
     calculada hasta la vela anterior.
     """
-    if velas is None or len(velas) < 220:
+    # MIN_VELAS_SENAL: mínimo real necesario para EMA20+MACD, igual que app_clean.py.
+    # EMA50/EMA200 son solo informativas (regla 7 y 12) y se calculan con el
+    # historial disponible aunque sea menor a 200-220 velas; no deben bloquear
+    # la señal principal ni dejar el radar sin candidatos.
+    MIN_VELAS_SENAL = 40
+    if velas is None or len(velas) < MIN_VELAS_SENAL:
         return (False, False, False, False, None, None, None, 0,
                 None, None, None, None, None, None, None, None, None)
 
     try:
         velas = velas.sort_index()
         cierres = velas["close"].astype(float).dropna()
-        if len(cierres) < 220:
+        if len(cierres) < MIN_VELAS_SENAL:
             return (False, False, False, False, None, None, None, 0,
                     None, None, None, None, None, None, None, None, None)
 
