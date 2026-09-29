@@ -91,7 +91,7 @@ class ServicioScanner:
                 self._hilo.start()
             except Exception: pass
 
-        def _esperar_turno(self):
+            def _esperar_turno(self):
         with self._lock_ritmo:
             espera = self._ultima_peticion + PAUSA_MIN_ENTRE_PETICIONES - time.monotonic()
             if espera > 0: time.sleep(espera)
@@ -153,6 +153,7 @@ class ServicioScanner:
                 pass
                 
             time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
+
 
                     continue
                 
