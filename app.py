@@ -1185,21 +1185,6 @@ if "token_verificado" not in st.session_state and "usuario_auth" not in st.sessi
     )
 
 # =========================================================
-# ACCESO NATIVO A REGISTRO / LOGIN
-# =========================================================
-if PUBLIC_PREVIEW:
-    st.markdown("<div style=\"height:4px\"></div>", unsafe_allow_html=True)
-    _c1, _c2, _c3 = st.columns([1, 2, 1])
-    with _c2:
-        if st.button(
-            "📝 REGISTRO / INICIAR SESIÓN",
-            key="native_auth_entry",
-            width="stretch",
-        ):
-            st.session_state["mostrar_auth"] = True
-            st.rerun()
-
-# =========================================================
 # IDENTIDAD ACTIVA
 # =========================================================
 if "token_verificado" in st.session_state:
@@ -1419,10 +1404,7 @@ with st.sidebar:
 
     if PUBLIC_PREVIEW:
         st.info("👀 Visitante")
-        st.caption("Puedes explorar la interfaz sin registrarte.")
-        if st.button("📝 REGISTRO / INICIAR SESIÓN", key="sidebar_auth_public", width="stretch"):
-            st.session_state["mostrar_auth"] = True
-            st.rerun()
+        st.caption("Puedes explorar la interfaz sin registrarte. Usa REGISTRO / INICIAR SESIÓN dentro del scanner.")
     elif ES_ADMIN:
         st.success("Administrador")
     else:
@@ -3827,6 +3809,7 @@ h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{_navegarMismaAp
 h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
 h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
 h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
+h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
 h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);_navegarMismaApp(q)}"
 h += ""
 h += "</script></head><body>"
@@ -3834,7 +3817,7 @@ h += "<div class='main-container'>"
 h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
 h += "<div class='top-actions'>"
 if PUBLIC_PREVIEW:
-    h += "<button type='button' class='auth-link' onclick=\"var q=_qtop();q.set('auth','1');_navegarMismaApp(q);\">📝 REGISTRO / INICIAR SESIÓN</button>"
+    h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>📝 REGISTRO / INICIAR SESIÓN</button>"
     h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
 else:
     opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
@@ -3842,7 +3825,7 @@ else:
     if _email_top:
         h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
     # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
-    h += "<button type='button' class='auth-link' onclick=\"var q=_qtop();q.set('auth','1');_navegarMismaApp(q);\">CUENTA / REGISTRO</button>"
+    h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>CUENTA / REGISTRO</button>"
     h += "<button type='button' class='auth-link' onclick=\"var q=_qtop();q.set('logout','1');_navegarMismaApp(q);\">SALIR</button>"
 h += "</div>"
 h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
