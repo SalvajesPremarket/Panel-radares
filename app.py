@@ -46,13 +46,6 @@ PAUSA_MIN_ENTRE_PETICIONES = 0.33
 OPCIONES_CRUCE_EMA = ["Vela nueva sobre EMA20 + HH/HL", "Hacia abajo", "Neutro"]
 OPCIONES_MACD = ["Positivo", "Negativo", "No exigir"]
 
-VALORES_POR_DEFECTO = {
-    "precio_min": 0.5, "precio_max": 20.0, "gap_min": 3.0, "gap_max": 50.0,
-    "flotacion_max": 20_000_000, "volumen_min": 15_000,
-    "cruce_ema": "Vela nueva sobre EMA20 + HH/HL", "macd": "Positivo",
-    "orden": "Actualizado", "top_n": 50, "sesion": "PRE-MARKET", "timeframe": "1m"
-}
-
 if str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes"):
     st.session_state.clear()
     st.query_params.clear()
@@ -64,8 +57,22 @@ if "resultados_scanner" not in st.session_state:
 if "universo_tickers" not in st.session_state:
     st.session_state["universo_tickers"] = []
 
+# Barra lateral UI (Filtros Interactivos del Usuario)
+with st.sidebar:
+    st.markdown("### ⚙️ Parámetros del Scanner")
+    precio_min_ui = st.number_input("Precio Mínimo ($)", value=0.5)
+    precio_max_ui = st.number_input("Precio Máximo ($)", value=20.0)
+    gap_min_ui = st.number_input("Gap Mínimo (%)", value=3.0)
+    gap_max_ui = st.number_input("Gap Máximo (%)", value=50.0)
+    float_max_ui = st.number_input("Flotación Máxima", value=20000000)
+    volumen_min_ui = st.number_input("Volumen Mínimo", value=15000)
+    ema_ui = st.selectbox("Condición EMA20", OPCIONES_CRUCE_EMA)
+    macd_ui = st.selectbox("Filtro MACD", OPCIONES_MACD)
+    sesion_ui = st.selectbox("Sesión Real", ["PRE-MARKET", "MERCADO ABIERTO"])
+    timeframe_ui = st.selectbox("Temporalidad", ["1m", "5m"])
+
 # ==========================================
-# MOTOR DEL SCANNER (FUNCIONES PLANAS GLOBAL)
+# MOTOR DEL SCANNER (4:00 AM A 8:00 PM ET CON FILTROS DINÁMICOS)
 # ==========================================
 def ejecutar_escaneo_mercado(forzar=False):
     try:
@@ -77,8 +84,8 @@ def ejecutar_escaneo_mercado(forzar=False):
         ahora_et = datetime.now(ET)
         minutos = ahora_et.hour * 60 + ahora_et.minute
         
-        # Filtro de horario Pre-market y Regular (4:00 AM a 4:00 PM ET)
-        if 240 <= minutos <= 960 or forzar:
+        # NUEVO RANGO HORARIO AMPLIADO: 4:00 AM (240 min) a 8:00 PM ET (1200 min) de corrido
+        if 240 <= minutos <= 1200 or forzar:
             if not st.session_state["universo_tickers"]:
                 tc = TradingClient(ak, sk)
                 solicitud = GetAssetsRequest(asset_class=AssetClass.US_EQUITY, status=AssetStatus.ACTIVE)
@@ -100,6 +107,7 @@ def ejecutar_escaneo_mercado(forzar=False):
                         prev_close = snap.previous_daily_bar.close
                         gap = ((px - prev_close) / prev_close) * 100.0 if prev_close > 0 else 0.0
                         
+                        # Generamos la base completa sin bloquearla rígidamente en el motor
                         nuevos_resultados.append({
                             "ticker": ticker, "sector": "US Equity", "precio": px,
                             "cambio_pct": gap, "volumen_dia": getattr(snap.daily_bar, "volume", 25000),
@@ -122,26 +130,12 @@ def ejecutar_escaneo_mercado(forzar=False):
 # Ejecutar lógica del motor en tiempo real
 ejecutar_escaneo_mercado()
 
-# Barra lateral UI (Filtros Interactivos)
-with st.sidebar:
-    st.markdown("### ⚙️ Parámetros del Scanner")
-    precio_min_ui = st.number_input("Precio Mínimo ($)", value=0.5)
-    precio_max_ui = st.number_input("Precio Máximo ($)", value=20.0)
-    gap_min_ui = st.number_input("Gap Mínimo (%)", value=3.0)
-    gap_max_ui = st.number_input("Gap Máximo (%)", value=50.0)
-    float_max_ui = st.number_input("Flotación Máxima", value=20000000)
-    volumen_min_ui = st.number_input("Volumen Mínimo", value=15000)
-    ema_ui = st.selectbox("Condición EMA20", OPCIONES_CRUCE_EMA)
-    macd_ui = st.selectbox("Filtro MACD", OPCIONES_MACD)
-    sesion_ui = st.selectbox("Sesión Real", ["PRE-MARKET", "MERCADO ABIERTO"])
-    timeframe_ui = st.selectbox("Temporalidad", ["1m", "5m"])
-
 modo_activo_txt = "🟢 SCANNER EN TIEMPO REAL ACTIVO (ALPACA)"
 filas_base = st.session_state["resultados_scanner"]
 
-# Datos demo por si la API aún no devuelve activos o estamos fuera de hora
+# Datos demo de respaldo por si el mercado está cerrado o la API no devuelve activos temporalmente
 if not filas_base or len(filas_base) == 0:
-    modo_activo_txt = "🟢 MOTOR EN ESPERA ACTIVA · PRE-MARKET REINICIA 4:00 AM ET"
+    modo_activo_txt = "🟢 MOTOR EN ESPERA ACTIVA · HORARIO OPERATIVO: 4:00 AM - 8:00 PM ET"
     filas_base = [
         {"ticker": "AAPL", "sector": "Technology", "precio": 174.85, "cambio_pct": 3.42, "volumen_dia": 45200000, "gap_pct": 3.12, "float_shares": 15400000, "cruzando_ema20": True, "ema50": 171.10, "ema200": 165.25, "tecnico_macd": 0.45, "tecnico_rsi": 58.2, "tiene_noticia": True},
         {"ticker": "TSLA", "sector": "Consumer Cyclical", "precio": 218.30, "cambio_pct": 5.15, "volumen_dia": 68400000, "gap_pct": 4.85, "float_shares": 9200000, "cruzando_ema20": True, "ema50": 212.40, "ema200": 198.10, "tecnico_macd": 1.20, "tecnico_rsi": 62.7, "tiene_noticia": False},
@@ -162,14 +156,14 @@ def _big(v):
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{v:.0f}"
 
-# Convertimos la lista base directamente a un DataFrame de Pandas
+# Convertimos la lista de datos a DataFrame para procesar los filtros dinámicos elegidos por el usuario
 df_control = pd.DataFrame(filas_base)
 
 # ==========================================
-# FILTRADO VECTORIAL AVANZADO (CONDICIONES ORIGINALES)
+# FILTRADO DINÁMICO EN TIEMPO REAL SEGÚN EL USUARIO
 # ==========================================
 if not df_control.empty:
-    # 1. Filtros numéricos paramétricos
+    # 1. Filtros numéricos paramétricos controlados por la UI de la Barra Lateral
     mascara = (df_control["precio"] >= precio_min_ui) & \
                (df_control["precio"] <= precio_max_ui) & \
                (df_control["gap_pct"] >= gap_min_ui) & \
@@ -179,13 +173,13 @@ if not df_control.empty:
     
     df_filtrado = df_control[mascara].copy()
 
-    # 2. Filtrado relacional estricto para Condición EMA20 planteada originalmente
+    # 2. Aplicación dinámica de la Condición EMA20 seleccionada en la UI
     if ema_ui == "Vela nueva sobre EMA20 + HH/HL":
         df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == True]
     elif ema_ui == "Hacia abajo":
         df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == False]
 
-    # 3. Filtrado relacional estricto para Condición MACD planteada originalmente
+    # 3. Aplicación dinámica del Filtro MACD seleccionado en la UI
     if macd_ui == "Positivo":
         df_filtrado = df_filtrado[df_filtrado["tecnico_macd"] > 0]
     elif macd_ui == "Negativo":
@@ -193,10 +187,11 @@ if not df_control.empty:
 else:
     df_filtrado = pd.DataFrame()
 
-# Construcción limpia de columnas para visualización en rejilla
+# Construcción y formateo estético de las columnas resultantes
 if not df_filtrado.empty:
     df_filtrado["TICKER"] = df_filtrado["ticker"] + df_filtrado["tiene_noticia"].apply(lambda n: " 🔥" if n else "")
     df_filtrado["SECTOR"] = df_filtrado["sector"]
     df_filtrado["PRECIO"] = df_filtrado["precio"]
     df_filtrado["CAMBIO %"] = df_filtrado["cambio_pct"]
     df_filtrado["VOLUMEN"] = df_filtrado["volumen_dia"].apply(_big)
+    df_filtrado["FLOAT"] = (df_filtrado["float_shares"] / 1_000_000).apply(lambda f: f"{f:.1f}M")
