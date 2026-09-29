@@ -3854,7 +3854,7 @@ def _render_scanner():
         h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
     else:
         opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
-        h += f"<div class='refresh-box'>REFRESH <b>{_safe_text(refresh_label)}</b></div>"
+        h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
         if _email_top:
             h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
         # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
@@ -3979,24 +3979,6 @@ def _render_scanner():
     # Streamlit. Al vencer el intervalo se hace un rerun completo de la app, por
     # lo que el iframe anterior se reemplaza en lugar de anidarse.
     h += "</div></body></html>"
-
-    if not PUBLIC_PREVIEW:
-        def _cambiar_refresh_nativo():
-            try:
-                st.query_params["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
-            except Exception:
-                pass
-        # Se sincroniza con la URL antes de crear el widget.
-        st.session_state["ts_refresh_sel"] = refresh_sec
-        _rc1, _rc2 = st.columns([1, 6])
-        with _rc1:
-            st.selectbox(
-                "⏱ REFRESH",
-                refresh_options,
-                key="ts_refresh_sel",
-                format_func=lambda x: f"{x}s" if x < 60 else f"{x // 60} min",
-                on_change=_cambiar_refresh_nativo,
-            )
 
     # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
     # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
