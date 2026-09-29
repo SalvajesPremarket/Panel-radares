@@ -377,10 +377,38 @@ def obtener_tokens():
 
 
 def verificar_token(token_usuario):
-    """Valida el acceso administrativo/legacy por token."""
-    admin_token = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
-    if admin_token and token_usuario == admin_token:
-        return True, "2099-01-01"
+    """Valida el acceso administrativo usando ADMIN_TOKEN, ADMIN_TOKENS o tokens legacy."""
+    token_usuario = str(token_usuario or "").strip()
+    if not token_usuario:
+        return False, "INVALIDO"
+
+    # Aceptar tanto ADMIN_TOKEN como ADMIN_TOKENS para que la pantalla de
+    # administrador use exactamente la misma fuente de secretos que el resto
+    # del control de acceso.
+    candidatos = []
+    try:
+        admin_token = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
+        if admin_token:
+            candidatos.append((admin_token, "2099-01-01"))
+    except Exception:
+        pass
+    try:
+        raw = st.secrets.get("ADMIN_TOKENS", "")
+        valores = raw if isinstance(raw, (list, tuple, set)) else str(raw).split(",")
+        for valor in valores:
+            valor = str(valor).strip()
+            if valor:
+                candidatos.append((valor, "2099-01-01"))
+    except Exception:
+        pass
+
+    vistos = set()
+    for token, vencimiento in candidatos:
+        if token in vistos:
+            continue
+        vistos.add(token)
+        if token_usuario == token:
+            return True, vencimiento
 
     tokens = obtener_tokens()
     if token_usuario in tokens:
@@ -914,36 +942,15 @@ def pantalla_autenticacion():
     else:
         st.caption("🔐 Autenticación de usuarios: Supabase configurado")
 
-    # Una sola pantalla de autenticación, con modo explícito en session_state.
-    # Esto evita que Streamlit restaure visualmente un tab anterior (por ejemplo
-    # ADMINISTRADOR) cuando el usuario pidió REGISTRO / INICIAR SESIÓN.
-    if "auth_mode" not in st.session_state:
-        st.session_state["auth_mode"] = "login"
+    # Una sola ventana para todos.
+    # El acceso de administrador está dentro de la misma pantalla y
+    # requiere el token secreto configurado en Streamlit Secrets.
+    # No se utiliza una segunda URL ni un parámetro especial de administrador.
+    tab_login, tab_registro, tab_admin = st.tabs(
+        ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
+    )
 
-    st.markdown("### Acceso")
-    _c1, _c2, _c3 = st.columns(3)
-    with _c1:
-        if st.button("🔐 INICIAR SESIÓN", key="auth_mode_login", width="stretch"):
-            st.session_state["auth_mode"] = "login"
-            st.rerun()
-    with _c2:
-        if st.button("📝 REGISTRARSE", key="auth_mode_registro", width="stretch"):
-            st.session_state["auth_mode"] = "registro"
-            st.rerun()
-    with _c3:
-        if st.button("👑 ADMINISTRADOR", key="auth_mode_admin", width="stretch"):
-            st.session_state["auth_mode"] = "admin"
-            st.session_state["_auth_mode_changed"] = True
-            st.rerun()
-
-    auth_mode = st.session_state.get("auth_mode", "login")
-    # Si el usuario acaba de pulsar ADMINISTRADOR, el siguiente rerun debe
-    # conservar explícitamente ese modo y no volver a login por restauraciones
-    # externas de estado.
-    if st.session_state.pop("_auth_mode_changed", False):
-        auth_mode = st.session_state.get("auth_mode", "login")
-
-    if auth_mode == "login":
+    with tab_login:
         st.markdown("### Acceso de usuario")
         with st.form("form_login_usuario"):
             email = st.text_input(
@@ -1063,7 +1070,7 @@ def pantalla_autenticacion():
                             st.success("✅ Contraseña cambiada correctamente. Ya puedes iniciar sesión con tu nueva contraseña.")
                             st.rerun()
 
-    if auth_mode == "registro":
+    with tab_registro:
         st.markdown("### Crear cuenta")
         st.caption("Crea tu acceso personal al scanner.")
 
@@ -1116,39 +1123,44 @@ def pantalla_autenticacion():
                             "Al iniciar sesión se activará tu prueba gratuita de 7 días."
                         )
 
-    if auth_mode == "admin":
-        st.markdown("### Acceso del administrador")
-        st.caption("Este acceso conserva el sistema de token del propietario.")
+    with tab_admin:
+            st.markdown("### Acceso del administrador")
+            st.caption("Este acceso conserva el sistema de token del propietario.")
 
-        with st.form("form_admin_token"):
-            token_ingresado = st.text_input(
-                "Token de administrador",
-                type="password",
-                key="admin_token_login",
-            )
-            entrar_admin = st.form_submit_button(
-                "👑 VALIDAR ACCESO",
-                width="stretch",
-            )
+            with st.form("form_admin_token"):
+                token_ingresado = st.text_input(
+                    "Token de administrador",
+                    type="password",
+                    key="admin_token_login",
+                )
+                entrar_admin = st.form_submit_button(
+                    "👑 VALIDAR ACCESO",
+                    width="stretch",
+                )
 
-        if entrar_admin:
-            token_limpio = token_ingresado.strip()
-            es_valido, estado = verificar_token(token_limpio)
+            if entrar_admin:
+                token_limpio = token_ingresado.strip()
+                es_valido, estado = verificar_token(token_limpio)
 
-            if es_valido:
-                st.session_state["token_verificado"] = token_limpio
-                st.session_state["fecha_vencimiento"] = estado
-                st.session_state["tipo_acceso"] = "admin"
-                _sid = _crear_sesion_persistente("admin", {"token": token_limpio, "fecha_vencimiento": estado})
-                st.query_params["auth_session"] = _sid
-                st.query_params.pop("auth", None)
-                st.rerun()
-            elif estado == "EXPIRADO":
-                st.error("🔒 Token expirado.")
-            elif estado == "FORMATO":
-                st.error("❌ Error de configuración del token.")
-            else:
-                st.error("❌ Token no válido. Acceso denegado.")
+                if es_valido:
+                    st.session_state["token_verificado"] = token_limpio
+                    st.session_state["fecha_vencimiento"] = estado
+                    st.session_state["tipo_acceso"] = "admin"
+                    # Salir de la pantalla de autenticación antes del rerun.
+                    # Si no se limpia este estado, el rerun vuelve a mostrar
+                    # el formulario y parece que "VALIDAR ACCESO" no funciona.
+                    st.session_state["mostrar_auth"] = False
+                    _sid = _crear_sesion_persistente("admin", {"token": token_limpio, "fecha_vencimiento": estado})
+                    st.query_params["auth_session"] = _sid
+                    st.query_params.pop("auth", None)
+                    st.rerun()
+                elif estado == "EXPIRADO":
+                    st.error("🔒 Token expirado.")
+                elif estado == "FORMATO":
+                    st.error("❌ Error de configuración del token.")
+                else:
+                    st.error("❌ Token no válido. Acceso denegado.")
+
     st.stop()
 
 
@@ -3975,4 +3987,4 @@ if USUARIO_AUTENTICADO:
             st.query_params.clear()
             st.rerun()
 
-components.html(h, height=1120, scrolling=False)
+components.html(h, height=1050, scrolling=True)
