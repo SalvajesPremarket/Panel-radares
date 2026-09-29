@@ -98,11 +98,12 @@ class ServicioScanner:
             self._ultima_peticion = time.monotonic()
 
     def _bucle_motor(self):
+        def _bucle_motor(self):
         while self.encendido:
             try:
                 ahora_et = datetime.now(ET)
                 
-                # CORRECCIÓN DE HORARIO: Activo de 4:00 AM ET (240 min) a 4:00 PM ET (960 min)
+                # Control de horario Pre-market / Regular
                 minutos_desde_medianoche = ahora_et.hour * 60 + ahora_et.minute
                 if minutos_desde_medianoche < 240 or minutos_desde_medianoche > 960:
                     time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
@@ -117,7 +118,13 @@ class ServicioScanner:
                     ][:100]
                 
                 if self.universo:
-                    self._esperar_turno()
+                    # Lógica de espera integrada directamente (Sin llamada externa)
+                    with self._lock_ritmo:
+                        espera = self._ultima_peticion + PAUSA_MIN_ENTRE_PETICIONES - time.monotonic()
+                        if espera > 0: 
+                            time.sleep(espera)
+                        self._ultima_peticion = time.monotonic()
+
                     sol_snap = StockSnapshotRequest(symbol_or_symbols=self.universo)
                     snaps = self.data.get_stock_snapshot(sol_snap)
                     
