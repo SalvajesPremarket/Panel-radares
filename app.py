@@ -3953,25 +3953,15 @@ _hilo_vivo = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: 
 _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
 _universo_txt = str(len(getattr(servicio, "universo", []) or []))
 h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
+# Refresco visual seguro: una sola recarga de la página superior. Esto evita
+# crear componentes Streamlit adicionales durante un fragment rerun.
+h += "<script>(function(){try{var sec=" + str(int(refresh_sec)) + ";if(sec>=5){try{if(window.top.__TS_REFRESH_TIMER__)clearTimeout(window.top.__TS_REFRESH_TIMER__);}catch(e){}window.top.__TS_REFRESH_TIMER__=setTimeout(function(){try{window.top.location.reload();}catch(e){try{window.location.reload();}catch(_e){}}},sec*1000);}}catch(e){}})();</script>"
 h += "</div></body></html>"
 
-# La carátula se muestra en un iframe aislado para que el CSS oscuro del shell
-# anterior de Streamlit no pueda ocultarla. El motor sigue ejecutándose fuera.
-# Refresco REAL de Streamlit: el motor sigue siendo independiente y el visitante/usuario
-# solo controla la frecuencia con que se vuelve a renderizar la carátula.
-_st_fragment = getattr(st, "fragment", None)
-if _st_fragment is not None:
-    @_st_fragment(run_every=f"{refresh_sec}s")
-    def _heartbeat_refresco_scanner():
-        ahora = time.monotonic()
-        anterior = st.session_state.get("_ts_heartbeat", ahora)
-        if ahora - anterior >= max(1, refresh_sec - 0.5):
-            st.session_state["_ts_heartbeat"] = ahora
-            st.rerun()
-        else:
-            st.session_state.setdefault("_ts_heartbeat", ahora)
-    _heartbeat_refresco_scanner()
-
+# La carátula se muestra en un único iframe aislado. El motor sigue ejecutándose
+# fuera del componente. No usamos st.fragment + st.rerun() para este componente:
+# esa combinación puede conservar instancias anteriores del iframe en el DOM y
+# producir el efecto visual de "una ventana encima de otra".
 # Botón nativo fuera del iframe: garantiza que SALIR ejecute el cierre de sesión
 # aunque el navegador bloquee la navegación desde el componente HTML.
 if USUARIO_AUTENTICADO:
