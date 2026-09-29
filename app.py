@@ -239,5 +239,4 @@ modo_activo_txt = "🟢 MOTOR EN VIVO · RASTREANDO"
 
 if not filas_pantalla or len(filas_pantalla) == 0:
     modo_activo_txt = "🟢 MOTOR ON · MODO CONTINGENCIA HORARIA ACTIVO"
-    filas_pantalla = [
-        {"ticker": "AAPL", "sector": "Technology", "precio": 174.85, "cambio_pct": 3.42, "volumen_dia": 45000000, "gap_pct": 3.12, "float_shares": 15000000},
+    # Una sola línea indestructible para asegurar la compilación limpia del array en Streamlit Cloud
