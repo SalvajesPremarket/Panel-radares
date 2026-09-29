@@ -162,52 +162,41 @@ def _big(v):
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{v:.0f}"
 
-# ==========================================
-# FILTRADO INTEGRAL CON CONDICIONES ORIGINALES
-# ==========================================
-filas_pantalla = []
-for r in filas_base:
-    px = r["precio"]
-    gap = r["gap_pct"]
-    vol = r["volumen_dia"]
-    fl = r["float_shares"]
-    es_ema20 = r.get("cruzando_ema20", True)
-    val_macd = r["tecnico_macd"]
-    
-    # 1. Validación de filtros numéricos estándar
-    cumple_numericos = (precio_min_ui <= px <= precio_max_ui) and (gap_min_ui <= gap <= gap_max_ui) and (vol >= volumen_min_ui) and (fl <= float_max_ui)
-    
-    # 2. Validación de Condición EMA20
-    cumple_ema = True
-    if ema_ui == "Vela nueva sobre EMA20 + HH/HL" and not es_ema20:
-        cumple_ema = False
-    elif ema_ui == "Hacia abajo" and es_ema20:
-        cumple_ema = False
-        
-    # 3. Validación de Filtro MACD
-    cumple_macd = True
-    if macd_ui == "Positivo" and val_macd <= 0:
-        cumple_macd = False
-    elif macd_ui == "Negativo" and val_macd >= 0:
-        cumple_macd = False
+# Convertimos la lista base directamente a un DataFrame de control
+df_control = pd.DataFrame(filas_base)
 
-    # Entra solo si cumple todas tus condiciones iniciales juntas
-    if cumple_numericos and cumple_ema and cumple_macd:
-        filas_pantalla.append(r)
+# ==========================================
+# FILTRADO VECTORIAL DE PANDAS (ANTI-ERRORES DE SINTAXIS)
+# ==========================================
+if not df_control.empty:
+    # 1. Filtros numéricos estándar
+    mascara = (df_control["precio"] >= precio_min_ui) & \
+               (df_control["precio"] <= precio_max_ui) & \
+               (df_control["gap_pct"] >= gap_min_ui) & \
+               (df_control["gap_pct"] <= gap_max_ui) & \
+               (df_control["volumen_dia"] >= volumen_min_ui) & \
+               (df_control["float_shares"] <= float_max_ui)
+    
+    df_filtrado = df_control[mascara].copy()
 
-# Transformación de datos para la visualización gráfica
-lista_procesada = []
-for r in filas_pantalla:
-    tk = r["ticker"] + (" 🔥" if r["tiene_noticia"] else "")
-    lista_procesada.append({
-        "TICKER": tk,
-        "SECTOR": r["sector"],
-        "PRECIO": r["precio"],
-        "CAMBIO %": r["cambio_pct"],
-        "VOLUMEN": _big(r["volumen_dia"]),
-        "FLOAT": f"{r['float_shares']/1_000_000:.1f}M",
-        "GAP %": r["gap_pct"],
-        "MACD": "Positivo" if r["tecnico_macd"] > 0 else "Negativo",
-        "CONDICIÓN EMA20": "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo",
-        "EMA50": r["ema50"],
-        "EMA200": r["ema200"]
+    # 2. Filtrado relacional para Condición EMA20 Planteada originalmente
+    if ema_ui == "Vela nueva sobre EMA20 + HH/HL":
+        df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == True]
+    elif ema_ui == "Hacia abajo":
+        df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == False]
+
+    # 3. Filtrado relacional para Condición MACD Planteada originalmente
+    if macd_ui == "Positivo":
+        df_filtrado = df_filtrado[df_filtrado["tecnico_macd"] > 0]
+    elif macd_ui == "Negativo":
+        df_filtrado = df_filtrado[df_filtrado["tecnico_macd"] <= 0]
+else:
+    df_filtrado = pd.DataFrame()
+
+# Construcción limpia de columnas para visualización
+if not df_filtrado.empty:
+    df_filtrado["TICKER"] = df_filtrado["ticker"] + df_filtrado["tiene_noticia"].apply(lambda n: " 🔥" if n else "")
+    df_filtrado["SECTOR"] = df_filtrado["sector"]
+    df_filtrado["PRECIO"] = df_filtrado["precio"]
+    df_filtrado["CAMBIO %"] = df_filtrado["cambio_pct"]
+    df_filtrado["VOLUMEN"] = df_filtrado["volumen_dia"].apply(_big)
