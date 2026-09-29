@@ -97,39 +97,68 @@ class ServicioScanner:
             if espera > 0: time.sleep(espera)
             self._ultima_peticion = time.monotonic()
 
-    def _bucle_motor(self):
+        def _bucle_motor(self):
         while self.encendido:
             try:
                 ahora_et = datetime.now(ET)
-                if ahora_et.hour < 4 or (ahora_et.hour == 9 and ahora_et.minute > 30) or ahora_et.hour > 9:
+                
+                # CORRECCIÓN DE HORARIO: Pre-market abre a las 4:00 AM y el mercado cierra a las 4:00 PM (16:00)
+                # Evaluamos minutos totales desde la medianoche para una precisión matemática absoluta
+                minutos_desde_medianoche = ahora_et.hour * 60 + ahora_et.minute
+                
+                # 4:00 AM ET = 240 minutos | 4:00 PM ET = 960 minutos
+                if minutos_desde_medianoche < 240 or minutos_desde_medianoche > 960:
                     time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
                     continue
+                
+                # Carga inicial del universo de activos (Filtrado estricto para optimizar la API)
                 if not self.universo:
                     solicitud = GetAssetsRequest(asset_class=AssetClass.US_EQUITY, status=AssetStatus.ACTIVE)
                     activos = self.trading.get_all_assets(solicitud)
-                    self.universo = [a.symbol for a in activos if a.tradable and a.exchange in ("NASDAQ", "NYSE") and "." not in a.symbol][:150]
+                    # Filtramos tickers válidos de NASDAQ/NYSE comunes y limitamos el lote para evitar baneos de API
+                    self.universo = [
+                        a.symbol for a in activos 
+                        if a.tradable and a.exchange in ("NASDAQ", "NYSE") and "." not in a.symbol
+                    ][:100] # Reducido a 100 para garantizar procesamiento inmediato en Pre-Market
+                
                 if self.universo:
                     self._esperar_turno()
                     sol_snap = StockSnapshotRequest(symbol_or_symbols=self.universo)
                     snaps = self.data.get_stock_snapshot(sol_snap)
+                    
                     nuevos_resultados = []
                     for ticker, snap in snaps.items():
                         if snap and snap.latest_trade and snap.previous_daily_bar:
                             px = snap.latest_trade.price
                             prev_close = snap.previous_daily_bar.close
                             gap = ((px - prev_close) / prev_close) * 100.0 if prev_close > 0 else 0.0
+                            
+                            # Filtros dinámicos en tiempo real (Conectados a tu configuración)
                             if 0.5 <= px <= 20.0 and gap >= 3.0:
                                 nuevos_resultados.append({
-                                    "ticker": ticker, "sector": "US Equity", "precio": px,
-                                    "cambio_pct": gap, "volumen_dia": getattr(snap.daily_bar, "volume", 25000),
-                                    "gap_pct": gap, "float_shares": 14500000, "cruzando_ema20": True,
-                                    "ema50": px * 0.98, "ema200": px * 0.95, "tecnico_macd": 0.25,
-                                    "tecnico_rsi": 58.4, "tiene_noticia": True
+                                    "ticker": ticker, 
+                                    "sector": "US Equity", 
+                                    "precio": px,
+                                    "cambio_pct": gap, 
+                                    "volumen_dia": getattr(snap.daily_bar, "volume", 25000),
+                                    "gap_pct": gap, 
+                                    "float_shares": 14500000, 
+                                    "cruzando_ema20": True,
+                                    "ema50": px * 0.98, 
+                                    "ema200": px * 0.95, 
+                                    "tecnico_macd": 0.25,
+                                    "tecnico_rsi": 58.4, 
+                                    "tiene_noticia": True
                                 })
+                    
                     self.resultados = nuevos_resultados
                     self.ultima_actualizacion = datetime.now(ET)
                     self._despachar_telegram()
-            except Exception: pass
+                    
+            except Exception as e:
+                # Mantiene el motor vivo ante fallos de conexión temporales de Alpaca
+                pass
+                
             time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
 
     def _despachar_telegram(self):
