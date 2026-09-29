@@ -56,6 +56,8 @@ if "resultados_scanner" not in st.session_state:
     st.session_state["resultados_scanner"] = []
 if "universo_tickers" not in st.session_state:
     st.session_state["universo_tickers"] = []
+if "ultima_actualizacion" not in st.session_state:
+    st.session_state["ultima_actualizacion"] = None
 
 # Barra lateral UI (Filtros Interactivos del Usuario)
 with st.sidebar:
@@ -72,7 +74,7 @@ with st.sidebar:
     timeframe_ui = st.selectbox("Temporalidad", ["1m", "5m"])
 
 # ==========================================
-# MOTOR DEL SCANNER (4:00 AM A 8:00 PM ET CON FILTROS DINÁMICOS)
+# MOTOR DEL SCANNER (OPERATIVO RE-ESTRUCTURADO SIN DATOS FALSOS)
 # ==========================================
 def ejecutar_escaneo_mercado(forzar=False):
     try:
@@ -84,7 +86,7 @@ def ejecutar_escaneo_mercado(forzar=False):
         ahora_et = datetime.now(ET)
         minutos = ahora_et.hour * 60 + ahora_et.minute
         
-        # NUEVO RANGO HORARIO AMPLIADO: 4:00 AM (240 min) a 8:00 PM ET (1200 min) de corrido
+        # Horario extendido sin interrupción: 4:00 AM a 8:00 PM ET de corrido
         if 240 <= minutos <= 1200 or forzar:
             if not st.session_state["universo_tickers"]:
                 tc = TradingClient(ak, sk)
@@ -107,7 +109,6 @@ def ejecutar_escaneo_mercado(forzar=False):
                         prev_close = snap.previous_daily_bar.close
                         gap = ((px - prev_close) / prev_close) * 100.0 if prev_close > 0 else 0.0
                         
-                        # Generamos la base completa sin bloquearla rígidamente en el motor
                         nuevos_resultados.append({
                             "ticker": ticker, "sector": "US Equity", "precio": px,
                             "cambio_pct": gap, "volumen_dia": getattr(snap.daily_bar, "volume", 25000),
@@ -117,6 +118,7 @@ def ejecutar_escaneo_mercado(forzar=False):
                         })
                 
                 st.session_state["resultados_scanner"] = nuevos_resultados
+                st.session_state["ultima_actualizacion"] = datetime.now(ET).strftime("%H:%M:%S ET")
                 
                 # Despacho de alertas a Telegram
                 tok = str(st.secrets.get("TELEGRAM_BOT_TOKEN", ""))
@@ -127,43 +129,28 @@ def ejecutar_escaneo_mercado(forzar=False):
     except Exception:
         pass
 
-# Ejecutar lógica del motor en tiempo real
+# Ejecutar consulta en tiempo real
 ejecutar_escaneo_mercado()
 
-modo_activo_txt = "🟢 SCANNER EN TIEMPO REAL ACTIVO (ALPACA)"
 filas_base = st.session_state["resultados_scanner"]
-
-# Datos demo de respaldo por si el mercado está cerrado o la API no devuelve activos temporalmente
-if not filas_base or len(filas_base) == 0:
-    modo_activo_txt = "🟢 MOTOR EN ESPERA ACTIVA · HORARIO OPERATIVO: 4:00 AM - 8:00 PM ET"
-    filas_base = [
-        {"ticker": "AAPL", "sector": "Technology", "precio": 174.85, "cambio_pct": 3.42, "volumen_dia": 45200000, "gap_pct": 3.12, "float_shares": 15400000, "cruzando_ema20": True, "ema50": 171.10, "ema200": 165.25, "tecnico_macd": 0.45, "tecnico_rsi": 58.2, "tiene_noticia": True},
-        {"ticker": "TSLA", "sector": "Consumer Cyclical", "precio": 218.30, "cambio_pct": 5.15, "volumen_dia": 68400000, "gap_pct": 4.85, "float_shares": 9200000, "cruzando_ema20": True, "ema50": 212.40, "ema200": 198.10, "tecnico_macd": 1.20, "tecnico_rsi": 62.7, "tiene_noticia": False},
-        {"ticker": "NVDA", "sector": "Technology", "precio": 462.10, "cambio_pct": 7.89, "volumen_dia": 38100000, "gap_pct": 6.20, "float_shares": 12100000, "cruzando_ema20": True, "ema50": 448.00, "ema200": 412.30, "tecnico_macd": 3.85, "tecnico_rsi": 69.1, "tiene_noticia": True},
-        {"ticker": "AMD", "sector": "Technology", "precio": 114.25, "cambio_pct": -1.95, "volumen_dia": 18200000, "gap_pct": 3.05, "float_shares": 14200000, "cruzando_ema20": False, "ema50": 115.10, "ema200": 108.40, "tecnico_macd": -0.15, "tecnico_rsi": 44.3, "tiene_noticia": False},
-        {"ticker": "PLTR", "sector": "Technology", "precio": 18.40, "cambio_pct": 6.22, "volumen_dia": 24500000, "gap_pct": 5.10, "float_shares": 19100000, "cruzando_ema20": True, "ema50": 17.20, "ema200": 15.60, "tecnico_macd": 0.12, "tecnico_rsi": 55.8, "tiene_noticia": True}
-    ]
 
 # BOTÓN DE ACTUALIZACIÓN INSTANTÁNEA
 if st.button("🔄 Forzar Escaneo Ya"):
     ejecutar_escaneo_mercado(forzar=True)
     st.rerun()
 
-st.info(modo_activo_txt)
-
 def _big(v):
     if v >= 1_000_000: return f"{v/1_000_000:.1f}M"
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{v:.0f}"
 
-# Convertimos la lista de datos a DataFrame para procesar los filtros dinámicos elegidos por el usuario
+# Convertimos los datos reales a DataFrame
 df_control = pd.DataFrame(filas_base)
 
 # ==========================================
-# FILTRADO DINÁMICO EN TIEMPO REAL SEGÚN EL USUARIO
+# FILTRADO VECTORIAL INTERACTIVO DE PANDAS
 # ==========================================
 if not df_control.empty:
-    # 1. Filtros numéricos paramétricos controlados por la UI de la Barra Lateral
     mascara = (df_control["precio"] >= precio_min_ui) & \
                (df_control["precio"] <= precio_max_ui) & \
                (df_control["gap_pct"] >= gap_min_ui) & \
@@ -173,13 +160,11 @@ if not df_control.empty:
     
     df_filtrado = df_control[mascara].copy()
 
-    # 2. Aplicación dinámica de la Condición EMA20 seleccionada en la UI
     if ema_ui == "Vela nueva sobre EMA20 + HH/HL":
         df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == True]
     elif ema_ui == "Hacia abajo":
         df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == False]
 
-    # 3. Aplicación dinámica del Filtro MACD seleccionado en la UI
     if macd_ui == "Positivo":
         df_filtrado = df_filtrado[df_filtrado["tecnico_macd"] > 0]
     elif macd_ui == "Negativo":
@@ -187,7 +172,15 @@ if not df_control.empty:
 else:
     df_filtrado = pd.DataFrame()
 
-# Construcción y formateo estético de las columnas resultantes
+# ==========================================
+# CUERPO SUPERIOR DEL SCANNER RESTAURADO
+# ==========================================
+total_activos = len(df_filtrado) if not df_filtrado.empty else 0
+hora_act = st.session_state["ultima_actualizacion"] if st.session_state["ultima_actualizacion"] else "Esperando ciclo..."
+
+st.success(f"🟢 SCANNER EN TIEMPO REAL ACTIVO (ALPACA) | 📊 Activos Detectados: {total_activos} | 🕒 Último Escaneo: {hora_act}")
+
+# Construcción de la visualización estructurada
 if not df_filtrado.empty:
     df_filtrado["TICKER"] = df_filtrado["ticker"] + df_filtrado["tiene_noticia"].apply(lambda n: " 🔥" if n else "")
     df_filtrado["SECTOR"] = df_filtrado["sector"]
@@ -195,3 +188,25 @@ if not df_filtrado.empty:
     df_filtrado["CAMBIO %"] = df_filtrado["cambio_pct"]
     df_filtrado["VOLUMEN"] = df_filtrado["volumen_dia"].apply(_big)
     df_filtrado["FLOAT"] = (df_filtrado["float_shares"] / 1_000_000).apply(lambda f: f"{f:.1f}M")
+    df_filtrado["GAP %"] = df_filtrado["gap_pct"]
+    df_filtrado["MACD"] = df_filtrado["tecnico_macd"].apply(lambda m: "Positivo" if m > 0 else "Negativo")
+    df_filtrado["CONDICIÓN EMA20"] = df_filtrado["cruzando_ema20"].apply(lambda e: "Por Encima" if e else "Por Debajo")
+    df_filtrado["EMA50"] = df_filtrado["ema50"]
+    df_filtrado["EMA200"] = df_filtrado["ema200"]
+    
+    df_final = df_filtrado[["TICKER", "SECTOR", "PRECIO", "CAMBIO %", "VOLUMEN", "FLOAT", "GAP %", "MACD", "CONDICIÓN EMA20", "EMA50", "EMA200"]].copy()
+    
+    # Asignación de colores condicionales (Verde para subidas, Rojo para bajadas)
+    def mapear_colores_tabla(val):
+        if isinstance(val, (int, float)):
+            color = '#26a69a' if val > 0 else '#ef5350'
+            return f'color: {color}; font-weight: bold;'
+        return ''
+
+    df_estilizado = df_final.style.map(mapear_colores_tabla, subset=["CAMBIO %", "GAP %"])\
+                                  .format({"PRECIO": "${:,.2f}", "EMA50": "${:,.2f}", "EMA200": "${:,.2f}", "CAMBIO %": "{:+.2f}%", "GAP %": "{:+.2f}%"}, na_rep="-")\
+                                  .set_properties(**{'font-weight': 'bold'}, subset=["TICKER"])
+
+    st.dataframe(df_estilizado, use_container_width=True, hide_index=True)
+else:
+    st.warning("⚠️ Ningún activo en vivo cumple con las exigencias de filtros seleccionadas en la barra lateral.")
