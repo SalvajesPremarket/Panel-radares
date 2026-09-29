@@ -3971,19 +3971,17 @@ def _render_scanner():
     h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
     h += "</div></body></html>"
 
-    # Este componente queda dentro del fragmento del scanner. El fragmento se vuelve
-    # a ejecutar en el mismo lugar cuando llega el intervalo de refresco; NO llamamos
-    # st.rerun(), location.reload() ni location.replace() automáticamente. Eso evita
-    # que se acumulen iframes/páginas anteriores.
-    if USUARIO_AUTENTICADO:
-        _salir_col1, _salir_col2 = st.columns([0.92, 0.08])
-        with _salir_col2:
-            if st.button("SALIR", key="ts_native_logout", help="Cerrar sesión"):
-                cerrar_sesion()
-                st.query_params.clear()
-                st.rerun()
-
-    components.html(h, height=1050, scrolling=False)
+    # IMPORTANTE: este fragmento debe contener UN SOLO elemento Streamlit.
+    # Antes había un st.button("SALIR") nativo dentro del fragmento y, al
+    # cambiar el refresh, ese elemento podía quedar materializado varias veces
+    # en el DOM. El botón SALIR ya existe dentro del HTML del scanner y usa la
+    # misma sesión, por lo que no necesitamos otro elemento Streamlit aquí.
+    #
+    # También damos al iframe una altura suficiente para que su propio scrollbar
+    # vertical no compita con el scrollbar principal de la página. La navegación
+    # del refresh sigue usando location.replace(), que reemplaza la URL actual
+    # y no abre ventanas/pestañas nuevas.
+    components.html(h, height=1900, scrolling=False)
 
 
 # Refresco estable: el scanner completo (incluido su iframe HTML) vive dentro
