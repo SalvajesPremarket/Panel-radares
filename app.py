@@ -175,6 +175,7 @@ for r in filas_base:
         filas_pantalla.append(r)
 
 # Transformación de datos para la visualización gráfica
+# Transformación de datos para la visualización gráfica
 lista_procesada = []
 for r in filas_pantalla:
     tk = r["ticker"] + (" 🔥" if r["tiene_noticia"] else "")
@@ -192,17 +193,34 @@ for r in filas_pantalla:
         "EMA200": r["ema200"]
     })
 
+# Si los filtros reales vaciaron la lista, cargamos los datos demo de contingencia para no dejar la pantalla en blanco
+if not lista_procesada:
+    st.warning("⚠️ Ningún activo real cumple los filtros del Sidebar. Mostrando datos de referencia:")
+    for r in [
+        {"ticker": "AAPL", "sector": "Technology", "precio": 174.85, "cambio_pct": 3.42, "volumen_dia": 45200000, "gap_pct": 3.12, "float_shares": 15400000, "cruzando_ema20": True, "ema50": 171.10, "ema200": 165.25, "tecnico_macd": 0.45, "tiene_noticia": True},
+        {"ticker": "AMD", "sector": "Technology", "precio": 114.25, "cambio_pct": -1.95, "volumen_dia": 18200000, "gap_pct": -1.05, "float_shares": 14200000, "cruzando_ema20": False, "ema50": 115.10, "ema200": 108.40, "tecnico_macd": -0.15, "tiene_noticia": False},
+        {"ticker": "PLTR", "sector": "Technology", "precio": 18.40, "cambio_pct": 6.22, "volumen_dia": 24500000, "gap_pct": 5.10, "float_shares": 19100000, "cruzando_ema20": True, "ema50": 17.20, "ema200": 15.60, "tecnico_macd": 0.12, "tiene_noticia": True}
+    ]:
+        tk = r["ticker"] + (" 🔥" if r["tiene_noticia"] else "")
+        lista_procesada.append({
+            "TICKER": tk, "SECTOR": r["sector"], "PRECIO": r["precio"], "CAMBIO %": r["cambio_pct"],
+            "VOLUMEN": _big(r["volumen_dia"]), "FLOAT": f"{r['float_shares']/1_000_000:.1f}M", "GAP %": r["gap_pct"],
+            "MACD": "Positivo" if r["tecnico_macd"] > 0 else "Negativo", "CONDICIÓN EMA20": "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo",
+            "EMA50": r["ema50"], "EMA200": r["ema200"]
+        })
+
 df_final = pd.DataFrame(lista_procesada)
 
-# APLICACIÓN DE LA OPCIÓN 3 (COLORES VERDE / ROJO SEGÚN EL RENDIMIENTO DE LA ACCIÓN)
+# Función de mapeo de color (Verde para positivos, Rojo para negativos)
 def mapear_colores_tabla(val):
     if isinstance(val, (int, float)):
         color = '#26a69a' if val > 0 else '#ef5350'
         return f'color: {color}; font-weight: bold;'
     return ''
 
-if not df_final.empty:
-    df_estilizado = df_final.style.map(mapear_colores_tabla, subset=["CAMBIO %", "GAP %"])\
-                                  .format({"PRECIO": "${:,.2f}", "EMA50": "${:,.2f}", "EMA200": "${:,.2f}", "CAMBIO %": "{:+.2f}%", "GAP %": "{:+.2f}%"})\
-                                  .set_properties(**{'font-weight': 'bold'}, subset=["TICKER"])
-    
+# Renderizado final estilizado
+df_estilizado = df_final.style.map(mapear_colores_tabla, subset=["CAMBIO %", "GAP %"])\
+                              .format({"PRECIO": "${:,.2f}", "EMA50": "${:,.2f}", "EMA200": "${:,.2f}", "CAMBIO %": "{:+.2f}%", "GAP %": "{:+.2f}%"})\
+                              .set_properties(**{'font-weight': 'bold'}, subset=["TICKER"])
+
+st.dataframe(df_estilizado, use_container_width=True, hide_index=True)
