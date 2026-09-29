@@ -3775,7 +3775,7 @@ def _render_scanner():
     h += "<title>TradeScanner</title>"
     h += "<style>"
     h += "*{box-sizing:border-box;}"
-    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
+    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
     h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
     h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
     h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
@@ -3969,32 +3969,39 @@ def _render_scanner():
     _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
     _universo_txt = str(len(getattr(servicio, "universo", []) or []))
     h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
+    # El refresco automático NO se hace con st.fragment.
+    # Un fragmento que contiene components.html() crea un iframe nuevo en cada
+    # ejecución y, en esta carátula, Streamlit puede conservar temporalmente los
+    # iframes anteriores. Ese era el origen de las "ventanas" una detrás de otra.
+    #
+    # Ahora el HTML es un único iframe por carga de página y el propio navegador
+    # navega a la misma URL cuando vence el intervalo. Al ser una navegación de
+    # página completa, el documento anterior se reemplaza en vez de acumularse.
+    _refresh_ms = int(max(5, refresh_sec) * 1000)
+    if not PUBLIC_PREVIEW:
+        h += (
+            "<script>"
+            "(function(){"
+            "var ms=" + str(_refresh_ms) + ";"
+            "if(window.__TS_REFRESH_TIMER){clearTimeout(window.__TS_REFRESH_TIMER);}"
+            "window.__TS_REFRESH_TIMER=setTimeout(function(){"
+            "try{"
+            "var q=new URLSearchParams(window.top.location.search||window.location.search);"
+            "q.set('refresh_sec',String(" + str(int(refresh_sec)) + "));"
+            "q.delete('_ts');"
+            "window.top.location.replace('/?'+q.toString());"
+            "}catch(e){try{window.location.reload();}catch(_e){}}"
+            "},ms);"
+            "})();"
+            "</script>"
+        )
     h += "</div></body></html>"
 
-    # IMPORTANTE: este fragmento debe contener UN SOLO elemento Streamlit.
-    # Antes había un st.button("SALIR") nativo dentro del fragmento y, al
-    # cambiar el refresh, ese elemento podía quedar materializado varias veces
-    # en el DOM. El botón SALIR ya existe dentro del HTML del scanner y usa la
-    # misma sesión, por lo que no necesitamos otro elemento Streamlit aquí.
-    #
-    # También damos al iframe una altura suficiente para que su propio scrollbar
-    # vertical no compita con el scrollbar principal de la página. La navegación
-    # del refresh sigue usando location.replace(), que reemplaza la URL actual
-    # y no abre ventanas/pestañas nuevas.
     components.html(h, height=1900, scrolling=False)
 
 
-# Refresco estable: el scanner completo (incluido su iframe HTML) vive dentro
-# de un único fragmento. Streamlit actualiza ese fragmento en el mismo delta,
-# en lugar de lanzar un rerun global que pueda dejar iframes anteriores vivos.
-_refresh_for_fragment = 180
-try:
-    _refresh_for_fragment = max(5, int(float(st.query_params.get("refresh_sec", "180"))))
-except Exception:
-    _refresh_for_fragment = 180
-if PUBLIC_PREVIEW:
-    _refresh_for_fragment = 180
-_st_fragment = getattr(st, "fragment", None)
-if _st_fragment is not None:
-    _render_scanner = _st_fragment(run_every=f"{int(_refresh_for_fragment)}s")(_render_scanner)
+# IMPORTANTE: NO envolver _render_scanner() en st.fragment.
+# components.html() es un iframe y el fragmento provocaba acumulación visual
+# de iframes durante los refresh automáticos. El timer JavaScript anterior
+# realiza la recarga completa de la página conservando refresh_sec y la sesión.
 _render_scanner()
