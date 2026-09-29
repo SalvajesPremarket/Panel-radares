@@ -791,7 +791,8 @@ def cerrar_sesion():
         "usar_api_broker_dashboard",
     ):
         st.session_state.pop(clave, None)
-    for _i in range(len(COLORES_LAYOUT_DEFECTO)):
+    # COLORES_LAYOUT_DEFECTO no está definido en este archivo; se usa un rango seguro.
+    for _i in range(len(globals().get("COLORES_LAYOUT_DEFECTO", range(20)))):
         st.session_state.pop(f"bk_wh_{_i}", None)
 
 
@@ -973,6 +974,7 @@ def pantalla_autenticacion():
             if error:
                 st.error(f"❌ {error}")
             else:
+                cerrar_sesion()  # evita que una sesión admin previa siga mandando sobre el usuario
                 _guardar_usuario_auth(data, tipo="usuario")
                 _u = data.get("user") or {}
                 crear_prueba_usuario(_u.get("id", ""), _u.get("email", email))
@@ -1108,6 +1110,7 @@ def pantalla_autenticacion():
                     # iniciarse inmediatamente. Si no, normalmente significa
                     # que está activada la confirmación por correo.
                     if data and data.get("access_token"):
+                        cerrar_sesion()
                         _guardar_usuario_auth(data, tipo="usuario")
                         _u = data.get("user") or {}
                         crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
@@ -1143,6 +1146,7 @@ def pantalla_autenticacion():
                 es_valido, estado = verificar_token(token_limpio)
 
                 if es_valido:
+                    cerrar_sesion()
                     st.session_state["token_verificado"] = token_limpio
                     st.session_state["fecha_vencimiento"] = estado
                     st.session_state["tipo_acceso"] = "admin"
@@ -3999,6 +4003,8 @@ def _render_scanner():
 # puede referenciar directamente. Lo volvemos a leer de query_params de forma
 # segura para que el decorador de st.fragment reciba el valor correcto.
 def _refresh_segundos_global():
+    if PUBLIC_PREVIEW:
+        return 180  # visitante sin registrar: refresh fijo en 3 min (no se puede forzar por URL)
     try:
         valor = st.query_params.get("refresh_sec", "180")
         if isinstance(valor, list):
@@ -4007,7 +4013,7 @@ def _refresh_segundos_global():
     except Exception:
         return 180
 
-if not PUBLIC_PREVIEW:
+if True:  # el visitante también se refresca (cada 3 min); el usuario registrado elige su intervalo
     _st_fragment = getattr(st, "fragment", None)
     if _st_fragment is not None:
         @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
