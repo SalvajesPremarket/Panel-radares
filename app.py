@@ -3970,7 +3970,7 @@ _universo_txt = str(len(getattr(servicio, "universo", []) or []))
 h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
 # Refresco visual seguro: una sola recarga de la página superior. Esto evita
 # crear componentes Streamlit adicionales durante un fragment rerun.
-h += "<script>(function(){try{var sec=" + str(int(refresh_sec)) + ";if(sec>=5){try{if(window.top.__TS_REFRESH_TIMER__)clearTimeout(window.top.__TS_REFRESH_TIMER__);}catch(e){}window.top.__TS_REFRESH_TIMER__=setTimeout(function(){try{var q=_qtop();var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);q.delete('_ts');_navegarMismaApp(q);}catch(e){try{window.location.replace(window.location.href);}catch(_e){}}},sec*1000);}}catch(e){}})();</script>"
+h += "<script>(function(){try{var sec=" + str(int(refresh_sec)) + ";if(sec>=5){try{if(window.top.__TS_REFRESH_TIMER__)clearTimeout(window.top.__TS_REFRESH_TIMER__);}catch(e){}window.top.__TS_REFRESH_TIMER__=setTimeout(function(){try{window.top.location.reload();}catch(e){try{window.location.reload();}catch(_e){}}},sec*1000);}}catch(e){}})();</script>"
 h += "</div></body></html>"
 
 # La carátula se muestra en un único iframe aislado. El motor sigue ejecutándose
