@@ -3460,531 +3460,543 @@ st.markdown("""
 #    No reemplaza ni modifica el motor, sus hilos, cache, Alpaca, FMP ni pruebas.
 # ==============================================================================
 
-try:
-    servicio._esta_en_horario_automatico()
-except Exception:
-    pass
-
-# Valores de interfaz seguros. Se leen de query_params para que los cambios
-# realizados desde la carátula puedan sobrevivir al rerun de Streamlit.
-def _qtxt(nombre, defecto):
+def _render_scanner():
     try:
-        valor = st.query_params.get(nombre, defecto)
-        if isinstance(valor, list):
-            valor = valor[0] if valor else defecto
-        return str(valor)
-    except Exception:
-        return str(defecto)
-
-
-def _qfloat(nombre, defecto):
-    try:
-        return float(_qtxt(nombre, defecto))
-    except Exception:
-        return float(defecto)
-
-
-def _qint(nombre, defecto):
-    try:
-        return int(float(_qtxt(nombre, defecto)))
-    except Exception:
-        return int(defecto)
-
-
-precio_min_ui = _qfloat("f_price_min", 0.50)
-precio_max_ui = _qfloat("f_price_max", 20.00)
-gap_min_ui = _qfloat("f_gap_min", 3.00)
-gap_max_ui = _qfloat("f_gap_max", 50.00)
-float_max_ui = _qint("f_float_max", 20_000_000)
-volumen_min_ui = _qint("f_vol", 15_000)
-ema_ui = _qtxt("f_ema", "Hacia arriba")
-ema20_estado_ui = _qtxt("ema20_estado", "Neutro")
-ema50_estado_ui = _qtxt("ema50_estado", "Neutro")
-ema200_estado_ui = _qtxt("ema200_estado", "Neutro")
-macd_ui = _qtxt("f_mac", "Positivo")
-orden_ui = _qtxt("f_order", "Actualizado")
-sesion_ui = "TODO EL MERCADO"
-timeframe_ui = _qtxt("timeframe", "1m")
-ema_dist_max_ui = _qfloat("ema_dist_max", 0.0)
-rsi_min_ui = _qfloat("rsi_min", 0.0)
-rsi_max_ui = _qfloat("rsi_max", 100.0)
-if timeframe_ui not in ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo"):
-    timeframe_ui = "1m"
-ema_dist_max_ui = max(0.0, min(25.0, ema_dist_max_ui))
-rsi_min_ui = max(0.0, min(100.0, rsi_min_ui))
-rsi_max_ui = max(rsi_min_ui, min(100.0, rsi_max_ui))
-try:
-    servicio.configurar_modo_operacion("TODO EL MERCADO", timeframe_ui, ema_dist_max_ui)
-except Exception:
-    pass
-
-# Regla fija del scanner: la señal es siempre EMA20 hacia arriba.
-# El selector sigue visible, pero no puede cambiar la lógica dura del motor.
-ema_ui = "Hacia arriba"
-for _var in ("ema20_estado_ui", "ema50_estado_ui", "ema200_estado_ui"):
-    if _var in globals() and globals()[_var] not in ("Por encima", "Por debajo", "Neutro"):
-        globals()[_var] = "Neutro"
-# En la búsqueda de scalping, EMA50 y EMA200 nunca son filtros de dirección.
-# Se muestran en la tabla, pero su exigencia queda siempre en NEUTRO.
-ema50_estado_ui = "Neutro"
-ema200_estado_ui = "Neutro"
-# Regla fija del scanner: MACD positivo es obligatorio.
-# El selector queda normalizado para que la interfaz no contradiga al motor.
-macd_ui = "Positivo"
-if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
-    orden_ui = "Actualizado"
-
-params_ui = {
-    "precio_min": precio_min_ui,
-    "precio_max": precio_max_ui,
-    "gap_min": gap_min_ui,
-    "gap_max": gap_max_ui,
-    "flotacion_max": float_max_ui,
-    "volumen_min": volumen_min_ui,
-    "cruce_ema": ema_ui,
-    "macd": macd_ui,
-    "orden": orden_ui,
-    "top_n": 50,
-    "sesion": sesion_ui,
-    "timeframe": timeframe_ui,
-    "ema_dist_max": ema_dist_max_ui,
-    "rsi_min": rsi_min_ui,
-    "rsi_max": rsi_max_ui,
-    "ema20_estado": ema20_estado_ui,
-    "ema50_estado": ema50_estado_ui,
-    "ema200_estado": ema200_estado_ui,
-}
-
-# IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
-# Antes el motor podía conservar una configuración vieja de cargar_config(),
-# mientras la pantalla mostraba otra, dejando el scanner aparentemente vacío.
-try:
-    servicio.filtros_dueno.update(params_ui)
-    servicio.filtros_dueno["ema50_estado"] = "Neutro"
-    servicio.filtros_dueno["ema200_estado"] = "Neutro"
-    servicio.sesion = sesion_ui
-    servicio.timeframe = timeframe_ui
-except Exception:
-    pass
-
-_guardar_ultima_configuracion_servidor()
-
-
-if PUBLIC_PREVIEW:
-    # La carátula pública muestra el diseño y las 10 líneas, pero no expone
-    # resultados reales del motor antes del registro/inicio de sesión.
-    filas_reales = []
-else:
-    try:
-        # El motor ya entrega candidatos que pasaron el embudo real del scanner.
-        # Reaplicar aquí filtros técnicos históricos era una segunda puerta que
-        # podía vaciar la tabla aunque el motor hubiera detectado una señal.
-        # Solo se conserva el filtro final común para los valores editables.
-        filas_reales = filtrar_resultados(list(servicio.resultados), params_ui)
-    except Exception as _ex_ui:
-        filas_reales = list(getattr(servicio, "resultados", []) or [])
-        try:
-            servicio.ultimo_error = f"Filtro de pantalla: {_ex_ui}"
-        except Exception:
-            pass
-
-
-def _num(v, default=0.0):
-    try:
-        if v is None or v == "":
-            return default
-        return float(v)
-    except Exception:
-        return default
-
-
-def _entero(v, default=0):
-    try:
-        if v is None or v == "":
-            return default
-        return int(float(v))
-    except Exception:
-        return default
-
-
-def _safe_text(v, default=""):
-    return html_escape(str(v if v is not None else default))
-
-
-def _money(v):
-    return f"${_num(v):,.2f}"
-
-
-def _pct(v):
-    return f"{_num(v):+.2f}%"
-
-
-def _big(v):
-    n = _num(v)
-    if n >= 1_000_000:
-        return f"{n/1_000_000:.1f}M"
-    if n >= 1_000:
-        return f"{n/1_000:.0f}K"
-    return f"{n:.0f}"
-
-
-def _row_html(row):
-    ticker = _safe_text(row.get("ticker", ""))
-    sector = _safe_text(row.get("sector", "N/A"))
-    precio = _num(row.get("precio"))
-    cambio = _num(row.get("cambio_pct"))
-    volumen = _entero(row.get("volumen_dia"))
-    flotacion = _num(row.get("float_shares")) / 1_000_000 if row.get("float_shares") else 0.0
-    ema_ok = bool(row.get("cruzando_ema20"))
-    ema_down = bool(row.get("cruzando_ema20_abajo"))
-    mac_pos = bool(row.get("macd_positivo"))
-    mac_neg = bool(row.get("macd_negativo"))
-    noticia = bool(row.get("tiene_noticia"))
-    fila = "fila-alza" if cambio > 0 else ("fila-baja" if cambio < 0 else "")
-    ema20_val = row.get("tecnico_ema20_actual", row.get("tecnico_ema20"))
-    ema50_val = row.get("ema50")
-    ema200_val = row.get("ema200")
-    def _ema_cell(valor, estado):
-        try:
-            txt = f"${float(valor):.4f}"
-        except Exception:
-            txt = "N/D"
-        return f"{txt} · {estado}"
-    ema_txt = _ema_cell(ema20_val, "Por encima" if ema_ok else ("Por debajo" if ema_down else "Neutro"))
-    ema50_txt = _ema_cell(ema50_val, row.get("ema50_estado", "Neutro"))
-    ema200_txt = _ema_cell(ema200_val, row.get("ema200_estado", "Neutro"))
-    mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
-    mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
-    news = " 🔥" if noticia else ""
-    return (
-        f"<tr class='{fila}'>"
-        f"<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
-        f"<option value=''>⚙️ Layout</option>"
-        f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
-        f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
-        f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
-        f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
-        f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-        f"</select></td>"
-        f"<td><b>{ticker}</b>{news}</td>"
-        f"<td>{sector}</td>"
-        f"<td class='num-col'>{_money(precio)}</td>"
-        f"<td class='num-col'>{_pct(cambio)}</td>"
-        f"<td class='num-col'>{_big(volumen)}</td>"
-        f"<td class='num-col'>{_pct(row.get('gap_pct'))}</td>"
-        f"<td class='num-col'>{flotacion:.2f}M</td>"
-        f"<td>{_safe_text(ema_txt)}</td>"
-        f"<td>{_safe_text(ema50_txt)}</td>"
-        f"<td>{_safe_text(ema200_txt)}</td>"
-        f"<td class='{mac_cls}'>{mac_txt}</td></tr>"
-    )
-
-
-# La sección RESULTADOS / VISUALIZACIÓN mantiene siempre las 10 líneas
-# horizontales del diseño. Cuando hay señales reales se colocan en las primeras
-# líneas; las restantes quedan disponibles con su engranaje de Layout.
-filas_visualizacion = list(filas_reales[:10])
-while len(filas_visualizacion) < 10:
-    filas_visualizacion.append(None)
-
-
-def _row_visualizacion(item, indice):
-    if item is None:
-        return (
-            "<tr class='fila-vacia'>"
-            "<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
-            "<option value=''>⚙️ Layout</option>"
-            "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
-            "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
-            "<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
-            "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
-            "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-            "</select></td>"
-            "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
-            "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
-            "<td class='num-col'>—</td><td>—</td><td>—</td><td>—</td><td class='macd-neutro'>—</td></tr>"
-        )
-    return _row_html(item)
-
-
-rows_html = "".join(_row_visualizacion(r, i + 1) for i, r in enumerate(filas_visualizacion))
-
-try:
-    hora_ini = int(servicio.hora_inicio_auto_min)
-    hora_fin = int(servicio.hora_fin_auto_min)
-except Exception:
-    hora_ini, hora_fin = 240, 960
-
-_hora_txt = f"{hora_ini//60:02d}:{hora_ini%60:02d} - {hora_fin//60:02d}:{hora_fin%60:02d} ET"
-_estado_txt = "ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA")
-
-start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
-end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
-
-active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
-try:
-    servicio.encendido = (active_val == "True")
-except Exception:
-    pass
-lang_val = _qtxt("c_lang", "ESP")
-wnd_val = _qtxt("c_wnd", "Incrustada")
-broker_val = _qtxt("c_broker", st.session_state.get("bk_nombre", "Interactive Brokers"))
-bridge_val = _qtxt("c_url", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
-
-# Enlace REAL entre el resultado del scanner y el puente de layout.
-# El navegador solicita el envío y Python ejecuta el POST, de modo que
-# el estado de Charles Schwab se conoce en el servidor y no se expone
-# ningún token OAuth al HTML/JavaScript.
-_pending_ticker = str(st.query_params.get("layout_send_ticker", "")).strip()
-_pending_layout = str(st.query_params.get("layout_send_color", "")).strip()
-if _pending_ticker and _pending_layout:
-    try:
-        if broker_val == "Charles Schwab" and not _schwab_access_token():
-            _ok_layout, _msg_layout = False, "Charles Schwab no está conectado. Autoriza Schwab antes de enviar activos."
-        else:
-            _ok_layout, _msg_layout = _schwab_send_layout_bridge(_pending_ticker, _pending_layout, bridge_val)
-        st.session_state["layout_send_status"] = ("🟢 " if _ok_layout else "🔴 ") + _msg_layout
-    except Exception as _ex_layout:
-        st.session_state["layout_send_status"] = "🔴 Error enviando layout: " + str(_ex_layout)
-    try:
-        del st.query_params["layout_send_ticker"]
-        del st.query_params["layout_send_color"]
+        servicio._esta_en_horario_automatico()
     except Exception:
         pass
 
-# 🔄 Refresco de la interfaz: visitante fijo en 3 minutos; usuario registrado
-# puede seleccionar desde 5 segundos y valores mayores.
-_refresh_raw = str(st.query_params.get("refresh_sec", "180"))
-try:
-    refresh_sec = max(5, int(float(_refresh_raw)))
-except Exception:
-    refresh_sec = 180
-if PUBLIC_PREVIEW:
-    refresh_sec = 180
-refresh_options = [5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600]
-if refresh_sec not in refresh_options:
-    refresh_options.append(refresh_sec)
-refresh_options = sorted(set(refresh_options))
-refresh_label = (f"{refresh_sec} s" if refresh_sec < 60 else (f"{refresh_sec//60} min" if refresh_sec % 60 == 0 else f"{refresh_sec} s"))
-fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
-_email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
+    # Valores de interfaz seguros. Se leen de query_params para que los cambios
+    # realizados desde la carátula puedan sobrevivir al rerun de Streamlit.
+    def _qtxt(nombre, defecto):
+        try:
+            valor = st.query_params.get(nombre, defecto)
+            if isinstance(valor, list):
+                valor = valor[0] if valor else defecto
+            return str(valor)
+        except Exception:
+            return str(defecto)
 
-h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
-h += "<title>TradeScanner</title>"
-h += "<style>"
-h += "*{box-sizing:border-box;}"
-h += "html,body{margin:0;padding:0;width:100%;min-height:100%;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
-h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
-h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
-h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
-h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
-h += ".status-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-top:1px solid #3c424a;padding-top:4px;}.status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}.date-time{font-size:9px;font-weight:bold;color:#b8c0ca;white-space:nowrap;margin-left:auto;}"
-h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#20242a;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
-h += ".tab{font-size:10px;font-weight:bold;padding:4px 9px;background:#2a2f37;color:#dfe3e8;border:1px solid #555;cursor:pointer;}.tab.active{background:#11151a;color:#fff;border-bottom:2px solid #d4af37;}"
-h += ".filtros-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}"
-h += ".filtro-item{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#292e36;border:1px solid #aaa;padding:5px 7px;min-height:38px;}"
-h += ".filtro-item label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap;}"
-h += "input,select,button{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #555;background:#171b20;color:#e7eaee;border-radius:0;outline:none;}"
-h += "input{min-width:0;width:105px;padding:1px 4px;}select{min-width:105px;max-width:170px;padding:1px 3px;}button{cursor:pointer;background:#30353d;color:#fff;font-weight:bold;padding:2px 8px;}"
-h += ".range{display:flex;gap:2px;align-items:center;}.range span{font-size:8px;color:#8d96a0;}"
-h += ".logo{display:flex;align-items:center;justify-content:center;background:#252a31;border:1px dashed #666;font-weight:900;color:#f1f3f5;min-height:34px;font-size:14px;}"
-h += ".engine{font-weight:bold;}.subline{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}.subline span,.subline span *{color:#f0f2f4 !important;opacity:1 !important;text-shadow:none !important;}.subline b{color:#f0f2f4 !important;font-weight:900;opacity:1 !important;text-shadow:none !important;}"
-h += ".result-title{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}"
-h += ".table-wrapper{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
-h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
-h += "td{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}"
-h += ".fila-alza{background:#1e3325}.fila-baja{background:#3a2426}.fila-vacia{background:#1c2025;color:#7f8995}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
-h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
-h += ".layout-col{width:120px;text-align:center;background:#242930;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
-h += ".footer-note{margin-top:4px;font-size:8px;color:#7f8995;display:flex;justify-content:space-between;gap:8px;}"
-h += ".tab-panel{display:none;background:#20252b;color:#dce1e6;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#292e36;border:1px solid #4a515b;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;color:#f1f3f5;}.panel-card span{font-size:10px;color:#b8c0ca;}.technical-control{display:flex;flex-direction:column;align-items:stretch;gap:5px}.technical-control select{width:100%;max-width:none;}"
-h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
-h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
-h += ".tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.technical-control select{min-width:0;width:100%;}.tab-panel{font-size:9px;padding:6px}}"
-h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900}.technical-subtab.active{background:#3a4048}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
-h += "</style>"
-h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
-h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
-h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
-h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
-h += "var TS_BASE_QUERY=" + json.dumps({str(k): str(v) for k, v in st.query_params.items()}, ensure_ascii=False) + ";"
-h += "var TS_AUTH_SESSION=" + json.dumps(str(st.query_params.get("auth_session", ""))) + ";"
-h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
-h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
-h += "function _qtop(){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(e){return new URLSearchParams()}}"
-h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
-h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
-h += "function _restaurarUltimaConfiguracion(){if(!TS_AUTH)return;try{var cur=_qtop();var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';if(!raw)return;var o=JSON.parse(raw||'{}');if(!o||typeof o!=='object')return;var q=new URLSearchParams(cur.toString());var claves=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec'];var cambio=false;claves.forEach(function(k){if(!q.has(k)&&o[k]!==null&&o[k]!==undefined){q.set(k,o[k]);cambio=true}});var sid=cur.get('auth_session');if(sid&&!q.get('auth_session'))q.set('auth_session',sid);if(cambio)_navegarMismaApp(q)}catch(e){}}"
-h += "function _navegarMismaApp(q){try{q.delete('_ts');var u='/?'+q.toString();var topw=window.top||window.parent||window;if(topw.location&&typeof topw.location.replace==='function'){topw.location.replace(u);}else{window.location.replace(u);}}catch(e){try{window.location.replace('/?'+q.toString());}catch(_e){}}}"
-h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
-h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
-h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
-h += "function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var o=cfgActual();o.nombre=n;['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)o[k]=e.value});var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}a=a.filter(function(x){return x.nombre.toLowerCase()!==n.toLowerCase()});a.unshift(o);localStorage.setItem('tradeScannerConfigs',JSON.stringify(a.slice(0,50)));_guardarUltimaConfiguracion(cfgActual());document.getElementById('config_name').value='';renderConfiguraciones();}"
-h += "function cargarConfiguracionPersonal(n){var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}var o=a.find(function(x){return x.nombre===n});if(!o)return;var q=new URLSearchParams();Object.keys(o).forEach(function(k){if(k!=='nombre' && k!=='auth_session')q.set(k,o[k])});_goto(q)}"
-h += "function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var raw=localStorage.getItem('tradeScannerConfigs')||'[]';var a=JSON.parse(raw);if(!Array.isArray(a))a=[];var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});localStorage.removeItem('tradeScannerConfigs');localStorage.setItem('tradeScannerConfigs',JSON.stringify(restantes));renderConfiguraciones();}catch(e){try{sessionStorage.setItem('tradeScannerConfigs',JSON.stringify([]));}catch(_e){}alert('No se pudo eliminar la configuración: '+e.message);}}"
-h += "function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
-h += "function renderConfiguraciones(){var b=document.getElementById('saved_configs_list');if(!b)return;var t=(document.getElementById('config_search').value||'').toLowerCase();var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){a=[]}if(!Array.isArray(a))a=[];a=a.filter(function(x){return String((x&&x.nombre)||'').toLowerCase().indexOf(t)>=0});b.innerHTML=a.length?a.map(function(x,i){var n=String((x&&x.nombre)||'').replace(/[<>]/g,'');var key=encodeURIComponent(String((x&&x.nombre)||''));return '<div class=\"saved-config\"><b>'+n+'</b><span>'+String(x.timeframe||'1m')+' · EMA20 '+String(x.ema20_estado||'Neutro')+' · EMA50 '+String(x.ema50_estado||'Neutro')+' · EMA200 '+String(x.ema200_estado||'Neutro')+'</span><button type=\"button\" class=\"btn-cargar-config\" data-config-name=\"'+key+'\">CARGAR</button><button type=\"button\" class=\"btn-eliminar-config\" data-config-name=\"'+key+'\">ELIMINAR</button></div>'}).join(''):'<span class=\"saved-empty\">No hay configuraciones guardadas.</span>'; }"
-h += "var _tsScrollTimer=null;window.addEventListener('scroll',function(){if(!TS_AUTH)return;if(_tsScrollTimer)return;_tsScrollTimer=setTimeout(function(){_tsScrollTimer=null;try{_guardarUltimaConfiguracion(_qtop());}catch(e){}},250);},{passive:true});"
-h += 'document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){renderConfiguraciones();try{var raw=localStorage.getItem(TS_USER_KEY)||\'\';var o=JSON.parse(raw||\'{}\');if(o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target=\"\'+o._activeTab+\'\"]\');if(b)showTab(o._activeTab,b)}if(o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target=\"\'+o._technicalSubtab+\'\"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\'};var k=map[id];if(k)q.set(k,el.value);_guardarUltimaConfiguracion(q);}catch(e){}});});},100)});'
-h += "document.addEventListener('click',function(ev){var tab=ev.target.closest?ev.target.closest('.tab[data-tab-target]'):null;if(tab){ev.preventDefault();showTab(tab.getAttribute('data-tab-target'),tab);return;}var sub=ev.target.closest?ev.target.closest('.technical-subtab[data-subtab-target]'):null;if(sub){ev.preventDefault();showTechnicalSubTab(sub.getAttribute('data-subtab-target'),sub);return;}var save=ev.target.closest?ev.target.closest('.btn-guardar-config'):null;if(save){ev.preventDefault();guardarConfiguracionPersonal();return;}var btn=ev.target.closest?ev.target.closest('.btn-eliminar-config'):null;if(btn){ev.preventDefault();ev.stopPropagation();borrarConfiguracionPersonal(decodeURIComponent(btn.getAttribute('data-config-name')||''));return;}var cargar=ev.target.closest?ev.target.closest('.btn-cargar-config'):null;if(cargar){ev.preventDefault();ev.stopPropagation();cargarConfiguracionPersonal(decodeURIComponent(cargar.getAttribute('data-config-name')||''));return;}});"
-h += "function pushConfig(){var q=_qtop();"
-h += "q.set('f_price_min',document.getElementById('price_min').value);q.set('f_price_max',document.getElementById('price_max').value);"
-h += "q.set('f_gap_min',document.getElementById('gap_min').value);q.set('f_gap_max',document.getElementById('gap_max').value);"
-h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_vol',document.getElementById('txt_vol').value);"
-h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
-h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
-h += "q.set('c_start','04:00');q.set('c_end','20:00');"
-h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session','TODO EL MERCADO');q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);q.set('ema20_estado',document.getElementById('ema20_estado')?document.getElementById('ema20_estado').value:'Neutro');q.set('ema50_estado',document.getElementById('ema50_estado')?document.getElementById('ema50_estado').value:'Neutro');q.set('ema200_estado',document.getElementById('ema200_estado')?document.getElementById('ema200_estado').value:'Neutro');"
-h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
-h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(e){_navegarMismaApp(q);}}"
-h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
-h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
-h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
-h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);_navegarMismaApp(q)}"
-h += ""
-h += "</script></head><body>"
-h += "<div class='main-container'>"
-h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
-h += "<div class='top-actions'>"
-if PUBLIC_PREVIEW:
-    h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>📝 REGISTRO / INICIAR SESIÓN</button>"
-    h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
-else:
-    opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
-    h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
-    if _email_top:
-        h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
-    # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
-    h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>CUENTA / REGISTRO</button>"
-    h += "<button type='button' class='auth-link' onclick=\"var q=_qtop();q.set('logout','1');_navegarMismaApp(q);\">SALIR</button>"
-h += "</div>"
-h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
-h += "<div class='tabs'>"
-h += "<button type='button' class='tab active' data-tab-target='panel-radar'>RADAR</button>"
-h += "<button type='button' class='tab' data-tab-target='panel-tecnicos'>TÉCNICOS</button>"
-h += "<button type='button' class='tab' data-tab-target='panel-technical'>TECHNICAL</button>"
-h += "<button type='button' class='tab' data-tab-target='panel-config'>CONFIGURACIÓN</button>"
-h += "<button type='button' class='tab' data-tab-target='panel-resultados'>RESULTADOS</button>"
-h += "</div>"
-h += "<div id='panel-radar' class='tab-panel active'><b>RADAR</b><br>Filtros principales del radar: precio, gap, flotación y volumen.</div>"
-h += "<div id='panel-tecnicos' class='tab-panel'><div class='panel-grid'>"
-h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
-h += f"<div class='panel-card'><b>MACD</b><span>Condición actual: {_safe_text(macd_ui)}.</span></div>"
-h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
-h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
-h += "</div></div>"
-h += "<div id='panel-technical' class='tab-panel'><div class='panel-grid'>"
-h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
-for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
-    h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
-h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
-for _ename, _eid, _eval in (("EMA20", "ema20_estado", ema20_estado_ui), ("EMA50", "ema50_estado", ema50_estado_ui), ("EMA200", "ema200_estado", ema200_estado_ui)):
-    h += f"<div class='panel-card technical-control'><b>{_ename}</b><select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>POR ENCIMA</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>POR DEBAJO</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select><span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
-h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
-h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()} · EMA20/MACD/RSI usan esta misma temporalidad.</span></div>"
-h += "<div class='panel-card'><b>MEDIAS</b><span>EMA20 · EMA50 · EMA200 calculadas en el timeframe seleccionado.</span></div>"
-h += "<div class='panel-card'><b>BOLLINGER</b><span>Bandas y distancia a banda.</span></div>"
-h += "<div class='panel-card'><b>MFI</b><span>Money Flow Index.</span></div>"
-h += "<div class='panel-card'><b>VOLATILIDAD</b><span>ATR · Beta.</span></div>"
-h += "<div class='panel-card'><b>PERFORMANCE</b><span>Semana · mes · trimestre · YTD · año.</span></div>"
-h += "<div class='panel-card'><b>GAP / VOLUMEN</b><span>Gap % · volumen actual · volumen promedio · relativo.</span></div>"
-h += "</div></div>"
-h += "<div class='technical-subtabs'><button type='button' class='technical-subtab active' data-subtab-target='save-config-panel'>💾 GUARDAR CONFIGURACIÓN</button><button type='button' class='technical-subtab' data-subtab-target='load-config-panel'>📂 MIS CONFIGURACIONES</button></div>"
-h += "<div id='save-config-panel' class='technical-subpanel active'><div class='panel-card technical-control'><b>💾 GUARDAR CONFIGURACIÓN PERSONAL</b><div class='range'><input id='config_name' type='text' placeholder='Nombre de configuración'><button type='button' class='btn-guardar-config'>GUARDAR</button></div><span>Los filtros y la posición de la pantalla se guardan automáticamente. Aquí puedes crear una copia con nombre.</span></div></div>"
-h += "<div id='load-config-panel' class='technical-subpanel'><div class='panel-card technical-control'><b>📂 MIS CONFIGURACIONES</b><input id='config_search' type='text' placeholder='Buscar configuración' oninput='renderConfiguraciones()'><div id='saved_configs_list'></div></div></div>"
-h += "<div id='panel-config' class='tab-panel'><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
-h += f"<b style='font-size:12px;color:#d4af37;'>🔗 BROKER ENTRELAZADO CON EL SCANNER</b><span style='display:block;margin-bottom:5px;'>Broker activo: <strong>{_safe_text(broker_val)}</strong> · Los activos encontrados pueden enviarse desde el engranaje de Layout.</span>"
-h += "<span style='display:block;'>Charles Schwab: OAuth 2.0 · Credenciales: <strong>SCHWAB_CLIENT_ID</strong>, <strong>SCHWAB_CLIENT_SECRET</strong> y <strong>SCHWAB_REDIRECT_URI</strong> en Streamlit Secrets.</span>"
-h += "</div><div class='panel-grid'>"
-h += f"<div class='panel-card'><b>MOTOR</b><span>{_safe_text(_estado_txt)} · Horario {_safe_text(_hora_txt)}</span></div>"
-h += f"<div class='panel-card'><b>BROKER</b><span>{_safe_text(broker_val)} · API Key/Secret Key se introducen en Configuración y no se muestran en resultados.</span></div>"
-h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
-h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
-h += "</div></div>"
-h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
-h += "<div class='filtros-grid'>"
-h += "<div class='logo'>TRADE SCANNER</div>"
-h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
-h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · fijo</span></div>"
-h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
-h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
-h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · ventana única</span></div>"
-h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
-for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
-    h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
-h += "</select></div>"
-h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
-h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
-h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
-h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
-h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
-h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
-h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
-h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
-h += "<div class='filtro-item'><label>SCHWAB CREDENCIALES</label><span style='font-size:9px;line-height:1.25;color:#b8c0ca;'>Se leen desde Streamlit Secrets. No se guardan en URL ni navegador.</span></div>"
-h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
-h += f"<div class='filtro-item'><label>PUENTE DE LAYOUT</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
-h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
-h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
-h += "</div>"
-_schwab_status_txt = str(st.session_state.get("schwab_status", ""))
-_schwab_connected = bool(_schwab_access_token())
-_schwab_url = _schwab_authorize_url()
-if str(st.query_params.get("schwab_connect", "0")) == "1":
-    if _schwab_url:
-        h += f"<div class='panel-card' style='margin:6px 0;'><b>CHARLES SCHWAB</b><span>Autoriza tu cuenta con OAuth 2.0.</span><a href='{_safe_text(_schwab_url)}' target='_top' style='display:inline-block;margin-top:5px;padding:5px 9px;background:#d4af37;color:#000;text-decoration:none;font-weight:800;border-radius:3px;'>ABRIR AUTORIZACIÓN SCHWAB</a></div>"
+
+    def _qfloat(nombre, defecto):
+        try:
+            return float(_qtxt(nombre, defecto))
+        except Exception:
+            return float(defecto)
+
+
+    def _qint(nombre, defecto):
+        try:
+            return int(float(_qtxt(nombre, defecto)))
+        except Exception:
+            return int(defecto)
+
+
+    precio_min_ui = _qfloat("f_price_min", 0.50)
+    precio_max_ui = _qfloat("f_price_max", 20.00)
+    gap_min_ui = _qfloat("f_gap_min", 3.00)
+    gap_max_ui = _qfloat("f_gap_max", 50.00)
+    float_max_ui = _qint("f_float_max", 20_000_000)
+    volumen_min_ui = _qint("f_vol", 15_000)
+    ema_ui = _qtxt("f_ema", "Hacia arriba")
+    ema20_estado_ui = _qtxt("ema20_estado", "Neutro")
+    ema50_estado_ui = _qtxt("ema50_estado", "Neutro")
+    ema200_estado_ui = _qtxt("ema200_estado", "Neutro")
+    macd_ui = _qtxt("f_mac", "Positivo")
+    orden_ui = _qtxt("f_order", "Actualizado")
+    sesion_ui = "TODO EL MERCADO"
+    timeframe_ui = _qtxt("timeframe", "1m")
+    ema_dist_max_ui = _qfloat("ema_dist_max", 0.0)
+    rsi_min_ui = _qfloat("rsi_min", 0.0)
+    rsi_max_ui = _qfloat("rsi_max", 100.0)
+    if timeframe_ui not in ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo"):
+        timeframe_ui = "1m"
+    ema_dist_max_ui = max(0.0, min(25.0, ema_dist_max_ui))
+    rsi_min_ui = max(0.0, min(100.0, rsi_min_ui))
+    rsi_max_ui = max(rsi_min_ui, min(100.0, rsi_max_ui))
+    try:
+        servicio.configurar_modo_operacion("TODO EL MERCADO", timeframe_ui, ema_dist_max_ui)
+    except Exception:
+        pass
+
+    # Regla fija del scanner: la señal es siempre EMA20 hacia arriba.
+    # El selector sigue visible, pero no puede cambiar la lógica dura del motor.
+    ema_ui = "Hacia arriba"
+    for _var in ("ema20_estado_ui", "ema50_estado_ui", "ema200_estado_ui"):
+        if _var in globals() and globals()[_var] not in ("Por encima", "Por debajo", "Neutro"):
+            globals()[_var] = "Neutro"
+    # En la búsqueda de scalping, EMA50 y EMA200 nunca son filtros de dirección.
+    # Se muestran en la tabla, pero su exigencia queda siempre en NEUTRO.
+    ema50_estado_ui = "Neutro"
+    ema200_estado_ui = "Neutro"
+    # Regla fija del scanner: MACD positivo es obligatorio.
+    # El selector queda normalizado para que la interfaz no contradiga al motor.
+    macd_ui = "Positivo"
+    if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
+        orden_ui = "Actualizado"
+
+    params_ui = {
+        "precio_min": precio_min_ui,
+        "precio_max": precio_max_ui,
+        "gap_min": gap_min_ui,
+        "gap_max": gap_max_ui,
+        "flotacion_max": float_max_ui,
+        "volumen_min": volumen_min_ui,
+        "cruce_ema": ema_ui,
+        "macd": macd_ui,
+        "orden": orden_ui,
+        "top_n": 50,
+        "sesion": sesion_ui,
+        "timeframe": timeframe_ui,
+        "ema_dist_max": ema_dist_max_ui,
+        "rsi_min": rsi_min_ui,
+        "rsi_max": rsi_max_ui,
+        "ema20_estado": ema20_estado_ui,
+        "ema50_estado": ema50_estado_ui,
+        "ema200_estado": ema200_estado_ui,
+    }
+
+    # IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
+    # Antes el motor podía conservar una configuración vieja de cargar_config(),
+    # mientras la pantalla mostraba otra, dejando el scanner aparentemente vacío.
+    try:
+        servicio.filtros_dueno.update(params_ui)
+        servicio.filtros_dueno["ema50_estado"] = "Neutro"
+        servicio.filtros_dueno["ema200_estado"] = "Neutro"
+        servicio.sesion = sesion_ui
+        servicio.timeframe = timeframe_ui
+    except Exception:
+        pass
+
+    _guardar_ultima_configuracion_servidor()
+
+
+    if PUBLIC_PREVIEW:
+        # La carátula pública muestra el diseño y las 10 líneas, pero no expone
+        # resultados reales del motor antes del registro/inicio de sesión.
+        filas_reales = []
     else:
-        h += "<div class='panel-card' style='margin:6px 0;'><b>CHARLES SCHWAB</b><span>Configura SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET y SCHWAB_REDIRECT_URI en Streamlit Secrets.</span></div>"
-if _schwab_status_txt:
-    h += f"<div class='panel-card' style='margin:6px 0;'><b>ESTADO SCHWAB</b><span>{_safe_text(_schwab_status_txt)}</span></div>"
-if _schwab_connected:
-    h += "<div class='panel-card' style='margin:6px 0;border-color:#37c77a;'><b>🟢 CHARLES SCHWAB CONECTADO</b><span>La autorización OAuth está activa en esta sesión.</span></div>"
-_layout_status = str(st.session_state.get("layout_send_status", ""))
-if _layout_status:
-    h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
-h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
-# Diagnóstico compacto del embudo: no expone credenciales ni datos sensibles.
-_diag = getattr(servicio, "diagnostico_filtros", {}) or {}
-_diag_html = (
-    f"<div class='footer-note' style='margin-top:4px;'>"
-    f"<span>Embudo: base {_entero(_diag.get('radar_base'))} → GAP/vol {_entero(_diag.get('tras_gap_volumen'))} → "
-    f"EMA {_entero(_diag.get('ema_arriba'))} → MACD {_entero(_diag.get('macd_positivo'))} → "
-    f"Float {_entero(_diag.get('tras_float'))} → FINAL {_entero(_diag.get('resultados'))}</span>"
-    f"<span>{_safe_text(getattr(servicio, 'auto_motivo', ''))}</span></div>"
-)
-h += _diag_html
+        try:
+            # El motor ya entrega candidatos que pasaron el embudo real del scanner.
+            # Reaplicar aquí filtros técnicos históricos era una segunda puerta que
+            # podía vaciar la tabla aunque el motor hubiera detectado una señal.
+            # Solo se conserva el filtro final común para los valores editables.
+            filas_reales = filtrar_resultados(list(servicio.resultados), params_ui)
+        except Exception as _ex_ui:
+            filas_reales = list(getattr(servicio, "resultados", []) or [])
+            try:
+                servicio.ultimo_error = f"Filtro de pantalla: {_ex_ui}"
+            except Exception:
+                pass
 
-h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
-h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50</th><th>EMA200</th><th>MACD</th>"
-h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
-_ultima_scan_txt = servicio.ultima_actualizacion.strftime("%H:%M:%S ET") if servicio.ultima_actualizacion else "aún no ejecutado"
-_error_scan_txt = str(getattr(servicio, "ultimo_error", "") or "").strip()
-if len(_error_scan_txt) > 140:
-    _error_scan_txt = _error_scan_txt[:140] + "…"
-_hilo_vivo = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
-_hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
-_universo_txt = str(len(getattr(servicio, "universo", []) or []))
-h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
-# Refresco visual seguro: una sola recarga de la página superior. Esto evita
-# crear componentes Streamlit adicionales durante un fragment rerun.
-h += "<script>(function(){try{var sec=" + str(int(refresh_sec)) + ";if(sec>=5){try{if(window.top.__TS_REFRESH_TIMER__)clearTimeout(window.top.__TS_REFRESH_TIMER__);}catch(e){}window.top.__TS_REFRESH_TIMER__=setTimeout(function(){try{window.top.location.reload();}catch(e){try{window.location.reload();}catch(_e){}}},sec*1000);}}catch(e){}})();</script>"
-h += "</div></body></html>"
 
-# La carátula se muestra en un único iframe aislado. El motor sigue ejecutándose
-# fuera del componente. No usamos st.fragment + st.rerun() para este componente:
-# esa combinación puede conservar instancias anteriores del iframe en el DOM y
-# producir el efecto visual de "una ventana encima de otra".
-# Botón nativo fuera del iframe: garantiza que SALIR ejecute el cierre de sesión
-# aunque el navegador bloquee la navegación desde el componente HTML.
-if USUARIO_AUTENTICADO:
-    _salir_col1, _salir_col2 = st.columns([0.92, 0.08])
-    with _salir_col2:
-        if st.button("SALIR", key="ts_native_logout", help="Cerrar sesión"):
-            cerrar_sesion()
-            st.query_params.clear()
-            st.rerun()
+    def _num(v, default=0.0):
+        try:
+            if v is None or v == "":
+                return default
+            return float(v)
+        except Exception:
+            return default
 
-components.html(h, height=1050, scrolling=True)
+
+    def _entero(v, default=0):
+        try:
+            if v is None or v == "":
+                return default
+            return int(float(v))
+        except Exception:
+            return default
+
+
+    def _safe_text(v, default=""):
+        return html_escape(str(v if v is not None else default))
+
+
+    def _money(v):
+        return f"${_num(v):,.2f}"
+
+
+    def _pct(v):
+        return f"{_num(v):+.2f}%"
+
+
+    def _big(v):
+        n = _num(v)
+        if n >= 1_000_000:
+            return f"{n/1_000_000:.1f}M"
+        if n >= 1_000:
+            return f"{n/1_000:.0f}K"
+        return f"{n:.0f}"
+
+
+    def _row_html(row):
+        ticker = _safe_text(row.get("ticker", ""))
+        sector = _safe_text(row.get("sector", "N/A"))
+        precio = _num(row.get("precio"))
+        cambio = _num(row.get("cambio_pct"))
+        volumen = _entero(row.get("volumen_dia"))
+        flotacion = _num(row.get("float_shares")) / 1_000_000 if row.get("float_shares") else 0.0
+        ema_ok = bool(row.get("cruzando_ema20"))
+        ema_down = bool(row.get("cruzando_ema20_abajo"))
+        mac_pos = bool(row.get("macd_positivo"))
+        mac_neg = bool(row.get("macd_negativo"))
+        noticia = bool(row.get("tiene_noticia"))
+        fila = "fila-alza" if cambio > 0 else ("fila-baja" if cambio < 0 else "")
+        ema20_val = row.get("tecnico_ema20_actual", row.get("tecnico_ema20"))
+        ema50_val = row.get("ema50")
+        ema200_val = row.get("ema200")
+        def _ema_cell(valor, estado):
+            try:
+                txt = f"${float(valor):.4f}"
+            except Exception:
+                txt = "N/D"
+            return f"{txt} · {estado}"
+        ema_txt = _ema_cell(ema20_val, "Por encima" if ema_ok else ("Por debajo" if ema_down else "Neutro"))
+        ema50_txt = _ema_cell(ema50_val, row.get("ema50_estado", "Neutro"))
+        ema200_txt = _ema_cell(ema200_val, row.get("ema200_estado", "Neutro"))
+        mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
+        mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
+        news = " 🔥" if noticia else ""
+        return (
+            f"<tr class='{fila}'>"
+            f"<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
+            f"<option value=''>⚙️ Layout</option>"
+            f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
+            f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
+            f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
+            f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
+            f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
+            f"</select></td>"
+            f"<td><b>{ticker}</b>{news}</td>"
+            f"<td>{sector}</td>"
+            f"<td class='num-col'>{_money(precio)}</td>"
+            f"<td class='num-col'>{_pct(cambio)}</td>"
+            f"<td class='num-col'>{_big(volumen)}</td>"
+            f"<td class='num-col'>{_pct(row.get('gap_pct'))}</td>"
+            f"<td class='num-col'>{flotacion:.2f}M</td>"
+            f"<td>{_safe_text(ema_txt)}</td>"
+            f"<td>{_safe_text(ema50_txt)}</td>"
+            f"<td>{_safe_text(ema200_txt)}</td>"
+            f"<td class='{mac_cls}'>{mac_txt}</td></tr>"
+        )
+
+
+    # La sección RESULTADOS / VISUALIZACIÓN mantiene siempre las 10 líneas
+    # horizontales del diseño. Cuando hay señales reales se colocan en las primeras
+    # líneas; las restantes quedan disponibles con su engranaje de Layout.
+    filas_visualizacion = list(filas_reales[:10])
+    while len(filas_visualizacion) < 10:
+        filas_visualizacion.append(None)
+
+
+    def _row_visualizacion(item, indice):
+        if item is None:
+            return (
+                "<tr class='fila-vacia'>"
+                "<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
+                "<option value=''>⚙️ Layout</option>"
+                "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
+                "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
+                "<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
+                "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
+                "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
+                "</select></td>"
+                "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
+                "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
+                "<td class='num-col'>—</td><td>—</td><td>—</td><td>—</td><td class='macd-neutro'>—</td></tr>"
+            )
+        return _row_html(item)
+
+
+    rows_html = "".join(_row_visualizacion(r, i + 1) for i, r in enumerate(filas_visualizacion))
+
+    try:
+        hora_ini = int(servicio.hora_inicio_auto_min)
+        hora_fin = int(servicio.hora_fin_auto_min)
+    except Exception:
+        hora_ini, hora_fin = 240, 960
+
+    _hora_txt = f"{hora_ini//60:02d}:{hora_ini%60:02d} - {hora_fin//60:02d}:{hora_fin%60:02d} ET"
+    _estado_txt = "ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA")
+
+    start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
+    end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
+
+    active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
+    try:
+        servicio.encendido = (active_val == "True")
+    except Exception:
+        pass
+    lang_val = _qtxt("c_lang", "ESP")
+    wnd_val = _qtxt("c_wnd", "Incrustada")
+    broker_val = _qtxt("c_broker", st.session_state.get("bk_nombre", "Interactive Brokers"))
+    bridge_val = _qtxt("c_url", st.session_state.get("bk_puente", "http://localhost:8080/layout"))
+
+    # Enlace REAL entre el resultado del scanner y el puente de layout.
+    # El navegador solicita el envío y Python ejecuta el POST, de modo que
+    # el estado de Charles Schwab se conoce en el servidor y no se expone
+    # ningún token OAuth al HTML/JavaScript.
+    _pending_ticker = str(st.query_params.get("layout_send_ticker", "")).strip()
+    _pending_layout = str(st.query_params.get("layout_send_color", "")).strip()
+    if _pending_ticker and _pending_layout:
+        try:
+            if broker_val == "Charles Schwab" and not _schwab_access_token():
+                _ok_layout, _msg_layout = False, "Charles Schwab no está conectado. Autoriza Schwab antes de enviar activos."
+            else:
+                _ok_layout, _msg_layout = _schwab_send_layout_bridge(_pending_ticker, _pending_layout, bridge_val)
+            st.session_state["layout_send_status"] = ("🟢 " if _ok_layout else "🔴 ") + _msg_layout
+        except Exception as _ex_layout:
+            st.session_state["layout_send_status"] = "🔴 Error enviando layout: " + str(_ex_layout)
+        try:
+            del st.query_params["layout_send_ticker"]
+            del st.query_params["layout_send_color"]
+        except Exception:
+            pass
+
+    # 🔄 Refresco de la interfaz: visitante fijo en 3 minutos; usuario registrado
+    # puede seleccionar desde 5 segundos y valores mayores.
+    _refresh_raw = str(st.query_params.get("refresh_sec", "180"))
+    try:
+        refresh_sec = max(5, int(float(_refresh_raw)))
+    except Exception:
+        refresh_sec = 180
+    if PUBLIC_PREVIEW:
+        refresh_sec = 180
+    refresh_options = [5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600]
+    if refresh_sec not in refresh_options:
+        refresh_options.append(refresh_sec)
+    refresh_options = sorted(set(refresh_options))
+    refresh_label = (f"{refresh_sec} s" if refresh_sec < 60 else (f"{refresh_sec//60} min" if refresh_sec % 60 == 0 else f"{refresh_sec} s"))
+    fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
+    _email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
+
+    h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+    h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+    h += "<title>TradeScanner</title>"
+    h += "<style>"
+    h += "*{box-sizing:border-box;}"
+    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
+    h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
+    h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
+    h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
+    h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
+    h += ".status-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-top:1px solid #3c424a;padding-top:4px;}.status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}.date-time{font-size:9px;font-weight:bold;color:#b8c0ca;white-space:nowrap;margin-left:auto;}"
+    h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#20242a;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
+    h += ".tab{font-size:10px;font-weight:bold;padding:4px 9px;background:#2a2f37;color:#dfe3e8;border:1px solid #555;cursor:pointer;}.tab.active{background:#11151a;color:#fff;border-bottom:2px solid #d4af37;}"
+    h += ".filtros-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}"
+    h += ".filtro-item{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#292e36;border:1px solid #aaa;padding:5px 7px;min-height:38px;}"
+    h += ".filtro-item label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap;}"
+    h += "input,select,button{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #555;background:#171b20;color:#e7eaee;border-radius:0;outline:none;}"
+    h += "input{min-width:0;width:105px;padding:1px 4px;}select{min-width:105px;max-width:170px;padding:1px 3px;}button{cursor:pointer;background:#30353d;color:#fff;font-weight:bold;padding:2px 8px;}"
+    h += ".range{display:flex;gap:2px;align-items:center;}.range span{font-size:8px;color:#8d96a0;}"
+    h += ".logo{display:flex;align-items:center;justify-content:center;background:#252a31;border:1px dashed #666;font-weight:900;color:#f1f3f5;min-height:34px;font-size:14px;}"
+    h += ".engine{font-weight:bold;}.subline{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}.subline span,.subline span *{color:#f0f2f4 !important;opacity:1 !important;text-shadow:none !important;}.subline b{color:#f0f2f4 !important;font-weight:900;opacity:1 !important;text-shadow:none !important;}"
+    h += ".result-title{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}"
+    h += ".table-wrapper{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
+    h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
+    h += "td{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}"
+    h += ".fila-alza{background:#1e3325}.fila-baja{background:#3a2426}.fila-vacia{background:#1c2025;color:#7f8995}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
+    h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
+    h += ".layout-col{width:120px;text-align:center;background:#242930;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
+    h += ".footer-note{margin-top:4px;font-size:8px;color:#7f8995;display:flex;justify-content:space-between;gap:8px;}"
+    h += ".tab-panel{display:none;background:#20252b;color:#dce1e6;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#292e36;border:1px solid #4a515b;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;color:#f1f3f5;}.panel-card span{font-size:10px;color:#b8c0ca;}.technical-control{display:flex;flex-direction:column;align-items:stretch;gap:5px}.technical-control select{width:100%;max-width:none;}"
+    h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
+    h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
+    h += ".tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.technical-control select{min-width:0;width:100%;}.tab-panel{font-size:9px;padding:6px}}"
+    h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900}.technical-subtab.active{background:#3a4048}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
+    h += "</style>"
+    h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
+    h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
+    h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
+    h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
+    h += "var TS_BASE_QUERY=" + json.dumps({str(k): str(v) for k, v in st.query_params.items()}, ensure_ascii=False) + ";"
+    h += "var TS_AUTH_SESSION=" + json.dumps(str(st.query_params.get("auth_session", ""))) + ";"
+    h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
+    h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
+    h += "function _qtop(){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(e){return new URLSearchParams()}}"
+    h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
+    h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
+    h += "function _restaurarUltimaConfiguracion(){return;}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');var u='/?'+q.toString();var topw=window.top||window.parent||window;if(topw.location&&typeof topw.location.replace==='function'){topw.location.replace(u);}else{window.location.replace(u);}}catch(e){try{window.location.replace('/?'+q.toString());}catch(_e){}}}"
+    h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
+    h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
+    h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
+    h += "function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var o=cfgActual();o.nombre=n;['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)o[k]=e.value});var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}a=a.filter(function(x){return x.nombre.toLowerCase()!==n.toLowerCase()});a.unshift(o);localStorage.setItem('tradeScannerConfigs',JSON.stringify(a.slice(0,50)));_guardarUltimaConfiguracion(cfgActual());document.getElementById('config_name').value='';renderConfiguraciones();}"
+    h += "function cargarConfiguracionPersonal(n){var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}var o=a.find(function(x){return x.nombre===n});if(!o)return;var q=new URLSearchParams();Object.keys(o).forEach(function(k){if(k!=='nombre' && k!=='auth_session')q.set(k,o[k])});_goto(q)}"
+    h += "function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var raw=localStorage.getItem('tradeScannerConfigs')||'[]';var a=JSON.parse(raw);if(!Array.isArray(a))a=[];var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});localStorage.removeItem('tradeScannerConfigs');localStorage.setItem('tradeScannerConfigs',JSON.stringify(restantes));renderConfiguraciones();}catch(e){try{sessionStorage.setItem('tradeScannerConfigs',JSON.stringify([]));}catch(_e){}alert('No se pudo eliminar la configuración: '+e.message);}}"
+    h += "function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
+    h += "function renderConfiguraciones(){var b=document.getElementById('saved_configs_list');if(!b)return;var t=(document.getElementById('config_search').value||'').toLowerCase();var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){a=[]}if(!Array.isArray(a))a=[];a=a.filter(function(x){return String((x&&x.nombre)||'').toLowerCase().indexOf(t)>=0});b.innerHTML=a.length?a.map(function(x,i){var n=String((x&&x.nombre)||'').replace(/[<>]/g,'');var key=encodeURIComponent(String((x&&x.nombre)||''));return '<div class=\"saved-config\"><b>'+n+'</b><span>'+String(x.timeframe||'1m')+' · EMA20 '+String(x.ema20_estado||'Neutro')+' · EMA50 '+String(x.ema50_estado||'Neutro')+' · EMA200 '+String(x.ema200_estado||'Neutro')+'</span><button type=\"button\" class=\"btn-cargar-config\" data-config-name=\"'+key+'\">CARGAR</button><button type=\"button\" class=\"btn-eliminar-config\" data-config-name=\"'+key+'\">ELIMINAR</button></div>'}).join(''):'<span class=\"saved-empty\">No hay configuraciones guardadas.</span>'; }"
+    h += "var _tsScrollTimer=null;window.addEventListener('scroll',function(){if(!TS_AUTH)return;if(_tsScrollTimer)return;_tsScrollTimer=setTimeout(function(){_tsScrollTimer=null;try{_guardarUltimaConfiguracion(_qtop());}catch(e){}},250);},{passive:true});"
+    h += 'document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){renderConfiguraciones();try{var raw=localStorage.getItem(TS_USER_KEY)||\'\';var o=JSON.parse(raw||\'{}\');if(o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target=\"\'+o._activeTab+\'\"]\');if(b)showTab(o._activeTab,b)}if(o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target=\"\'+o._technicalSubtab+\'\"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\'};var k=map[id];if(k)q.set(k,el.value);_guardarUltimaConfiguracion(q);}catch(e){}});});},100)});'
+    h += "document.addEventListener('click',function(ev){var tab=ev.target.closest?ev.target.closest('.tab[data-tab-target]'):null;if(tab){ev.preventDefault();showTab(tab.getAttribute('data-tab-target'),tab);return;}var sub=ev.target.closest?ev.target.closest('.technical-subtab[data-subtab-target]'):null;if(sub){ev.preventDefault();showTechnicalSubTab(sub.getAttribute('data-subtab-target'),sub);return;}var save=ev.target.closest?ev.target.closest('.btn-guardar-config'):null;if(save){ev.preventDefault();guardarConfiguracionPersonal();return;}var btn=ev.target.closest?ev.target.closest('.btn-eliminar-config'):null;if(btn){ev.preventDefault();ev.stopPropagation();borrarConfiguracionPersonal(decodeURIComponent(btn.getAttribute('data-config-name')||''));return;}var cargar=ev.target.closest?ev.target.closest('.btn-cargar-config'):null;if(cargar){ev.preventDefault();ev.stopPropagation();cargarConfiguracionPersonal(decodeURIComponent(cargar.getAttribute('data-config-name')||''));return;}});"
+    h += "function pushConfig(){var q=_qtop();"
+    h += "q.set('f_price_min',document.getElementById('price_min').value);q.set('f_price_max',document.getElementById('price_max').value);"
+    h += "q.set('f_gap_min',document.getElementById('gap_min').value);q.set('f_gap_max',document.getElementById('gap_max').value);"
+    h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_vol',document.getElementById('txt_vol').value);"
+    h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
+    h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
+    h += "q.set('c_start','04:00');q.set('c_end','20:00');"
+    h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session','TODO EL MERCADO');q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);q.set('ema20_estado',document.getElementById('ema20_estado')?document.getElementById('ema20_estado').value:'Neutro');q.set('ema50_estado',document.getElementById('ema50_estado')?document.getElementById('ema50_estado').value:'Neutro');q.set('ema200_estado',document.getElementById('ema200_estado')?document.getElementById('ema200_estado').value:'Neutro');"
+    h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
+    h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(e){_navegarMismaApp(q);}}"
+    h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
+    h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
+    h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
+    h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
+    h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);_navegarMismaApp(q)}"
+    h += ""
+    h += "</script></head><body>"
+    h += "<div class='main-container'>"
+    h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
+    h += "<div class='top-actions'>"
+    if PUBLIC_PREVIEW:
+        h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>📝 REGISTRO / INICIAR SESIÓN</button>"
+        h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
+    else:
+        opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
+        h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
+        if _email_top:
+            h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
+        # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
+        h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>CUENTA / REGISTRO</button>"
+        h += "<button type='button' class='auth-link' onclick=\"var q=_qtop();q.set('logout','1');_navegarMismaApp(q);\">SALIR</button>"
+    h += "</div>"
+    h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
+    h += "<div class='tabs'>"
+    h += "<button type='button' class='tab active' data-tab-target='panel-radar'>RADAR</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-tecnicos'>TÉCNICOS</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-technical'>TECHNICAL</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-config'>CONFIGURACIÓN</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-resultados'>RESULTADOS</button>"
+    h += "</div>"
+    h += "<div id='panel-radar' class='tab-panel active'><b>RADAR</b><br>Filtros principales del radar: precio, gap, flotación y volumen.</div>"
+    h += "<div id='panel-tecnicos' class='tab-panel'><div class='panel-grid'>"
+    h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
+    h += f"<div class='panel-card'><b>MACD</b><span>Condición actual: {_safe_text(macd_ui)}.</span></div>"
+    h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
+    h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
+    h += "</div></div>"
+    h += "<div id='panel-technical' class='tab-panel'><div class='panel-grid'>"
+    h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
+    for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+        h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+    h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
+    for _ename, _eid, _eval in (("EMA20", "ema20_estado", ema20_estado_ui), ("EMA50", "ema50_estado", ema50_estado_ui), ("EMA200", "ema200_estado", ema200_estado_ui)):
+        h += f"<div class='panel-card technical-control'><b>{_ename}</b><select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>POR ENCIMA</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>POR DEBAJO</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select><span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
+    h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
+    h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()} · EMA20/MACD/RSI usan esta misma temporalidad.</span></div>"
+    h += "<div class='panel-card'><b>MEDIAS</b><span>EMA20 · EMA50 · EMA200 calculadas en el timeframe seleccionado.</span></div>"
+    h += "<div class='panel-card'><b>BOLLINGER</b><span>Bandas y distancia a banda.</span></div>"
+    h += "<div class='panel-card'><b>MFI</b><span>Money Flow Index.</span></div>"
+    h += "<div class='panel-card'><b>VOLATILIDAD</b><span>ATR · Beta.</span></div>"
+    h += "<div class='panel-card'><b>PERFORMANCE</b><span>Semana · mes · trimestre · YTD · año.</span></div>"
+    h += "<div class='panel-card'><b>GAP / VOLUMEN</b><span>Gap % · volumen actual · volumen promedio · relativo.</span></div>"
+    h += "</div></div>"
+    h += "<div class='technical-subtabs'><button type='button' class='technical-subtab active' data-subtab-target='save-config-panel'>💾 GUARDAR CONFIGURACIÓN</button><button type='button' class='technical-subtab' data-subtab-target='load-config-panel'>📂 MIS CONFIGURACIONES</button></div>"
+    h += "<div id='save-config-panel' class='technical-subpanel active'><div class='panel-card technical-control'><b>💾 GUARDAR CONFIGURACIÓN PERSONAL</b><div class='range'><input id='config_name' type='text' placeholder='Nombre de configuración'><button type='button' class='btn-guardar-config'>GUARDAR</button></div><span>Los filtros y la posición de la pantalla se guardan automáticamente. Aquí puedes crear una copia con nombre.</span></div></div>"
+    h += "<div id='load-config-panel' class='technical-subpanel'><div class='panel-card technical-control'><b>📂 MIS CONFIGURACIONES</b><input id='config_search' type='text' placeholder='Buscar configuración' oninput='renderConfiguraciones()'><div id='saved_configs_list'></div></div></div>"
+    h += "<div id='panel-config' class='tab-panel'><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
+    h += f"<b style='font-size:12px;color:#d4af37;'>🔗 BROKER ENTRELAZADO CON EL SCANNER</b><span style='display:block;margin-bottom:5px;'>Broker activo: <strong>{_safe_text(broker_val)}</strong> · Los activos encontrados pueden enviarse desde el engranaje de Layout.</span>"
+    h += "<span style='display:block;'>Charles Schwab: OAuth 2.0 · Credenciales: <strong>SCHWAB_CLIENT_ID</strong>, <strong>SCHWAB_CLIENT_SECRET</strong> y <strong>SCHWAB_REDIRECT_URI</strong> en Streamlit Secrets.</span>"
+    h += "</div><div class='panel-grid'>"
+    h += f"<div class='panel-card'><b>MOTOR</b><span>{_safe_text(_estado_txt)} · Horario {_safe_text(_hora_txt)}</span></div>"
+    h += f"<div class='panel-card'><b>BROKER</b><span>{_safe_text(broker_val)} · API Key/Secret Key se introducen en Configuración y no se muestran en resultados.</span></div>"
+    h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
+    h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
+    h += "</div></div>"
+    h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
+    h += "<div class='filtros-grid'>"
+    h += "<div class='logo'>TRADE SCANNER</div>"
+    h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
+    h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · fijo</span></div>"
+    h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
+    h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
+    h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · ventana única</span></div>"
+    h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
+    for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+        h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+    h += "</select></div>"
+    h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
+    h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
+    h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
+    h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
+    h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
+    h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
+    h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
+    h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+    h += "<div class='filtro-item'><label>SCHWAB CREDENCIALES</label><span style='font-size:9px;line-height:1.25;color:#b8c0ca;'>Se leen desde Streamlit Secrets. No se guardan en URL ni navegador.</span></div>"
+    h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
+    h += f"<div class='filtro-item'><label>PUENTE DE LAYOUT</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
+    h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
+    h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
+    h += "</div>"
+    _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
+    _schwab_connected = bool(_schwab_access_token())
+    _schwab_url = _schwab_authorize_url()
+    if str(st.query_params.get("schwab_connect", "0")) == "1":
+        if _schwab_url:
+            h += f"<div class='panel-card' style='margin:6px 0;'><b>CHARLES SCHWAB</b><span>Autoriza tu cuenta con OAuth 2.0.</span><a href='{_safe_text(_schwab_url)}' target='_top' style='display:inline-block;margin-top:5px;padding:5px 9px;background:#d4af37;color:#000;text-decoration:none;font-weight:800;border-radius:3px;'>ABRIR AUTORIZACIÓN SCHWAB</a></div>"
+        else:
+            h += "<div class='panel-card' style='margin:6px 0;'><b>CHARLES SCHWAB</b><span>Configura SCHWAB_CLIENT_ID, SCHWAB_CLIENT_SECRET y SCHWAB_REDIRECT_URI en Streamlit Secrets.</span></div>"
+    if _schwab_status_txt:
+        h += f"<div class='panel-card' style='margin:6px 0;'><b>ESTADO SCHWAB</b><span>{_safe_text(_schwab_status_txt)}</span></div>"
+    if _schwab_connected:
+        h += "<div class='panel-card' style='margin:6px 0;border-color:#37c77a;'><b>🟢 CHARLES SCHWAB CONECTADO</b><span>La autorización OAuth está activa en esta sesión.</span></div>"
+    _layout_status = str(st.session_state.get("layout_send_status", ""))
+    if _layout_status:
+        h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
+    h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
+    # Diagnóstico compacto del embudo: no expone credenciales ni datos sensibles.
+    _diag = getattr(servicio, "diagnostico_filtros", {}) or {}
+    _diag_html = (
+        f"<div class='footer-note' style='margin-top:4px;'>"
+        f"<span>Embudo: base {_entero(_diag.get('radar_base'))} → GAP/vol {_entero(_diag.get('tras_gap_volumen'))} → "
+        f"EMA {_entero(_diag.get('ema_arriba'))} → MACD {_entero(_diag.get('macd_positivo'))} → "
+        f"Float {_entero(_diag.get('tras_float'))} → FINAL {_entero(_diag.get('resultados'))}</span>"
+        f"<span>{_safe_text(getattr(servicio, 'auto_motivo', ''))}</span></div>"
+    )
+    h += _diag_html
+
+    h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
+    h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
+    h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50</th><th>EMA200</th><th>MACD</th>"
+    h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
+    _ultima_scan_txt = servicio.ultima_actualizacion.strftime("%H:%M:%S ET") if servicio.ultima_actualizacion else "aún no ejecutado"
+    _error_scan_txt = str(getattr(servicio, "ultimo_error", "") or "").strip()
+    if len(_error_scan_txt) > 140:
+        _error_scan_txt = _error_scan_txt[:140] + "…"
+    _hilo_vivo = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
+    _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
+    _universo_txt = str(len(getattr(servicio, "universo", []) or []))
+    h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
+    h += "</div></body></html>"
+
+    # Este componente queda dentro del fragmento del scanner. El fragmento se vuelve
+    # a ejecutar en el mismo lugar cuando llega el intervalo de refresco; NO llamamos
+    # st.rerun(), location.reload() ni location.replace() automáticamente. Eso evita
+    # que se acumulen iframes/páginas anteriores.
+    if USUARIO_AUTENTICADO:
+        _salir_col1, _salir_col2 = st.columns([0.92, 0.08])
+        with _salir_col2:
+            if st.button("SALIR", key="ts_native_logout", help="Cerrar sesión"):
+                cerrar_sesion()
+                st.query_params.clear()
+                st.rerun()
+
+    components.html(h, height=1050, scrolling=False)
+
+
+# Refresco estable: el scanner completo (incluido su iframe HTML) vive dentro
+# de un único fragmento. Streamlit actualiza ese fragmento en el mismo delta,
+# en lugar de lanzar un rerun global que pueda dejar iframes anteriores vivos.
+_refresh_for_fragment = 180
+try:
+    _refresh_for_fragment = max(5, int(float(st.query_params.get("refresh_sec", "180"))))
+except Exception:
+    _refresh_for_fragment = 180
+if PUBLIC_PREVIEW:
+    _refresh_for_fragment = 180
+_st_fragment = getattr(st, "fragment", None)
+if _st_fragment is not None:
+    _render_scanner = _st_fragment(run_every=f"{int(_refresh_for_fragment)}s")(_render_scanner)
+_render_scanner()
