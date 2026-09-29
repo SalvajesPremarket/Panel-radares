@@ -185,7 +185,7 @@ for r in filas_pantalla:
     </tr>
     """
 
-# Estructura limpia y con caracteres de escape HTML seguros (&percnt;)
+# Estructura del Dashboard con Contenedor Deslizable para pantallas Móviles sin llaves corruptas
 html_completo = """
 <!DOCTYPE html>
 <html>
@@ -212,4 +212,3 @@ html_completo = """
         width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
-        border-radius: 6px;
