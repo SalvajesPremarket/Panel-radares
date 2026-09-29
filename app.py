@@ -14,12 +14,6 @@ import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
-from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
-from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import AssetClass, AssetStatus
-from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 
 # Configuración obligatoria de Streamlit Shell
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
@@ -185,19 +179,18 @@ def registrar_usuario(email, password):
 def iniciar_sesion_usuario(email, password):
     return supabase_auth_request("token?grant_type=password", {"email": email, "password": password})
 
+# ==========================================
+# 👑 PARCHE REPARADOR LINEAL (SIN INDENTACIÓN VACÍA)
+# ==========================================
+def _admin_tokens_para_sesion():
+    # Retorna el token plano si existe en Secrets de forma directa y lineal
+    token_maestro = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
+    return [token_maestro] if token_maestro else []
+
 @st.cache_resource
 def _almacen_sesiones_persistentes(): 
     return {}
 _PERSISTENT_AUTH_SESSIONS = _almacen_sesiones_persistentes()
-
-def _admin_tokens_para_sesion():
-    candidatos = []
-    try:
-        t = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
-        if t: candidatos.append(t)
-    except Exception:
-        pass
-    return candidatos
 
 def _crear_sesion_persistente(tipo, datos):
     sid = secrets.token_urlsafe(32)
@@ -283,3 +276,6 @@ def pantalla_autenticacion():
         if btn:
             if tk.strip() in _admin_tokens_para_sesion():
                 st.session_state["token_verificado"] = tk.strip()
+                st.session_state["tipo_acceso"] = "admin"
+                st.session_state["mostrar_auth"] = False
+                st.query_params["auth_session"] = _crear_sesion_persistente("admin", {"token": tk.strip()})
