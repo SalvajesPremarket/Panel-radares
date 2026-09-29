@@ -3985,10 +3985,22 @@ def _render_scanner():
 
 # El temporizador se mantiene FUERA de components.html().
 # No navega el navegador ni modifica window.location desde el iframe.
+# IMPORTANTE: refresh_sec es local a _render_scanner(), por lo que aquí no se
+# puede referenciar directamente. Lo volvemos a leer de query_params de forma
+# segura para que el decorador de st.fragment reciba el valor correcto.
+def _refresh_segundos_global():
+    try:
+        valor = st.query_params.get("refresh_sec", "180")
+        if isinstance(valor, list):
+            valor = valor[0] if valor else "180"
+        return max(5, int(float(str(valor))))
+    except Exception:
+        return 180
+
 if not PUBLIC_PREVIEW:
     _st_fragment = getattr(st, "fragment", None)
     if _st_fragment is not None:
-        @_st_fragment(run_every=f"{max(5, int(refresh_sec))}s")
+        @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
         def _refresco_nativo_scanner():
             # La primera ejecución del fragmento ocurre inmediatamente al cargar
             # la página. No debemos hacer rerun en ese instante porque produciría
