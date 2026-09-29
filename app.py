@@ -182,8 +182,113 @@ rows_html = ""
 for r in filas_pantalla:
     tk, sc, px, ch, vl = r["ticker"], r["sector"], r["precio"], r["cambio_pct"], r["volumen_dia"]
     fl, gp, mc, e50, e200 = r["float_shares"]/1_000_000, r["gap_pct"], r["tecnico_macd"], r["ema50"], r["ema200"]
+        # ... (Continúa exactamente desde tu última línea de código)
     cls = "fila-alza" if ch > 0 else "fila-baja"
     mac_cls = "macd-positivo" if mc > 0 else "macd-neutro"
     mac_txt = "Positivo" if mc > 0 else "Negativo"
     news = " 🔥" if r["tiene_noticia"] else ""
     ema20_txt = "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo"
+
+    rows_html += f"""
+    <tr class="{cls}">
+        <td style="font-weight: bold; color: #fff;">{tk}{news}</td>
+        <td>{sc}</td>
+        <td style="font-weight: bold;">${px:,.2f}</td>
+        <td>{ch:+.2f}%</td>
+        <td>{_big(vl)}</td>
+        <td>{fl:.1f}M</td>
+        <td>{gp:+.2f}%</td>
+        <td class="{mac_cls}">{mac_txt} ({mc:+.2f})</td>
+        <td>{ema20_txt}</td>
+        <td>${e50:,.2f}</td>
+        <td>${e200:,.2f}</td>
+    </tr>
+    """
+
+# 1. Definición de la estructura e interfaz de diseño (Estilo Dashboard Oscuro)
+html_completo = f"""
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body {{
+        background-color: #0e1117;
+        color: #ffffff;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 10px;
+    }}
+    .banner-estado {{
+        background-color: #1e293b;
+        border-left: 5px solid #10b981;
+        padding: 12px;
+        margin-bottom: 15px;
+        border-radius: 4px;
+        font-weight: bold;
+        font-size: 14px;
+    }}
+    table {{
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+        background-color: #161b22;
+        border-radius: 6px;
+        overflow: hidden;
+    }}
+    th {{
+        background-color: #21262d;
+        color: #8b949e;
+        text-align: left;
+        padding: 12px 10px;
+        font-weight: 600;
+        border-bottom: 1px solid #30363d;
+    }}
+    td {{
+        padding: 10px;
+        border-bottom: 1px solid #21262d;
+        color: #c9d1d9;
+    }}
+    tr:hover {{
+        background-color: #1f242c;
+    }}
+    .fila-alza td:nth-child(4), .fila-alza td:nth-child(7) {{
+        color: #26a69a;
+    }}
+    .fila-baja td:nth-child(4), .fila-baja td:nth-child(7) {{
+        color: #ef5350;
+    }}
+    .macd-positivo {{ color: #26a69a; font-weight: bold; }}
+    .macd-neutro {{ color: #ef5350; font-weight: bold; }}
+</style>
+</head>
+<body>
+
+<div class="banner-estado">{modo_activo_txt}</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>TICKER</th>
+            <th>SECTOR</th>
+            <th>PRECIO</th>
+            <th>CAMBIO %</th>
+            <th>VOLUMEN</th>
+            <th>FLOAT</th>
+            <th>GAP %</th>
+            <th>MACD</th>
+            <th>CONDICIÓN EMA20</th>
+            <th>EMA50</th>
+            <th>EMA200</th>
+        </tr>
+    </thead>
+    <tbody>
+        {rows_html}
+    </tbody>
+</table>
+
+</body>
+</html>
+"""
+
+# 2. Inyección del componente en la página principal de Streamlit
+components.html(html_completo, height=600, scrolling=True)
