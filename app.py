@@ -162,14 +162,14 @@ def _big(v):
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{v:.0f}"
 
-# Convertimos la lista base directamente a un DataFrame de control
+# Convertimos la lista base directamente a un DataFrame de Pandas
 df_control = pd.DataFrame(filas_base)
 
 # ==========================================
-# FILTRADO VECTORIAL DE PANDAS (ANTI-ERRORES DE SINTAXIS)
+# FILTRADO VECTORIAL AVANZADO (CONDICIONES ORIGINALES)
 # ==========================================
 if not df_control.empty:
-    # 1. Filtros numéricos estándar
+    # 1. Filtros numéricos paramétricos
     mascara = (df_control["precio"] >= precio_min_ui) & \
                (df_control["precio"] <= precio_max_ui) & \
                (df_control["gap_pct"] >= gap_min_ui) & \
@@ -179,13 +179,13 @@ if not df_control.empty:
     
     df_filtrado = df_control[mascara].copy()
 
-    # 2. Filtrado relacional para Condición EMA20 Planteada originalmente
+    # 2. Filtrado relacional estricto para Condición EMA20 planteada originalmente
     if ema_ui == "Vela nueva sobre EMA20 + HH/HL":
         df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == True]
     elif ema_ui == "Hacia abajo":
         df_filtrado = df_filtrado[df_filtrado["cruzando_ema20"] == False]
 
-    # 3. Filtrado relacional para Condición MACD Planteada originalmente
+    # 3. Filtrado relacional estricto para Condición MACD planteada originalmente
     if macd_ui == "Positivo":
         df_filtrado = df_filtrado[df_filtrado["tecnico_macd"] > 0]
     elif macd_ui == "Negativo":
@@ -193,7 +193,7 @@ if not df_control.empty:
 else:
     df_filtrado = pd.DataFrame()
 
-# Construcción limpia de columnas para visualización
+# Construcción limpia de columnas para visualización en rejilla
 if not df_filtrado.empty:
     df_filtrado["TICKER"] = df_filtrado["ticker"] + df_filtrado["tiene_noticia"].apply(lambda n: " 🔥" if n else "")
     df_filtrado["SECTOR"] = df_filtrado["sector"]
