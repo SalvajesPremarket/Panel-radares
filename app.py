@@ -3969,39 +3969,37 @@ def _render_scanner():
     _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
     _universo_txt = str(len(getattr(servicio, "universo", []) or []))
     h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
-    # El refresco automático NO se hace con st.fragment.
-    # Un fragmento que contiene components.html() crea un iframe nuevo en cada
-    # ejecución y, en esta carátula, Streamlit puede conservar temporalmente los
-    # iframes anteriores. Ese era el origen de las "ventanas" una detrás de otra.
+    # IMPORTANTE: el refresco automático NO debe navegar desde el iframe.
+    # components.html() vive dentro de un iframe sandboxed; si JavaScript intenta
+    # hacer window.location.replace() desde ese iframe, puede terminar cargando
+    # otra copia del propio Streamlit dentro del iframe. El resultado es
+    # exactamente el efecto de "ventanas una encima de otra".
     #
-    # Ahora el HTML es un único iframe por carga de página y el propio navegador
-    # navega a la misma URL cuando vence el intervalo. Al ser una navegación de
-    # página completa, el documento anterior se reemplaza en vez de acumularse.
-    _refresh_ms = int(max(5, refresh_sec) * 1000)
-    if not PUBLIC_PREVIEW:
-        h += (
-            "<script>"
-            "(function(){"
-            "var ms=" + str(_refresh_ms) + ";"
-            "if(window.__TS_REFRESH_TIMER){clearTimeout(window.__TS_REFRESH_TIMER);}"
-            "window.__TS_REFRESH_TIMER=setTimeout(function(){"
-            "try{"
-            "var q=new URLSearchParams(window.top.location.search||window.location.search);"
-            "q.set('refresh_sec',String(" + str(int(refresh_sec)) + "));"
-            "q.delete('_ts');"
-            "window.top.location.replace('/?'+q.toString());"
-            "}catch(e){try{window.location.reload();}catch(_e){}}"
-            "},ms);"
-            "})();"
-            "</script>"
-        )
+    # El timer de abajo vive fuera del iframe y usa el mecanismo nativo de
+    # Streamlit. Al vencer el intervalo se hace un rerun completo de la app, por
+    # lo que el iframe anterior se reemplaza en lugar de anidarse.
     h += "</div></body></html>"
 
     components.html(h, height=1900, scrolling=False)
 
 
-# IMPORTANTE: NO envolver _render_scanner() en st.fragment.
-# components.html() es un iframe y el fragmento provocaba acumulación visual
-# de iframes durante los refresh automáticos. El timer JavaScript anterior
-# realiza la recarga completa de la página conservando refresh_sec y la sesión.
+# El temporizador se mantiene FUERA de components.html().
+# No navega el navegador ni modifica window.location desde el iframe.
+if not PUBLIC_PREVIEW:
+    _st_fragment = getattr(st, "fragment", None)
+    if _st_fragment is not None:
+        @_st_fragment(run_every=f"{max(5, int(refresh_sec))}s")
+        def _refresco_nativo_scanner():
+            # La primera ejecución del fragmento ocurre inmediatamente al cargar
+            # la página. No debemos hacer rerun en ese instante porque produciría
+            # un ciclo de reruns. Las siguientes ejecuciones llegan por run_every.
+            if not st.session_state.get("_ts_refresh_fragment_started", False):
+                st.session_state["_ts_refresh_fragment_started"] = True
+                return
+            # run_every vuelve a ejecutar solamente este fragmento; st.rerun()
+            # (sin scope) solicita un rerun completo de la aplicación.
+            st.session_state["_ts_refresh_fragment_started"] = False
+            st.rerun()
+        _refresco_nativo_scanner()
+
 _render_scanner()
