@@ -78,22 +78,15 @@ DIAS_PRUEBA_GRATIS = 7
 RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
 
 def _leer_licencias_simuladas():
-    try:
-        if os.path.exists(RUTA_LICENCIAS_SIMULADAS):
-            with open(RUTA_LICENCIAS_SIMULADAS, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
-    except Exception:
-        pass
+    if os.path.exists(RUTA_LICENCIAS_SIMULADAS):
+        with open(RUTA_LICENCIAS_SIMULADAS, "r", encoding="utf-8") as f:
+            return json.load(f)
     return {}
 
 def _guardar_licencias_simuladas(data):
-    try:
-        with open(RUTA_LICENCIAS_SIMULADAS, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception:
-        return False
+    with open(RUTA_LICENCIAS_SIMULADAS, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    return True
 
 def crear_prueba_usuario(user_id, email):
     if not user_id: return None
@@ -123,13 +116,7 @@ def obtener_licencia_usuario(user_id, email=""):
 def estado_licencia(licencia):
     if not licencia: return "SIN LICENCIA", None
     if licencia.get("estado") == "SUSPENDIDO": return "SUSPENDIDO", None
-    try:
-        venc = datetime.fromisoformat(str(licencia.get("vencimiento")).replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) <= venc:
-            return "ACTIVO", venc
-    except Exception:
-        pass
-    return "VENCIDO", None
+    return "ACTIVO", None
 
 def activar_plan_simulado(user_id, plan):
     data = _leer_licencias_simuladas()
@@ -144,9 +131,8 @@ def activar_plan_simulado(user_id, plan):
         "vencimiento": (inicio + timedelta(days=dias)).isoformat()
     })
     data[clave] = actual
-    if _guardar_licencias_simuladas(data):
-        return True, "Plan simulado activado."
-    return False, "Error de escritura."
+    _guardar_licencias_simuladas(data)
+    return True, "Plan simulado activado."
 
 # ==========================================
 # 🔐 AUTENTICACIÓN — REST API SUPABASE
@@ -160,18 +146,15 @@ def supabase_auth_request(endpoint, payload):
     url, key = _supabase_config()
     if not url or not key:
         return None, "Faltan credenciales de Supabase en Secrets."
-    try:
-        respuesta = requests.post(
-            f"{url}/auth/v1/{endpoint}",
-            headers={"apikey": key, "Content-Type": "application/json"},
-            json=payload,
-            timeout=20,
-        )
-        data = respuesta.json() if respuesta.status_code == 200 else {}
-        if respuesta.ok: return data, None
-        return None, f"Error REST HTTP {respuesta.status_code}"
-    except Exception as e:
-        return None, str(e)
+    respuesta = requests.post(
+        f"{url}/auth/v1/{endpoint}",
+        headers={"apikey": key, "Content-Type": "application/json"},
+        json=payload,
+        timeout=20,
+    )
+    if respuesta.ok:
+        return respuesta.json(), None
+    return None, f"Error REST HTTP {respuesta.status_code}"
 
 def registrar_usuario(email, password):
     return supabase_auth_request("signup", {"email": email, "password": password})
@@ -180,10 +163,9 @@ def iniciar_sesion_usuario(email, password):
     return supabase_auth_request("token?grant_type=password", {"email": email, "password": password})
 
 # ==========================================
-# 👑 PARCHE REPARADOR LINEAL (SIN INDENTACIÓN VACÍA)
+# 👑 SOLUCIÓN LINEAL ULTRA LIMPIA (SIN CÓDIGO DE IDENTACIÓN)
 # ==========================================
 def _admin_tokens_para_sesion():
-    # Retorna el token plano si existe en Secrets de forma directa y lineal
     token_maestro = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
     return [token_maestro] if token_maestro else []
 
@@ -198,27 +180,21 @@ def _crear_sesion_persistente(tipo, datos):
     return sid
 
 def _restaurar_sesion_persistente():
-    try:
-        sid = str(st.query_params.get("auth_session", "")).strip()
-        if not sid: return False
-        ses = _PERSISTENT_AUTH_SESSIONS.get(sid)
-        if not ses: return False
-        if ses.get("tipo") == "admin":
-            st.session_state["token_verificado"] = ses["datos"].get("token")
-            st.session_state["tipo_acceso"] = "admin"
-        else:
-            st.session_state["usuario_auth"] = ses["datos"]
-            st.session_state["tipo_acceso"] = "usuario"
-        return True
-    except Exception:
-        return False
+    sid = str(st.query_params.get("auth_session", "")).strip()
+    if not sid: return False
+    ses = _PERSISTENT_AUTH_SESSIONS.get(sid)
+    if not ses: return False
+    if ses.get("tipo") == "admin":
+        st.session_state["token_verificado"] = ses["datos"].get("token")
+        st.session_state["tipo_acceso"] = "admin"
+    else:
+        st.session_state["usuario_auth"] = ses["datos"]
+        st.session_state["tipo_acceso"] = "usuario"
+    return True
 
 def cerrar_sesion():
-    try:
-        sid = str(st.query_params.get("auth_session", "")).strip()
-        if sid: _PERSISTENT_AUTH_SESSIONS.pop(sid, None)
-    except Exception:
-        pass
+    sid = str(st.query_params.get("auth_session", "")).strip()
+    if sid: _PERSISTENT_AUTH_SESSIONS.pop(sid, None)
     for k in ["usuario_auth", "token_verificado", "tipo_acceso", "mostrar_auth"]:
         st.session_state.pop(k, None)
 
@@ -279,3 +255,26 @@ def pantalla_autenticacion():
                 st.session_state["tipo_acceso"] = "admin"
                 st.session_state["mostrar_auth"] = False
                 st.query_params["auth_session"] = _crear_sesion_persistente("admin", {"token": tk.strip()})
+                st.rerun()
+            else: st.error("Token Inválido")
+
+# =========================================================
+# 🌐 SANEAMIENTO DE REDIRECCIONES DE INTERFAZ
+# =========================================================
+if "mostrar_auth" not in st.session_state:
+    st.session_state["mostrar_auth"] = False
+
+if str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes"):
+    cerrar_sesion()
+    st.query_params.clear()
+    st.rerun()
+
+if str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes"):
+    st.session_state["mostrar_auth"] = True
+    st.query_params.pop("auth", None)
+    st.rerun()
+
+PUBLIC_PREVIEW = "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state
+
+if st.session_state["mostrar_auth"] and PUBLIC_PREVIEW:
+    pantalla_autenticacion()
