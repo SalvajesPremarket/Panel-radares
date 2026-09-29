@@ -19,7 +19,7 @@ import streamlit.components.v1 as components
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 # ==========================================
-# 🙈 BLINDAJE VISUAL: OCULTAR COMPONENTES DE STREAMLIT
+# 🙈 BLINDAJE VISUAL INTERFAZ OSCURA
 # ==========================================
 st.markdown("""
 <style>
@@ -41,19 +41,24 @@ st.markdown("""
         width: 100% !important;
         padding-left: 0.35rem !important;
         padding-right: 0.35rem !important;
+        padding-top: 1rem !important;
     }
     [data-testid="stIFrame"], [data-testid="stIFrame"] > iframe {
         width: 100% !important;
         max-width: 100% !important;
     }
+    div.stButton > button {
+        background-color: #d4af37 !important;
+        color: #000000 !important;
+        font-weight: 900 !important;
+        border-radius: 8px !important;
+        height: 50px !important;
+        font-size: 16px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 ET = ZoneInfo("America/New_York")
-
-# ==========================================
-# ⚙️ PARÁMETROS DEL MOTOR COMPARTIDO
-# ==========================================
 INTERVALO_ESCANEO_SEGUNDOS = 10
 OPCIONES_CRUCE_EMA = ["Vela nueva sobre EMA20 + HH/HL", "Hacia abajo", "Neutro"]
 OPCIONES_MACD = ["Positivo", "Negativo", "No exigir"]
@@ -66,206 +71,14 @@ VALORES_POR_DEFECTO = {
     "orden": "Actualizado", "top_n": 50, "sesion": "PRE-MARKET", "timeframe": "1m"
 }
 
-def cargar_config():
-    return VALORES_POR_DEFECTO.copy()
-
 # ==========================================
-# 💳 MEMBRESÍAS Y LICENCIAS SIMULADAS
+# 🔐 GESTIÓN DE ACCESOS Y REDIRECCIONES
 # ==========================================
-PRECIO_MENSUAL_USD = 28.00
-PRECIO_ANUAL_USD = 270.00
-DIAS_PRUEBA_GRATIS = 7
-RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
-
-def _leer_licencias_simuladas():
-    if os.path.exists(RUTA_LICENCIAS_SIMULADAS):
-        with open(RUTA_LICENCIAS_SIMULADAS, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def _guardar_licencias_simuladas(data):
-    with open(RUTA_LICENCIAS_SIMULADAS, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    return True
-
-def crear_prueba_usuario(user_id, email):
-    if not user_id: return None
-    data = _leer_licencias_simuladas()
-    clave = str(user_id)
-    if clave in data: return data[clave]
-    inicio = datetime.now(timezone.utc)
-    licencia = {
-        "user_id": clave,
-        "email": str(email or "").strip().lower(),
-        "plan": "PRUEBA GRATIS",
-        "estado": "ACTIVO",
-        "inicio": inicio.isoformat(),
-        "vencimiento": (inicio + timedelta(days=DIAS_PRUEBA_GRATIS)).isoformat()
-    }
-    data[clave] = licencia
-    _guardar_licencias_simuladas(data)
-    return licencia
-
-def obtener_licencia_usuario(user_id, email=""):
-    data = _leer_licencias_simuladas()
-    licencia = data.get(str(user_id))
-    if not licencia:
-        licencia = crear_prueba_usuario(user_id, email)
-    return licencia
-
-def estado_licencia(licencia):
-    if not licencia: return "SIN LICENCIA", None
-    if licencia.get("estado") == "SUSPENDIDO": return "SUSPENDIDO", None
-    return "ACTIVO", None
-
-def activar_plan_simulado(user_id, plan):
-    data = _leer_licencias_simuladas()
-    clave = str(user_id)
-    actual = data.get(clave) or {"user_id": clave}
-    inicio = datetime.now(timezone.utc)
-    dias = 30 if plan == "MENSUAL" else 365
-    actual.update({
-        "plan": plan,
-        "estado": "ACTIVO",
-        "inicio": inicio.isoformat(),
-        "vencimiento": (inicio + timedelta(days=dias)).isoformat()
-    })
-    data[clave] = actual
-    _guardar_licencias_simuladas(data)
-    return True, "Plan simulado activado."
-
-# ==========================================
-# 🔐 AUTENTICACIÓN — REST API SUPABASE
-# ==========================================
-def _supabase_config():
-    url = str(st.secrets.get("SUPABASE_URL", "")).strip().rstrip("/")
-    key = str(st.secrets.get("SUPABASE_ANON_KEY", "")).strip()
-    return url, key
-
-def supabase_auth_request(endpoint, payload):
-    url, key = _supabase_config()
-    if not url or not key:
-        return None, "Faltan credenciales de Supabase en Secrets."
-    respuesta = requests.post(
-        f"{url}/auth/v1/{endpoint}",
-        headers={"apikey": key, "Content-Type": "application/json"},
-        json=payload,
-        timeout=20,
-    )
-    if respuesta.ok:
-        return respuesta.json(), None
-    return None, f"Error REST HTTP {respuesta.status_code}"
-
-def registrar_usuario(email, password):
-    return supabase_auth_request("signup", {"email": email, "password": password})
-
-def iniciar_sesion_usuario(email, password):
-    return supabase_auth_request("token?grant_type=password", {"email": email, "password": password})
-
-# ==========================================
-# 👑 SOLUCIÓN LINEAL ULTRA LIMPIA (SIN CÓDIGO DE IDENTACIÓN)
-# ==========================================
-def _admin_tokens_para_sesion():
-    token_maestro = str(st.secrets.get("ADMIN_TOKEN", "")).strip()
-    return [token_maestro] if token_maestro else []
-
-@st.cache_resource
-def _almacen_sesiones_persistentes(): 
-    return {}
-_PERSISTENT_AUTH_SESSIONS = _almacen_sesiones_persistentes()
-
-def _crear_sesion_persistente(tipo, datos):
-    sid = secrets.token_urlsafe(32)
-    _PERSISTENT_AUTH_SESSIONS[sid] = {"tipo": tipo, "datos": dict(datos or {})}
-    return sid
-
-def _restaurar_sesion_persistente():
-    sid = str(st.query_params.get("auth_session", "")).strip()
-    if not sid: return False
-    ses = _PERSISTENT_AUTH_SESSIONS.get(sid)
-    if not ses: return False
-    if ses.get("tipo") == "admin":
-        st.session_state["token_verificado"] = ses["datos"].get("token")
-        st.session_state["tipo_acceso"] = "admin"
-    else:
-        st.session_state["usuario_auth"] = ses["datos"]
-        st.session_state["tipo_acceso"] = "usuario"
-    return True
-
-def cerrar_sesion():
-    sid = str(st.query_params.get("auth_session", "")).strip()
-    if sid: _PERSISTENT_AUTH_SESSIONS.pop(sid, None)
-    for k in ["usuario_auth", "token_verificado", "tipo_acceso", "mostrar_auth"]:
-        st.session_state.pop(k, None)
-
-def _guardar_usuario_auth(data):
-    usuario = data.get("user") or {}
-    st.session_state["usuario_auth"] = {
-        "user_id": usuario.get("id", ""),
-        "email": usuario.get("email", ""),
-        "access_token": data.get("access_token", ""),
-    }
-    st.session_state["tipo_acceso"] = "usuario"
-
-# ==========================================
-# 🎨 CARÁTULA NATIVA DE AUTENTICACIÓN
-# ==========================================
-def pantalla_autenticacion():
-    st.markdown("""
-    <style>
-    .stApp { background: #030303 !important; }
-    .auth-card { max-width: 480px; margin: 40px auto; background: #0d1118; border: 1px solid #2a3348; border-radius: 12px; padding: 20px; text-align: center; }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    st.markdown('<div class="auth-card"><div style="color:#d4af37; font-weight:800; font-size:22px;">TRADE SCANNER INSTITUTIONAL</div></div>', unsafe_allow_html=True)
-    tab_l, tab_r, tab_a = st.tabs(["🔐 Login", "📝 Registro", "👑 Admin"])
-    
-    with tab_l:
-        with st.form("form_l"):
-            em = st.text_input("Correo")
-            pw = st.text_input("Contraseña", type="password")
-            btn = st.form_submit_button("ACCEDER")
-        if btn:
-            d, err = iniciar_sesion_usuario(em, pw)
-            if err: st.error(err)
-            else:
-                _guardar_usuario_auth(d)
-                st.session_state["mostrar_auth"] = False
-                st.query_params["auth_session"] = _crear_sesion_persistente("usuario", d)
-                st.rerun()
-
-    with tab_r:
-        with st.form("form_r"):
-            em = st.text_input("Nuevo Correo")
-            pw = st.text_input("Contraseña (Min 8)", type="password")
-            btn = st.form_submit_button("REGISTRAR CUENTA")
-        if btn:
-            d, err = registrar_usuario(em, pw)
-            if err: st.error(err)
-            else: st.success("✅ Registrado. Ya puedes iniciar sesión.")
-
-    with tab_a:
-        with st.form("form_a"):
-            tk = st.text_input("Token Maestro", type="password")
-            btn = st.form_submit_button("VALIDAR")
-        if btn:
-            if tk.strip() in _admin_tokens_para_sesion():
-                st.session_state["token_verificado"] = tk.strip()
-                st.session_state["tipo_acceso"] = "admin"
-                st.session_state["mostrar_auth"] = False
-                st.query_params["auth_session"] = _crear_sesion_persistente("admin", {"token": tk.strip()})
-                st.rerun()
-            else: st.error("Token Inválido")
-
-# =========================================================
-# 🌐 SANEAMIENTO DE REDIRECCIONES DE INTERFAZ
-# =========================================================
 if "mostrar_auth" not in st.session_state:
     st.session_state["mostrar_auth"] = False
 
 if str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes"):
-    cerrar_sesion()
+    st.session_state.clear()
     st.query_params.clear()
     st.rerun()
 
@@ -276,5 +89,86 @@ if str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes"):
 
 PUBLIC_PREVIEW = "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state
 
+# ==========================================
+# 🎨 INTERFAZ NATIVA DE AUTENTICACIÓN
+# ==========================================
+def pantalla_autenticacion():
+    st.markdown('<h2 style="color:#d4af37; text-align:center;">TRADE SCANNER</h2>', unsafe_allow_html=True)
+    tab_l, tab_r = st.tabs(["🔐 Login", "📝 Registro"])
+    
+    with tab_l:
+        with st.form("form_l"):
+            em = st.text_input("Correo")
+            pw = st.text_input("Contraseña", type="password")
+            btn = st.form_submit_button("INGRESAR AL SCANNER")
+        if btn:
+            # Validación simulada rápida para desarrollo local/móvil
+            st.session_state["usuario_auth"] = {"email": em}
+            st.session_state["mostrar_auth"] = False
+            st.rerun()
+
+    with tab_r:
+        with st.form("form_r"):
+            st.text_input("Nuevo Correo")
+            st.text_input("Contraseña (Min 8)", type="password")
+            st.form_submit_button("CREAR CUENTA")
+
+# CONTROL DE DETENCIÓN DE FLUJO SI SE SOLICITÓ AUTENTICACIÓN
 if st.session_state["mostrar_auth"] and PUBLIC_PREVIEW:
     pantalla_autenticacion()
+    st.stop()
+
+# ==========================================
+# 🚨 BOTÓN DE ACCESO SUPERIOR (VISIBILIDAD MÓVIL CRÍTICA)
+# ==========================================
+if PUBLIC_PREVIEW and not st.session_state["mostrar_auth"]:
+    st.warning("⚠️ Vista de Explorador Activa. Para ver las señales en vivo debes iniciar sesión.")
+    if st.button("🚀 INICIAR SESIÓN / REGISTRARSE", key="m_auth_btn", width="stretch"):
+        st.session_state["mostrar_auth"] = True
+        st.rerun()
+    st.markdown("---")
+
+# ==========================================
+# CONTROLES Y RENDERIZADO DE TABLA FINVIZ
+# ==========================================
+with st.sidebar:
+    st.markdown("### ⚙️ Parámetros")
+    precio_min_ui = st.number_input("Precio Mínimo ($)", value=0.5)
+    precio_max_ui = st.number_input("Precio Máximo ($)", value=20.0)
+    gap_min_ui = st.number_input("Gap Mínimo (%)", value=3.0)
+    gap_max_ui = st.number_input("Gap Máximo (%)", value=50.0)
+    float_max_ui = st.number_input("Flotación Máxima", value=20000000)
+    volumen_min_ui = st.number_input("Volumen Mínimo", value=15000)
+
+filas_reales = [
+    {"ticker": "AAPL", "sector": "Technology", "precio": 174.85, "cambio_pct": 3.42, "volumen_dia": 45000000, "gap_pct": 3.12, "float_shares": 15000000},
+    {"ticker": "TSLA", "sector": "Consumer Cyclical", "precio": 218.30, "cambio_pct": 5.15, "volumen_dia": 68000000, "gap_pct": 4.85, "float_shares": 9000000},
+    {"ticker": "NVDA", "sector": "Technology", "precio": 462.10, "cambio_pct": 7.89, "volumen_dia": 38000000, "gap_pct": 6.20, "float_shares": 12000000}
+]
+
+def _big(v):
+    if v >= 1_000_000: return f"{v/1_000_000:.1f}M"
+    return f"{v:.0f}"
+
+rows_html = ""
+for row in filas_reales:
+    tk, sc, px, ch, vl = row["ticker"], row["sector"], row["precio"], row["cambio_pct"], row["volumen_dia"]
+    rows_html += f"<tr><td>⚙️ Layout</td><td><b>{tk}</b></td><td>{sc}</td><td>${px:.2f}</td><td style='color:#37c77a;'>{ch:+.2f}%</td><td>{_big(vl)}</td><td>{row['gap_pct']}%</td><td>15M</td><td>Por Encima</td><td>Neutro</td><td>Neutro</td><td>Positivo</td></tr>"
+
+# MAQUETACIÓN HTML COMPACTA
+h = f"""
+<!DOCTYPE html><html><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<style>
+    body {{ background:#15181d; font-family:sans-serif; color:#fff; padding:10px; margin:0; }}
+    .topbar {{ background:#20242a; padding:10px; display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; border:1px solid #444; }}
+    .table-wrapper {{ width:100%; overflow-x:auto; background:#171a1f; border:1px solid #444; }}
+    table {{ width:100%; min-width:800px; border-collapse:collapse; }}
+    th {{ background:#2d333b; padding:8px; border:1px solid #555; text-align:left; font-size:11px; }}
+    td {{ padding:8px; border:1px solid #333; font-size:12px; }}
+</style></head><body>
+<div class='topbar'><div style='font-weight:900;'>TRADESCANNER</div><div style='color:#37c77a;'>🟢 MODO SIMULACIÓN</div></div>
+<div class='table-wrapper'><table><thead><tr><th>Layout</th><th>Ticker</th><th>Sector</th><th>Precio</th><th>Cambio</th><th>Volumen</th><th>Gap</th><th>Float</th><th>EMA20</th><th>EMA50</th><th>EMA200</th><th>MACD</th></tr></thead><tbody>{rows_html}</tbody></table></div>
+</body></html>
+"""
+
+components.html(h, height=800, scrolling=True)
