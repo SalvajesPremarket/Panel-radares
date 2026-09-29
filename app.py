@@ -3817,7 +3817,7 @@ def _render_scanner():
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
     h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){return;}"
-    h += "function _navegarMismaApp(q){try{q.delete('_ts');var u='/?'+q.toString();window.top.location.replace(u);}catch(e){try{window.open('/?'+q.toString(),'_top');}catch(_e){}}}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');var u='/?'+q.toString();var P=window.parent;P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(e){}try{window.top.location.replace('/?'+q.toString());}catch(_e){}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
     h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
@@ -3997,6 +3997,16 @@ def _render_scanner():
                 format_func=lambda x: f"{x}s" if x < 60 else f"{x // 60} min",
                 on_change=_cambiar_refresh_nativo,
             )
+
+    # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
+    # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
+    # padre con history.replaceState y pulsa este botón oculto, lo que provoca un
+    # rerun nativo de la MISMA sesión leyendo los nuevos query params.
+    st.markdown(
+        "<style>.st-key-ts_nav_bridge{display:none !important;}</style>",
+        unsafe_allow_html=True,
+    )
+    st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
     components.html(h, height=1900, scrolling=False)
 
