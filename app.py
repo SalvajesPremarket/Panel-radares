@@ -36,9 +36,6 @@ st.markdown("""
         max-width: 100% !important; width: 100% !important;
         padding-left: 0.35rem !important; padding-right: 0.35rem !important; padding-top: 0.5rem !important;
     }
-    [data-testid="stIFrame"], [data-testid="stIFrame"] > iframe {
-        width: 100% !important; max-width: 100% !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -159,56 +156,28 @@ def _big(v):
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{v:.0f}"
 
-rows_html = ""
+# Renderizado del Banner de Estado en la Interfaz Principal
+st.info(modo_activo_txt)
+
+# Procesamiento y preparación de los datos para la rejilla nativa de Streamlit
+lista_procesada = []
 for r in filas_pantalla:
-    tk, sc, px, ch, vl = r["ticker"], r["sector"], r["precio"], r["cambio_pct"], r["volumen_dia"]
-    fl, gp, mc, e50, e200 = r["float_shares"]/1_000_000, r["gap_pct"], r["tecnico_macd"], r["ema50"], r["ema200"]
-    cls = "fila-alza" if ch > 0 else "fila-baja"
-    mac_cls = "macd-positivo" if mc > 0 else "macd-neutro"
-    mac_txt = "Positivo" if mc > 0 else "Negativo"
-    news = " 🔥" if r["tiene_noticia"] else ""
-    ema20_txt = "Por Encima" if r.get("cruzando_ema20", True) else "Por Devajo"
+    tk = r["ticker"] + (" 🔥" if r["tiene_noticia"] else "")
+    lista_procesada.append({
+        "TICKER": tk,
+        "SECTOR": r["sector"],
+        "PRECIO": f"${r['precio']:,.2f}",
+        "CAMBIO %": f"{r['cambio_pct']:+.2f}%",
+        "VOLUMEN": _big(r["volumen_dia"]),
+        "FLOAT": f"{r['float_shares']/1_000_000:.1f}M",
+        "GAP %": f"{r['gap_pct']:+.2f}%",
+        "MACD": "Positivo" if r["tecnico_macd"] > 0 else "Negativo",
+        "CONDICIÓN EMA20": "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo",
+        "EMA50": f"${r['ema50']:,.2f}",
+        "EMA200": f"${r['ema200']:,.2f}"
+    })
 
-    rows_html += f"""
-    <tr class="{cls}">
-        <td class="ticker-fijo">{tk}{news}</td>
-        <td>{sc}</td>
-        <td style="font-weight: bold;">${px:,.2f}</td>
-        <td>{ch:+.2f}%</td>
-        <td>{_big(vl)}</td>
-        <td>{fl:.1f}M</td>
-        <td>{gp:+.2f}%</td>
-        <td class="{mac_cls}">{mac_txt} ({mc:+.2f})</td>
-        <td>{ema20_txt}</td>
-        <td>${e50:,.2f}</td>
-        <td>${e200:,.2f}</td>
-    </tr>
-    """
+df_final = pd.DataFrame(lista_procesada)
 
-# Estructura del Dashboard con Contenedor Deslizable para pantallas Móviles sin llaves corruptas
-html_completo = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-    body {
-        background-color: #0e1117;
-        color: #ffffff;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        margin: 0;
-        padding: 6px;
-    }
-    .banner-estado {
-        background-color: #1e293b;
-        border-left: 5px solid #10b981;
-        padding: 10px;
-        margin-bottom: 12px;
-        border-radius: 4px;
-        font-weight: bold;
-        font-size: 13px;
-    }
-    .tabla-responsiva {
-        width: 100%;
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
+# Renderizado de la tabla con scroll nativo fluido de Streamlit (ideal para pantallas móviles)
+st.dataframe(df_final, use_container_width=True, hide_index=True)
