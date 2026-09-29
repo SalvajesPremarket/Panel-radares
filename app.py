@@ -132,6 +132,7 @@ class ServicioScanner:
             time.sleep(INTERVALO_ESCANEO_SEGUNDOS)
 
 
+
                     continue
                 
                 # Carga inicial del universo de activos (Filtrado estricto para optimizar la API)
