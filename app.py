@@ -36,9 +36,6 @@ st.markdown("""
         max-width: 100% !important; width: 100% !important;
         padding-left: 0.35rem !important; padding-right: 0.35rem !important; padding-top: 0.5rem !important;
     }
-    [data-testid="stIFrame"], [data-testid="stIFrame"] > iframe {
-        width: 100% !important; max-width: 100% !important;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -122,10 +119,10 @@ def ejecutar_escaneo_mercado(forzar=False):
     except Exception:
         pass
 
-# Ejecutar lógica automática base
+# Ejecutar lógica del motor en tiempo real
 ejecutar_escaneo_mercado()
 
-# Barra lateral UI
+# Barra lateral UI (Filtros Interactivos)
 with st.sidebar:
     st.markdown("### ⚙️ Parámetros del Scanner")
     precio_min_ui = st.number_input("Precio Mínimo ($)", value=0.5)
@@ -140,12 +137,12 @@ with st.sidebar:
     timeframe_ui = st.selectbox("Temporalidad", ["1m", "5m"])
 
 modo_activo_txt = "🟢 SCANNER EN TIEMPO REAL ACTIVO (ALPACA)"
-filas_pantalla = st.session_state["resultados_scanner"]
+filas_base = st.session_state["resultados_scanner"]
 
 # Datos demo por si la API aún no devuelve activos o estamos fuera de hora
-if not filas_pantalla or len(filas_pantalla) == 0:
+if not filas_base or len(filas_base) == 0:
     modo_activo_txt = "🟢 MOTOR EN ESPERA ACTIVA · PRE-MARKET REINICIA 4:00 AM ET"
-    filas_pantalla = [
+    filas_base = [
         {"ticker": "AAPL", "sector": "Technology", "precio": 174.85, "cambio_pct": 3.42, "volumen_dia": 45200000, "gap_pct": 3.12, "float_shares": 15400000, "cruzando_ema20": True, "ema50": 171.10, "ema200": 165.25, "tecnico_macd": 0.45, "tecnico_rsi": 58.2, "tiene_noticia": True},
         {"ticker": "TSLA", "sector": "Consumer Cyclical", "precio": 218.30, "cambio_pct": 5.15, "volumen_dia": 68400000, "gap_pct": 4.85, "float_shares": 9200000, "cruzando_ema20": True, "ema50": 212.40, "ema200": 198.10, "tecnico_macd": 1.20, "tecnico_rsi": 62.7, "tiene_noticia": False},
         {"ticker": "NVDA", "sector": "Technology", "precio": 462.10, "cambio_pct": 7.89, "volumen_dia": 38100000, "gap_pct": 6.20, "float_shares": 12100000, "cruzando_ema20": True, "ema50": 448.00, "ema200": 412.30, "tecnico_macd": 3.85, "tecnico_rsi": 69.1, "tiene_noticia": True},
@@ -153,62 +150,59 @@ if not filas_pantalla or len(filas_pantalla) == 0:
         {"ticker": "PLTR", "sector": "Technology", "precio": 18.40, "cambio_pct": 6.22, "volumen_dia": 24500000, "gap_pct": 5.10, "float_shares": 19100000, "cruzando_ema20": True, "ema50": 17.20, "ema200": 15.60, "tecnico_macd": 0.12, "tecnico_rsi": 55.8, "tiene_noticia": True}
     ]
 
-# OP-3: Interfaz del Botón de Actualización Manual en la parte superior
-col_btn, col_vacio = st.columns([1, 4])
-with col_btn:
-    if st.button("🔄 Forzar Escaneo Ya"):
-        ejecutar_escaneo_mercado(forzar=True)
-        st.rerun()
+# BOTÓN DE ACTUALIZACIÓN INSTANTÁNEA
+if st.button("🔄 Forzar Escaneo Ya"):
+    ejecutar_escaneo_mercado(forzar=True)
+    st.rerun()
+
+st.info(modo_activo_txt)
 
 def _big(v):
     if v >= 1_000_000: return f"{v/1_000_000:.1f}M"
     if v >= 1_000: return f"{v/1_000:.0f}K"
     return f"{v:.0f}"
 
-rows_html = ""
+# APLICACIÓN DE LA OPCIÓN 1 (FILTROS DE LA SIDEBAR ACTIVOS)
+filas_pantalla = []
+for r in filas_base:
+    px = r["precio"]
+    gap = r["gap_pct"]
+    vol = r["volumen_dia"]
+    fl = r["float_shares"]
+    
+    # Validamos cada fila contra las variables ingresadas en los controles del Sidebar
+    if (precio_min_ui <= px <= precio_max_ui) and (gap_min_ui <= gap <= gap_max_ui) and (vol >= volumen_min_ui) and (fl <= float_max_ui):
+        filas_pantalla.append(r)
+
+# Transformación de datos para la visualización gráfica
+lista_procesada = []
 for r in filas_pantalla:
-    tk, sc, px, ch, vl = r["ticker"], r["sector"], r["precio"], r["cambio_pct"], r["volumen_dia"]
-    fl, gp, mc, e50, e200 = r["float_shares"]/1_000_000, r["gap_pct"], r["tecnico_macd"], r["ema50"], r["ema200"]
-    cls = "fila-alza" if ch > 0 else "fila-baja"
-    mac_cls = "macd-positivo" if mc > 0 else "macd-neutro"
-    mac_txt = "Positivo" if mc > 0 else "Negativo"
-    news = " 🔥" if r["tiene_noticia"] else ""
-    ema20_txt = "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo"
+    tk = r["ticker"] + (" 🔥" if r["tiene_noticia"] else "")
+    lista_procesada.append({
+        "TICKER": tk,
+        "SECTOR": r["sector"],
+        "PRECIO": r["precio"],
+        "CAMBIO %": r["cambio_pct"],
+        "VOLUMEN": _big(r["volumen_dia"]),
+        "FLOAT": f"{r['float_shares']/1_000_000:.1f}M",
+        "GAP %": r["gap_pct"],
+        "MACD": "Positivo" if r["tecnico_macd"] > 0 else "Negativo",
+        "CONDICIÓN EMA20": "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo",
+        "EMA50": r["ema50"],
+        "EMA200": r["ema200"]
+    })
 
-    rows_html += f"""
-    <tr class="{cls}">
-        <td class="ticker-fijo">{tk}{news}</td>
-        <td>{sc}</td>
-        <td style="font-weight: bold;">${px:,.2f}</td>
-        <td>{ch:+.2f}%</td>
-        <td>{_big(vl)}</td>
-        <td>{fl:.1f}M</td>
-        <td>{gp:+.2f}%</td>
-        <td class="{mac_cls}">{mac_txt} ({mc:+.2f})</td>
-        <td>{ema20_txt}</td>
-        <td>${e50:,.2f}</td>
-        <td>${e200:,.2f}</td>
-    </tr>
-    """
+df_final = pd.DataFrame(lista_procesada)
 
-# OP-1: Estructura del Dashboard con Contenedor Deslizable Limpio (Libre de conflictos de llaves en Python)
-html_completo = """
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-    body {
-        background-color: #0e1117;
-        color: #ffffff;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        margin: 0;
-        padding: 6px;
-    }
-    .banner-estado {
-        background-color: #1e293b;
-        border-left: 5px solid #10b981;
-        padding: 10px;
-        margin-bottom: 12px;
-        border-radius: 4px;
-        font-weight: bold;
+# APLICACIÓN DE LA OPCIÓN 3 (COLORES VERDE / ROJO SEGÚN EL RENDIMIENTO DE LA ACCIÓN)
+def mapear_colores_tabla(val):
+    if isinstance(val, (int, float)):
+        color = '#26a69a' if val > 0 else '#ef5350'
+        return f'color: {color}; font-weight: bold;'
+    return ''
+
+if not df_final.empty:
+    df_estilizado = df_final.style.map(mapear_colores_tabla, subset=["CAMBIO %", "GAP %"])\
+                                  .format({"PRECIO": "${:,.2f}", "EMA50": "${:,.2f}", "EMA200": "${:,.2f}", "CAMBIO %": "{:+.2f}%", "GAP %": "{:+.2f}%"})\
+                                  .set_properties(**{'font-weight': 'bold'}, subset=["TICKER"])
+    
