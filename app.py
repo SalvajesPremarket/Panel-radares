@@ -167,7 +167,7 @@ for r in filas_pantalla:
     mac_cls = "macd-positivo" if mc > 0 else "macd-neutro"
     mac_txt = "Positivo" if mc > 0 else "Negativo"
     news = " 🔥" if r["tiene_noticia"] else ""
-    ema20_txt = "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo"
+    ema20_txt = "Por Encima" if r.get("cruzando_ema20", True) else "Por Devajo"
 
     rows_html += f"""
     <tr class="{cls}">
@@ -185,21 +185,21 @@ for r in filas_pantalla:
     </tr>
     """
 
-# Estructura del Dashboard con Contenedor Deslizable para pantallas Móviles
-html_completo = f"""
+# Estructura limpia y con caracteres de escape HTML seguros (&percnt;)
+html_completo = """
 <!DOCTYPE html>
 <html>
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-    body {{
+    body {
         background-color: #0e1117;
         color: #ffffff;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         margin: 0;
         padding: 6px;
-    }}
-    .banner-estado {{
+    }
+    .banner-estado {
         background-color: #1e293b;
         border-left: 5px solid #10b981;
         padding: 10px;
@@ -207,8 +207,8 @@ html_completo = f"""
         border-radius: 4px;
         font-weight: bold;
         font-size: 13px;
-    }}
-    .tabla-responsiva {{
+    }
+    .tabla-responsiva {
         width: 100%;
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
