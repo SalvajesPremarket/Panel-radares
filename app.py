@@ -1780,6 +1780,10 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
             datos = getattr(barras, "df", None)
         except Exception as e:
             print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {e}")
+            try:
+                data_client._ultimo_error_barras = str(e)
+            except Exception:
+                pass
             continue
 
         if datos is None or datos.empty:
@@ -2428,7 +2432,16 @@ class ServicioScanner:
             self.data._scanner_rate_wait = self._esperar_turno
         except Exception:
             pass
+        try:
+            self.data._ultimo_error_barras = ""
+        except Exception:
+            pass
         series = descargar_cierres(self.data, pendientes, tf_actual)
+        _err_barras = getattr(self.data, "_ultimo_error_barras", "")
+        if _err_barras:
+            self.ultimo_error = f"Velas Alpaca: {_err_barras}"
+        self.velas_pedidas = len(pendientes)
+        self.velas_recibidas = len(series)
         for t in pendientes:
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
@@ -3858,13 +3871,7 @@ def _render_scanner():
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
-    if PUBLIC_PREVIEW:
-        h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
-    else:
-        opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
-        h += f"<div class='refresh-box'>REFRESH <b>{_safe_text(refresh_label)}</b></div>"
-        if _email_top:
-            h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
+    # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
     h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
     h += "<div class='tabs'>"
@@ -3958,6 +3965,8 @@ def _render_scanner():
         f"<span>Embudo: base {_entero(_diag.get('radar_base'))} → GAP/vol {_entero(_diag.get('tras_gap_volumen'))} → "
         f"EMA {_entero(_diag.get('ema_arriba'))} → MACD {_entero(_diag.get('macd_positivo'))} → "
         f"Float {_entero(_diag.get('tras_float'))} → FINAL {_entero(_diag.get('resultados'))}</span>"
+        f"<span>Velas≥220: {_entero(_diag.get('con_40_barras'))}/{_entero(_diag.get('enviados_tecnico'))} · "
+        f"Float sin dato: {_entero(_diag.get('float_sin_dato'))} · Float&gt;límite: {_entero(_diag.get('float_excede'))}</span>"
         f"<span>{_safe_text(getattr(servicio, 'auto_motivo', ''))}</span></div>"
     )
     h += _diag_html
@@ -4003,31 +4012,55 @@ def _render_scanner():
         except Exception:
             pass
 
-    if PUBLIC_PREVIEW:
-        _n1, _n2, _n3 = st.columns([1.6, 1.2, 3])
-        with _n1:
-            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
-        with _n2:
-            st.selectbox("⏱ REFRESH", ["3 min"], disabled=True, key="ts_refresh_fijo")
-        with _n3:
-            st.caption("Refresh fijo en 3 min. Regístrate para elegir tu propio refresh.")
-    else:
-        _n1, _n2, _n3, _n4 = st.columns([1.6, 1.2, 1.4, 1])
-        with _n1:
-            st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
-        with _n2:
-            st.session_state["ts_refresh_sel"] = refresh_sec
-            st.selectbox(
-                "⏱ REFRESH",
-                refresh_options,
-                key="ts_refresh_sel",
-                format_func=lambda x: f"{x}s" if x < 60 else f"{x // 60} min",
-                on_change=_ts_cambiar_refresh,
-            )
-        with _n3:
-            st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
-        with _n4:
-            st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
+    st.markdown(
+        """
+        <style>
+        .st-key-ts_ctrl_bar [data-testid="stHorizontalBlock"]{flex-wrap:nowrap !important;justify-content:flex-end;align-items:center;gap:6px !important;}
+        .st-key-ts_ctrl_bar [data-testid="stColumn"],.st-key-ts_ctrl_bar [data-testid="column"]{width:auto !important;min-width:0 !important;flex:0 0 auto !important;}
+        .st-key-ts_ctrl_bar [data-testid="stSelectbox"]{width:125px;}
+        .st-key-ts_ctrl_bar [data-testid="stCaptionContainer"]{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .st-key-ts_ctrl_bar button{white-space:nowrap;}
+        /* Pantallas anchas: la barra se superpone dentro de la barra superior del scanner. */
+        @media (min-width: 900px){
+          .st-key-ts_ctrl_bar{height:0 !important;min-height:0 !important;overflow:visible !important;position:relative;z-index:60;}
+          .st-key-ts_ctrl_bar > *{position:relative;top:24px;}
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(key="ts_ctrl_bar"):
+        if PUBLIC_PREVIEW:
+            _n1, _n2 = st.columns([1, 1])
+            with _n1:
+                st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
+            with _n2:
+                st.selectbox(
+                    "REFRESH",
+                    ["⏱ 3 min"],
+                    disabled=True,
+                    key="ts_refresh_fijo",
+                    label_visibility="collapsed",
+                    help="Refresh fijo en 3 min. Regístrate para elegir tu propio refresh.",
+                )
+        else:
+            _n1, _n2, _n3, _n4 = st.columns([1, 1, 1, 1])
+            with _n1:
+                st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
+            with _n2:
+                st.session_state["ts_refresh_sel"] = refresh_sec
+                st.selectbox(
+                    "REFRESH",
+                    refresh_options,
+                    key="ts_refresh_sel",
+                    format_func=lambda x: f"⏱ {x}s" if x < 60 else f"⏱ {x // 60} min",
+                    on_change=_ts_cambiar_refresh,
+                    label_visibility="collapsed",
+                )
+            with _n3:
+                st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
+            with _n4:
+                st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
     # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
     # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
