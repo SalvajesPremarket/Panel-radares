@@ -859,6 +859,10 @@ def pantalla_autenticacion():
         }
         .auth-offer-free { color: #37c77a; font-weight: 800; }
         .auth-offer-price { color: #f2d675; font-weight: 800; }
+        /* Si el usuario llega a Auth después de una carátula previa,
+           Streamlit puede conservar temporalmente el iframe anterior en el DOM.
+           Ocultarlo evita que quede una segunda ventana superpuesta y que capture clics. */
+        [data-testid="stIFrame"] { display: none !important; }
         @media (max-width: 640px) {
             .auth-card {
                 width: calc(100% - 18px);
@@ -3824,8 +3828,6 @@ else:
     h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
     if _email_top:
         h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
-    # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
-    h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>CUENTA / REGISTRO</button>"
     h += "<button type='button' class='auth-link' onclick=\"var q=_qtop();q.set('logout','1');_navegarMismaApp(q);\">SALIR</button>"
 h += "</div>"
 h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
@@ -3955,4 +3957,6 @@ if USUARIO_AUTENTICADO:
             st.query_params.clear()
             st.rerun()
 
-components.html(h, height=1050, scrolling=True)
+# El iframe ya no tiene scroll vertical propio: el documento principal de Streamlit
+# es el único que desplaza la página. La altura amplia evita que la carátula se corte.
+components.html(h, height=2200, scrolling=False)
