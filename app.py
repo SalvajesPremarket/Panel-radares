@@ -947,6 +947,11 @@ def pantalla_autenticacion():
     # El acceso de administrador está dentro de la misma pantalla y
     # requiere el token secreto configurado en Streamlit Secrets.
     # No se utiliza una segunda URL ni un parámetro especial de administrador.
+    st.button(
+        "← Volver al scanner",
+        key="ts_volver_auth",
+        on_click=lambda: st.session_state.update(mostrar_auth=False),
+    )
     tab_login, tab_registro, tab_admin = st.tabs(
         ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
     )
@@ -3854,16 +3859,12 @@ def _render_scanner():
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
     if PUBLIC_PREVIEW:
-        h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>📝 REGISTRO / INICIAR SESIÓN</button>"
         h += "<div class='refresh-box'>REFRESH <select disabled><option>3 min</option></select></div>"
     else:
         opts_html = "".join(f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x}s</option>" if x < 60 else f"<option value='{x}' {'selected' if x==refresh_sec else ''}>{x//60} min</option>" for x in refresh_options)
-        h += f"<div class='refresh-box'>REFRESH <select onchange='cambiarRefresh(this.value)'>{opts_html}</select></div>"
+        h += f"<div class='refresh-box'>REFRESH <b>{_safe_text(refresh_label)}</b></div>"
         if _email_top:
             h += f"<div class='refresh-box'>👤 {_safe_text(_email_top)}</div>"
-        # Permite cambiar de cuenta o entrar al registro sin depender de la barra lateral.
-        h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()'>CUENTA / REGISTRO</button>"
-        h += "<button type='button' class='auth-link' onclick=\"var q=_qtop();q.set('logout','1');_navegarMismaApp(q);\">SALIR</button>"
     h += "</div>"
     h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
     h += "<div class='tabs'>"
@@ -3983,6 +3984,50 @@ def _render_scanner():
     # Streamlit. Al vencer el intervalo se hace un rerun completo de la app, por
     # lo que el iframe anterior se reemplaza en lugar de anidarse.
     h += "</div></body></html>"
+
+    # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
+    def _ts_abrir_auth():
+        st.session_state["mostrar_auth"] = True
+
+    def _ts_salir():
+        cerrar_sesion()
+        st.session_state["mostrar_auth"] = False
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+
+    def _ts_cambiar_refresh():
+        try:
+            st.query_params["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
+        except Exception:
+            pass
+
+    if PUBLIC_PREVIEW:
+        _n1, _n2, _n3 = st.columns([1.6, 1.2, 3])
+        with _n1:
+            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
+        with _n2:
+            st.selectbox("⏱ REFRESH", ["3 min"], disabled=True, key="ts_refresh_fijo")
+        with _n3:
+            st.caption("Refresh fijo en 3 min. Regístrate para elegir tu propio refresh.")
+    else:
+        _n1, _n2, _n3, _n4 = st.columns([1.6, 1.2, 1.4, 1])
+        with _n1:
+            st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
+        with _n2:
+            st.session_state["ts_refresh_sel"] = refresh_sec
+            st.selectbox(
+                "⏱ REFRESH",
+                refresh_options,
+                key="ts_refresh_sel",
+                format_func=lambda x: f"{x}s" if x < 60 else f"{x // 60} min",
+                on_change=_ts_cambiar_refresh,
+            )
+        with _n3:
+            st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
+        with _n4:
+            st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
     # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
     # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
