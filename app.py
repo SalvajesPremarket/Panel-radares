@@ -163,7 +163,7 @@ def _big(v):
     return f"{v:.0f}"
 
 # ==========================================
-# FILTRADO INTEGRAL (INCLUYE CONDICIONES ORIGINALES)
+# FILTRADO INTEGRAL CON CONDICIONES ORIGINALES
 # ==========================================
 filas_pantalla = []
 for r in filas_base:
@@ -177,23 +177,21 @@ for r in filas_base:
     # 1. Validación de filtros numéricos estándar
     cumple_numericos = (precio_min_ui <= px <= precio_max_ui) and (gap_min_ui <= gap <= gap_max_ui) and (vol >= volumen_min_ui) and (fl <= float_max_ui)
     
-    # 2. Validación de Condición EMA20 Planteada originalmente
+    # 2. Validación de Condición EMA20
     cumple_ema = True
-    if_ema_req = "Vela nueva sobre EMA20 + HH/HL"
-    if_ema_down = "Hacia abajo"
-    if ema_ui == if_ema_req and not es_ema20:
+    if ema_ui == "Vela nueva sobre EMA20 + HH/HL" and not es_ema20:
         cumple_ema = False
-    elif ema_ui == if_ema_down and es_ema20:
+    elif ema_ui == "Hacia abajo" and es_ema20:
         cumple_ema = False
         
-    # 3. Validación de Filtro MACD Planteado originalmente
+    # 3. Validación de Filtro MACD
     cumple_macd = True
     if macd_ui == "Positivo" and val_macd <= 0:
         cumple_macd = False
     elif macd_ui == "Negativo" and val_macd >= 0:
         cumple_macd = False
 
-    # El activo entra a pantalla solo si cumple absolutamente todas tus condiciones originales juntas
+    # Entra solo si cumple todas tus condiciones iniciales juntas
     if cumple_numericos and cumple_ema and cumple_macd:
         filas_pantalla.append(r)
 
@@ -210,3 +208,6 @@ for r in filas_pantalla:
         "FLOAT": f"{r['float_shares']/1_000_000:.1f}M",
         "GAP %": r["gap_pct"],
         "MACD": "Positivo" if r["tecnico_macd"] > 0 else "Negativo",
+        "CONDICIÓN EMA20": "Por Encima" if r.get("cruzando_ema20", True) else "Por Debajo",
+        "EMA50": r["ema50"],
+        "EMA200": r["ema200"]
