@@ -204,51 +204,71 @@ for r in filas_pantalla:
         <td>${e200:,.2f}</td>
     </tr>
     """
-
-# 1. Definición de la estructura e interfaz de diseño (Estilo Dashboard Oscuro)
+# 1. Definición de la estructura con contenedor responsivo (Deslizable en móvil)
 html_completo = f"""
 <!DOCTYPE html>
 <html>
 <head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
     body {{
         background-color: #0e1117;
         color: #ffffff;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         margin: 0;
-        padding: 10px;
+        padding: 6px;
     }}
     .banner-estado {{
         background-color: #1e293b;
         border-left: 5px solid #10b981;
-        padding: 12px;
-        margin-bottom: 15px;
+        padding: 10px;
+        margin-bottom: 12px;
         border-radius: 4px;
         font-weight: bold;
-        font-size: 14px;
+        font-size: 13px;
+    }}
+    /* CONTENEDOR CLAVE: Permite deslizar horizontalmente en teléfonos */
+    .tabla-responsiva {{
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-radius: 6px;
+        background-color: #161b22;
+        border: 1px solid #30363d;
     }}
     table {{
         width: 100%;
         border-collapse: collapse;
-        font-size: 13px;
-        background-color: #161b22;
-        border-radius: 6px;
-        overflow: hidden;
+        font-size: 12px;
+        white-space: nowrap; /* Evita que los textos largos se partan en dos líneas */
     }}
     th {{
         background-color: #21262d;
         color: #8b949e;
         text-align: left;
-        padding: 12px 10px;
+        padding: 10px 8px;
         font-weight: 600;
         border-bottom: 1px solid #30363d;
     }}
     td {{
-        padding: 10px;
+        padding: 10px 8px;
         border-bottom: 1px solid #21262d;
         color: #c9d1d9;
     }}
     tr:hover {{
+        background-color: #1f242c;
+    }}
+    /* Columna congelada opcional para el Ticker (mantiene el ticker fijo al deslizar) */
+    .ticker-fijo {{
+        position: sticky;
+        left: 0;
+        background-color: #161b22;
+        z-index: 1;
+        font-weight: bold;
+        color: #fff !important;
+        border-right: 1px solid #30363d;
+    }}
+    tr:hover .ticker-fijo {{
         background-color: #1f242c;
     }}
     .fila-alza td:nth-child(4), .fila-alza td:nth-child(7) {{
@@ -265,30 +285,34 @@ html_completo = f"""
 
 <div class="banner-estado">{modo_activo_txt}</div>
 
-<table>
-    <thead>
-        <tr>
-            <th>TICKER</th>
-            <th>SECTOR</th>
-            <th>PRECIO</th>
-            <th>CAMBIO %</th>
-            <th>VOLUMEN</th>
-            <th>FLOAT</th>
-            <th>GAP %</th>
-            <th>MACD</th>
-            <th>CONDICIÓN EMA20</th>
-            <th>EMA50</th>
-            <th>EMA200</th>
-        </tr>
-    </thead>
-    <tbody>
-        {rows_html}
-    </tbody>
-</table>
+<!-- Envoltura para habilitar el deslizamiento -->
+<div class="tabla-responsiva">
+    <table>
+        <thead>
+            <tr>
+                <th class="ticker-fijo">TICKER</th>
+                <th>SECTOR</th>
+                <th>PRECIO</th>
+                <th>CAMBIO %</th>
+                <th>VOLUMEN</th>
+                <th>FLOAT</th>
+                <th>GAP %</th>
+                <th>MACD</th>
+                <th>CONDICIÓN EMA20</th>
+                <th>EMA50</th>
+                <th>EMA200</th>
+            </tr>
+        </thead>
+        <tbody>
+            {rows_html}
+        </tbody>
+    </table>
+</div>
 
 </body>
 </html>
 """
 
-# 2. Inyección del componente en la página principal de Streamlit
-components.html(html_completo, height=600, scrolling=True)
+# 2. Inyección del componente manteniendo el scroll nativo
+components.html(html_completo, height=550, scrolling=False)
+
