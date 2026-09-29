@@ -933,9 +933,15 @@ def pantalla_autenticacion():
     with _c3:
         if st.button("👑 ADMINISTRADOR", key="auth_mode_admin", width="stretch"):
             st.session_state["auth_mode"] = "admin"
+            st.session_state["_auth_mode_changed"] = True
             st.rerun()
 
     auth_mode = st.session_state.get("auth_mode", "login")
+    # Si el usuario acaba de pulsar ADMINISTRADOR, el siguiente rerun debe
+    # conservar explícitamente ese modo y no volver a login por restauraciones
+    # externas de estado.
+    if st.session_state.pop("_auth_mode_changed", False):
+        auth_mode = st.session_state.get("auth_mode", "login")
 
     if auth_mode == "login":
         st.markdown("### Acceso de usuario")
@@ -3969,4 +3975,4 @@ if USUARIO_AUTENTICADO:
             st.query_params.clear()
             st.rerun()
 
-components.html(h, height=1050, scrolling=True)
+components.html(h, height=1120, scrolling=False)
