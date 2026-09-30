@@ -4618,10 +4618,16 @@ def _render_scanner():
 
     def _ts_cambiar_refresh():
         try:
-            st.query_params["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
+            valor = max(5, int(st.session_state["ts_refresh_sel"]))
+            st.session_state["_ts_refresh_canonico"] = valor
+            st.query_params["refresh_sec"] = str(valor)
             _almacen = st.session_state.get("_ts_query_elegida")
             if isinstance(_almacen, dict):
-                _almacen["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
+                _almacen["refresh_sec"] = str(valor)
+            else:
+                st.session_state["_ts_query_elegida"] = {"refresh_sec": str(valor)}
+            # Guardado servidor inmediato: no depende del JavaScript del iframe.
+            _guardar_ultima_configuracion_servidor()
         except Exception:
             pass
 
@@ -4657,9 +4663,21 @@ def _render_scanner():
                     help="Refresh fijo en 3 min. Regístrate para elegir tu propio refresh.",
                 )
         else:
-            _n1, _n3, _n4 = st.columns([1, 1, 1])
+            _n1, _n2, _n3, _n4 = st.columns([1.15, 1.05, 1, 1])
             with _n1:
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
+            with _n2:
+                _refresh_idx = refresh_options.index(refresh_sec) if refresh_sec in refresh_options else 0
+                st.selectbox(
+                    "REFRESH",
+                    refresh_options,
+                    index=_refresh_idx,
+                    key="ts_refresh_sel",
+                    format_func=lambda x: f"⏱ {x}s" if x < 60 else f"⏱ {x//60} min" if x % 60 == 0 else f"⏱ {x}s",
+                    label_visibility="collapsed",
+                    on_change=_ts_cambiar_refresh,
+                    help="Intervalo de actualización del scanner.",
+                )
             with _n3:
                 st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
             with _n4:
