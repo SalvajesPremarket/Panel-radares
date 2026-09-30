@@ -1810,6 +1810,16 @@ def evaluar_ema_condiciones(velas):
     return salida
 
 
+def cumple_macd(c, p):
+    """MACD según el selector: Positivo (por defecto), Negativo o No exigir."""
+    modo = p.get("macd", "Positivo")
+    if modo == "No exigir":
+        return True
+    if modo == "Negativo":
+        return bool(c.get("macd_negativo", False))
+    return bool(c.get("macd_positivo", False))
+
+
 def cumple_condiciones_ema(c, p):
     """Aplica las pestañas EMA20 / EMA50 / EMA200.
 
@@ -2022,8 +2032,8 @@ def filtrar_resultados(filas, p):
             continue
         if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
             continue
-        # MACD positivo sigue siendo obligatorio.
-        if not c.get("macd_positivo", False):
+        # MACD según el selector (Positivo por defecto).
+        if not cumple_macd(c, p):
             continue
         # Pestañas EMA20 / EMA50 / EMA200: estado + condición (naciendo / distancia).
         # Por defecto EMA20 = "Naciendo" (regla original); EMA50/200 sin condición.
@@ -3118,7 +3128,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         # Después de EMA/MACD, pedimos FLOAT solo a candidatos técnicos.
         # Esto elimina el cuello de botella que estaba dejando el scanner en 0.
-        candidatos_tecnicos = [c for c in radar_gap if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_positivo")]
+        candidatos_tecnicos = [c for c in radar_gap if cumple_condiciones_ema(c, filtros_tf) and cumple_macd(c, filtros_tf)]
         # Las noticias son decorativas: consultamos solo una muestra de candidatos
         # técnicos, nunca los cientos de símbolos del radar base.
         con_noticia = self._noticias_recientes([c["ticker"] for c in candidatos_tecnicos[:100]])
@@ -3151,7 +3161,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         macd_positivo_count = sum(1 for c in radar_gap if c.get("macd_positivo"))
         ema_y_macd_count = sum(
             1 for c in enriquecidos
-            if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_positivo")
+            if cumple_condiciones_ema(c, filtros_tf) and cumple_macd(c, filtros_tf)
         )
         # El filtro de volumen ya se aplicó al construir 'enriquecidos', así
         # que ese conteo ES el resultado "tras volumen". El paso previo
@@ -3165,7 +3175,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # En PRUEBA 4 top_n=50, por lo que el resultado final podrá mostrar hasta 50.
         candidatos_ema_macd_brutos = sum(
             1 for c in enriquecidos
-            if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_positivo")
+            if cumple_condiciones_ema(c, filtros_tf) and cumple_macd(c, filtros_tf)
         )
         _diag_tf = {
             "radar_base": radar_base_total,
@@ -3824,6 +3834,18 @@ document.addEventListener('change',function(ev){
   _colSave(s);aplicarColumnas();
 });
 document.addEventListener('DOMContentLoaded',function(){renderColumnas();aplicarColumnas();});
+window.addEventListener('storage',function(e){if(e&&e.key===_colKey()){aplicarColumnas();renderColumnas();}});
+function _ajustarMarco(){
+  try{
+    var fe=window.frameElement;if(!fe)return;
+    var mc=document.querySelector('.main-container')||document.body;
+    var alto=Math.ceil(mc.getBoundingClientRect().height)+18;
+    if(alto>80){fe.style.height=alto+'px';fe.setAttribute('height',String(alto));}
+  }catch(e){}
+}
+window.addEventListener('load',function(){_ajustarMarco();setTimeout(_ajustarMarco,250);setTimeout(_ajustarMarco,1000);});
+document.addEventListener('click',function(){setTimeout(_ajustarMarco,60);});
+window.addEventListener('load',function(){try{var mc=document.querySelector('.main-container');if(mc)new ResizeObserver(function(){_ajustarMarco();}).observe(mc);}catch(e){}});
 '''
 
 
@@ -3906,7 +3928,8 @@ def _render_scanner():
         ema200_estado_ui = "Neutro"
     # Regla fija del scanner: MACD positivo es obligatorio.
     # El selector queda normalizado para que la interfaz no contradiga al motor.
-    macd_ui = "Positivo"
+    if macd_ui not in ("Positivo", "Negativo", "No exigir"):
+        macd_ui = "Positivo"
     if orden_ui not in ("Actualizado", "Cambio %", "Volumen"):
         orden_ui = "Actualizado"
 
@@ -4242,12 +4265,14 @@ def _render_scanner():
     h += ""
     h += _JS_COLUMNAS
     h += "</script></head><body>"
+    _head_html = h  # encabezado común (CSS + JS) para los dos marcos
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
     # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
-    h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
+    _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
+    h += "</div>"  # cierra topbar
     _le = {"Por encima": "ARRIBA", "Por debajo": "ABAJO", "Neutro": "NEUTRO"}
     _estados_ema = {20: ema20_estado_ui, 50: ema50_estado_ui, 200: ema200_estado_ui}
 
@@ -4327,12 +4352,26 @@ def _render_scanner():
     h += "<style>.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
     h += "<div id='panel-columnas' class='tab-panel'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
     h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
+    def _ctl_res(label, texto, campos):
+        ocultos = "".join(f"<input type='hidden' id='{i}' value='{_safe_text(v)}'>" for i, v in campos)
+        return (f"<div class='filtro-item'><label>{label}</label>"
+                f"<span style='font-size:11px;word-break:break-all;'>{_safe_text(texto)}</span>{ocultos}</div>")
+
     h += "<div class='filtros-grid'>"
     h += "<div class='logo'>TRADE SCANNER</div>"
-    h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
+    else:
+        h += _ctl_res("MOTOR", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
     h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · fijo</span></div>"
-    h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
-    h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
+    else:
+        h += _ctl_res("IDIOMA", lang_val, [("cfg_lang", lang_val)])
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
+    else:
+        h += _ctl_res("VENTANA", wnd_val, [("cfg_wnd", wnd_val)])
     h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · ventana única</span></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
@@ -4345,20 +4384,47 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
     else:
         h += f"<input type='hidden' id='ema_dist_max' value='{ema_dist_max_ui:g}'>"
-    h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
-    h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
-    h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
-    h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
+    else:
+        h += _ctl_res("PRECIO ($)", f"{precio_min_ui:g} – {precio_max_ui:g}", [("price_min", f"{precio_min_ui:g}"), ("price_max", f"{precio_max_ui:g}")])
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
+    else:
+        h += _ctl_res("GAP (%)", f"{gap_min_ui:g} – {gap_max_ui:g}", [("gap_min", f"{gap_min_ui:g}"), ("gap_max", f"{gap_max_ui:g}")])
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
+    else:
+        h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
+    else:
+        h += _ctl_res("VOLUMEN ≥", f"{volumen_min_ui:,}", [("txt_vol", str(volumen_min_ui))])
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
     else:
         h += f"<div class='filtro-item'><label>CONDICIONES EMA</label><span style='font-size:10px;line-height:1.4;'>{_ema_resumen_html}<i style='color:#8f99a5'>Se cambian en el panel 📐 arriba de la tabla.</i></span><input type='hidden' id='sel_ema' value='{ema_ui}'></div>"
-    h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
-    h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
+    else:
+        h += _ctl_res("MACD", macd_ui, [("sel_mac", macd_ui)])
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+    else:
+        h += _ctl_res("ORDENAR", orden_ui, [("sel_order", orden_ui)])
     h += "<div class='filtro-item'><label>SCHWAB CREDENCIALES</label><span style='font-size:9px;line-height:1.25;color:#b8c0ca;'>Se leen desde Streamlit Secrets. No se guardan en URL ni navegador.</span></div>"
-    h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
-    h += f"<div class='filtro-item'><label>PUENTE DE LAYOUT</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
-    h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
+    else:
+        h += _ctl_res("BROKER", broker_val, [("cfg_broker", broker_val)])
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>PUENTE DE LAYOUT</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
+    else:
+        h += _ctl_res("PUENTE DE LAYOUT", bridge_val, [("cfg_url", bridge_val)])
+    if PUBLIC_PREVIEW:
+        h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
+    else:
+        h += "<div class='filtro-item'><label>CÓMO CAMBIARLOS</label><span style='font-size:10px;line-height:1.35;'>Los filtros y la configuración se cambian en el panel ⚙️ que está arriba de este cuadro y quedan fijos.</span></div>"
     h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
@@ -4398,6 +4464,10 @@ def _render_scanner():
         f"Float sin dato: {_entero(_diag.get('float_sin_dato'))} · Float&gt;límite: {_entero(_diag.get('float_excede'))}</span>"
         f"<span>{_safe_text(getattr(servicio, 'auto_motivo', ''))}{_dur_txt}</span></div>"
     )
+    # Marco 1 (panel, tabs y filtros): no cambia entre refrescos, por eso ya no parpadea.
+    _h_a = h + "</div></body></html>"
+    # Marco 2 (estado + tabla): es el único que se recarga en cada refresh.
+    h = _head_html + "<div class='main-container'>" + _status_line_html
     h += _diag_html
 
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
@@ -4479,19 +4549,9 @@ def _render_scanner():
                     help="Refresh fijo en 3 min. Regístrate para elegir tu propio refresh.",
                 )
         else:
-            _n1, _n2, _n3, _n4 = st.columns([1, 1, 1, 1])
+            _n1, _n3, _n4 = st.columns([1, 1, 1])
             with _n1:
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
-            with _n2:
-                st.session_state["ts_refresh_sel"] = refresh_sec
-                st.selectbox(
-                    "REFRESH",
-                    refresh_options,
-                    key="ts_refresh_sel",
-                    format_func=lambda x: f"⏱ {x}s" if x < 60 else f"⏱ {x // 60} min",
-                    on_change=_ts_cambiar_refresh,
-                    label_visibility="collapsed",
-                )
             with _n3:
                 st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
             with _n4:
@@ -4522,9 +4582,11 @@ def _render_scanner():
                 format_func=lambda x: f"🕒 {_tf_etiquetas.get(x, x)}",
                 help="Temporalidad de las velas para EMA20/50/200, MACD y RSI.",
             )
-        for _qk, _wk, _tipo, _ops, _def in _EMA_NATIVOS:
+        for _qk, _wk, _tipo, _ops, _def in _NATIVOS_TODOS:
             if st.session_state.get(_wk) is None:
-                st.session_state[_wk] = float(_def) if _tipo == "num" else _def
+                st.session_state[_wk] = _valor_defecto_nativo(_tipo, _ops, _def)
+                if _tipo in ("num", "flt"):
+                    st.session_state[_wk] = float(st.session_state[_wk])
         _lbl_estado = {"Por encima": "ARRIBA (vela sobre la EMA)", "Por debajo": "ABAJO (vela bajo la EMA)", "Neutro": "NEUTRO"}
         _lbl_cond2 = {"Ninguna": "Sin condición extra", "Naciendo": "Primera vela naciendo",
                       "Distancia": "A ≤ distancia % de la EMA", "Naciendo o distancia": "Naciendo o ≤ distancia %"}
@@ -4540,7 +4602,55 @@ def _render_scanner():
                     st.number_input("Distancia máx. (%)", min_value=0.0, max_value=25.0, step=0.1,
                                     format="%.1f", key=f"ts_ema{_n}_dist")
 
-    components.html(h, height=1900, scrolling=False)
+        with st.expander("⚙️ Filtros y configuración del scanner", expanded=False):
+            _g1, _g2, _g3 = st.columns(3)
+            with _g1:
+                st.selectbox("Motor", ["True", "False"], key="ts_c_active",
+                             format_func=lambda x: "🟢 ON" if x == "True" else "🔴 OFF")
+            with _g2:
+                st.selectbox("Idioma", ["ESP", "ENG"], key="ts_c_lang")
+            with _g3:
+                st.selectbox("Ventana", ["Incrustada", "Flotante"], key="ts_c_wnd")
+            _p1, _p2, _p3, _p4 = st.columns(4)
+            with _p1:
+                st.number_input("Precio mín ($)", min_value=0.0, max_value=100000.0, step=0.01, format="%.2f", key="ts_f_price_min")
+            with _p2:
+                st.number_input("Precio máx ($)", min_value=0.0, max_value=100000.0, step=0.01, format="%.2f", key="ts_f_price_max")
+            with _p3:
+                st.number_input("Gap mín (%)", min_value=-100.0, max_value=10000.0, step=0.1, format="%.1f", key="ts_f_gap_min")
+            with _p4:
+                st.number_input("Gap máx (%)", min_value=-100.0, max_value=10000.0, step=0.1, format="%.1f", key="ts_f_gap_max")
+            _q1, _q2, _q3, _q4 = st.columns(4)
+            with _q1:
+                st.number_input("Flotación ≤", min_value=0, max_value=10 ** 12, step=1_000_000, key="ts_f_float_max")
+            with _q2:
+                st.number_input("Volumen ≥", min_value=0, max_value=10 ** 12, step=1_000, key="ts_f_vol")
+            with _q3:
+                st.selectbox("MACD", ["Positivo", "Negativo", "No exigir"], key="ts_f_mac")
+            with _q4:
+                st.selectbox("Ordenar", ["Actualizado", "Cambio %", "Volumen"], key="ts_f_order")
+            _r1, _r2 = st.columns([1, 2])
+            with _r1:
+                st.selectbox("Broker", ["Interactive Brokers", "Tradestation", "Charles Schwab", "Otro"], key="ts_c_broker")
+            with _r2:
+                st.text_input("Puente de layout (URL)", key="ts_c_url")
+
+    components.html(_h_a, height=1000, scrolling=False)
+
+    # REFRESH justo encima de la tabla de resultados.
+    if not PUBLIC_PREVIEW:
+        with st.container(key="ts_refresh_bar"):
+            st.session_state["ts_refresh_sel"] = refresh_sec
+            st.selectbox(
+                "REFRESH DE LA TABLA",
+                refresh_options,
+                key="ts_refresh_sel",
+                format_func=lambda x: f"⏱ {x}s" if x < 60 else f"⏱ {x // 60} min",
+                on_change=_ts_cambiar_refresh,
+                help="Cada cuánto se actualiza la tabla de resultados.",
+            )
+
+    components.html(h, height=640, scrolling=False)
 
 
 # El temporizador se mantiene FUERA de components.html().
@@ -4598,7 +4708,8 @@ def _qp_valor(k):
 
 _TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
 
-# Controles NATIVOS de las pestañas EMA20/50/200: (param URL, key del widget, tipo, opciones, defecto)
+# Controles NATIVOS: (param URL, key del widget, tipo, opciones/rango, defecto)
+#   tipos: sel (opciones) · num (0-25) · flt / int (rango min,max) · txt (largo máx.)
 _EMA_NATIVOS = []
 for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
     _EMA_NATIVOS += [
@@ -4606,26 +4717,64 @@ for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
         (f"ema{_n}_cond", f"ts_ema{_n}_cond", "sel", OPCIONES_COND_EMA, _cd),
         (f"ema{_n}_dist", f"ts_ema{_n}_dist", "num", None, 0.5),
     ]
-_CLAVES_NATIVAS = {"timeframe"} | {_e[0] for _e in _EMA_NATIVOS}
+_FILTROS_NATIVOS = [
+    ("c_active", "ts_c_active", "sel", ("True", "False"), lambda: "True" if getattr(servicio, "encendido", True) else "False"),
+    ("c_lang", "ts_c_lang", "sel", ("ESP", "ENG"), "ESP"),
+    ("c_wnd", "ts_c_wnd", "sel", ("Incrustada", "Flotante"), "Incrustada"),
+    ("f_price_min", "ts_f_price_min", "flt", (0.0, 100000.0), 0.50),
+    ("f_price_max", "ts_f_price_max", "flt", (0.0, 100000.0), 20.0),
+    ("f_gap_min", "ts_f_gap_min", "flt", (-100.0, 10000.0), 3.0),
+    ("f_gap_max", "ts_f_gap_max", "flt", (-100.0, 10000.0), 50.0),
+    ("f_float_max", "ts_f_float_max", "int", (0, 10 ** 12), 20_000_000),
+    ("f_vol", "ts_f_vol", "int", (0, 10 ** 12), 15_000),
+    ("f_mac", "ts_f_mac", "sel", ("Positivo", "Negativo", "No exigir"), "Positivo"),
+    ("f_order", "ts_f_order", "sel", ("Actualizado", "Cambio %", "Volumen"), "Actualizado"),
+    ("c_broker", "ts_c_broker", "sel", ("Interactive Brokers", "Tradestation", "Charles Schwab", "Otro"),
+     lambda: st.session_state.get("bk_nombre", "Interactive Brokers")),
+    ("c_url", "ts_c_url", "txt", 300, lambda: st.session_state.get("bk_puente", "http://localhost:8080/layout")),
+]
+_NATIVOS_TODOS = _EMA_NATIVOS + _FILTROS_NATIVOS
+_CLAVES_NATIVAS = {"timeframe"} | {_e[0] for _e in _NATIVOS_TODOS}
 
 
 def _norm_nativo(tipo, opciones, v):
+    if v is None:
+        return None
     if tipo == "sel":
         return v if v in opciones else None
+    if tipo == "txt":
+        t = str(v).strip()
+        return t[: int(opciones or 300)] if t else None
     try:
-        return round(max(0.0, min(25.0, float(v))), 2)
+        x = float(v)
     except Exception:
         return None
+    if tipo == "num":
+        mn, mx = 0.0, 25.0
+    else:
+        mn, mx = opciones
+    x = max(mn, min(mx, x))
+    if tipo == "int":
+        return int(x)
+    return round(x, 4 if tipo == "flt" else 2)
 
 
-def _sincronizar_ema_nativos(accion_js):
-    """Igual que la temporalidad: el widget nativo manda; la URL solo al cargar
-    por primera vez o al cargar una configuración guardada."""
+def _valor_defecto_nativo(tipo, opciones, defecto):
+    d = defecto() if callable(defecto) else defecto
+    val = _norm_nativo(tipo, opciones, d)
+    if val is None:
+        val = opciones[0] if tipo == "sel" else (0 if tipo == "int" else (0.0 if tipo in ("num", "flt") else ""))
+    return val
+
+
+def _sincronizar_nativos(accion_js):
+    """El widget nativo manda; la URL solo se acepta al cargar por primera vez o al
+    cargar una configuración guardada. Así el refresh nunca revierte lo elegido."""
     almacen = st.session_state.get("_ts_query_elegida")
-    for qk, wk, tipo, opciones, defecto in _EMA_NATIVOS:
-        w = _norm_nativo(tipo, opciones, st.session_state.get(wk))
+    for qk, wk, tipo, ops, defecto in _NATIVOS_TODOS:
+        w = _norm_nativo(tipo, ops, st.session_state.get(wk))
         previo = st.session_state.get("_ts_prev_" + wk)
-        u = _norm_nativo(tipo, opciones, _qp_valor(qk))
+        u = _norm_nativo(tipo, ops, _qp_valor(qk))
         if w is not None and w != previo:
             val = w
         elif accion_js and u is not None and u != previo:
@@ -4637,11 +4786,14 @@ def _sincronizar_ema_nativos(accion_js):
         elif u is not None:
             val = u
         else:
-            val = defecto
+            val = _valor_defecto_nativo(tipo, ops, defecto)
         st.session_state["_ts_prev_" + wk] = val
-        if tipo == "num":
+        if tipo in ("num", "flt"):
             val = float(val)
             txt = f"{val:g}"
+        elif tipo == "int":
+            val = int(val)
+            txt = str(val)
         else:
             txt = str(val)
         if st.session_state.get(wk) != val:
@@ -4718,7 +4870,7 @@ def _sincronizar_query_con_sesion():
                 st.session_state["_ts_query_elegida"] = nuevo
         st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
         _sincronizar_timeframe(tf_url, accion_js)
-        _sincronizar_ema_nativos(accion_js)
+        _sincronizar_nativos(accion_js)
     except Exception:
         pass
 
