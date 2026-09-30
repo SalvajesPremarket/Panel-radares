@@ -4418,6 +4418,11 @@ def _render_scanner():
 
     h += "<div class='filtros-grid'>"
     h += "<div class='logo'>TRADE SCANNER</div>"
+    h += "<div class='filtro-item'><label>REFRESH</label><select id='refresh_sec_inside' onchange='cambiarRefresh(this.value)'>"
+    for _rv in refresh_options:
+        _rl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
+        h += f"<option value='{_rv}' {'selected' if refresh_sec==_rv else ''}>⏱ {_rl}</option>"
+    h += "</select></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
     else:
@@ -4490,7 +4495,7 @@ def _render_scanner():
     if PUBLIC_PREVIEW:
         h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
     else:
-        h += "<div class='filtro-item'><label>CÓMO CAMBIARLOS</label><span style='font-size:10px;line-height:1.35;'>Los filtros y la configuración se cambian en el panel ⚙️ que está arriba de este cuadro y quedan fijos.</span></div>"
+        h += "<div class='filtro-item'><label>CONTROLES</label><span style='font-size:10px;line-height:1.35;'>Los filtros, temporalidad, EMA, idioma y refresh se cambian directamente dentro de este cuadro gris.</span></div>"
     h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
@@ -4635,20 +4640,7 @@ def _render_scanner():
 
     # Temporalidad, EMA y filtros se manejan dentro del cuadro gris del scanner.\n    components.html(_h_a, height=1000, scrolling=False)
 
-    # REFRESH justo encima de la tabla de resultados.
-    if not PUBLIC_PREVIEW:
-        with st.container(key="ts_refresh_bar"):
-            st.session_state["ts_refresh_sel"] = refresh_sec
-            st.selectbox(
-                "REFRESH DE LA TABLA",
-                refresh_options,
-                key="ts_refresh_sel",
-                format_func=lambda x: f"⏱ {x}s" if x < 60 else f"⏱ {x // 60} min",
-                on_change=_ts_cambiar_refresh,
-                help="Cada cuánto se actualiza la tabla de resultados.",
-            )
-
-    components.html(h, height=640, scrolling=False)
+    # Refresh integrado en el cuadro gris; no se crea un selector externo adicional.\n    components.html(h, height=640, scrolling=False)
 
 
 # El temporizador se mantiene FUERA de components.html().
