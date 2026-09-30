@@ -4128,7 +4128,7 @@ def _render_scanner():
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
     h += "function _guardarUltimaConfiguracion(q){if(!TS_AUTH)return;try{var o={};q.forEach(function(v,k){if(k!=='auth_session'&&k.charAt(0)!=='_')o[k]=v});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){return;}"
-    h += "function _navegarMismaApp(q){try{q.delete('_ts');var u='/?'+q.toString();var P=window.parent;P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(e){}try{window.top.location.replace('/?'+q.toString());}catch(_e){}}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));var u='/?'+q.toString();var P=window.parent;P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(e){}try{window.top.location.replace('/?'+q.toString());}catch(_e){}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
     h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
@@ -4309,6 +4309,8 @@ def _render_scanner():
 
     def _ts_salir():
         cerrar_sesion()
+        st.session_state.pop("_ts_query_elegida", None)
+        st.session_state.pop("_ts_u_visto", None)
         st.session_state["mostrar_auth"] = False
         try:
             st.query_params.clear()
@@ -4318,6 +4320,9 @@ def _render_scanner():
     def _ts_cambiar_refresh():
         try:
             st.query_params["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
+            _almacen = st.session_state.get("_ts_query_elegida")
+            if isinstance(_almacen, dict):
+                _almacen["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
         except Exception:
             pass
 
@@ -4430,37 +4435,49 @@ def _refresh_segundos_global():
 _CLAVES_SYNC_QUERY = tuple(_CONFIG_USUARIO_KEYS) + ("technical_timeframe",)
 
 
-def _sincronizar_query_con_sesion():
-    """Evita que el refresh automático pierda la temporalidad y los filtros.
+def _qp_valor(k):
+    v = st.query_params.get(k, None)
+    if isinstance(v, list):
+        v = v[0] if v else None
+    return None if v is None else str(v)
 
-    - En una acción del usuario (cambiar temporalidad, filtro, etc.) guarda en
-      st.session_state lo que hay en la URL.
-    - En un rerun AUTOMÁTICO (el de run_every) la URL puede llegar vieja o
-      sin parámetros; entonces se vuelve a escribir lo que el usuario había
-      elegido, antes de leer temporalidad, refresh y filtros.
+
+def _sincronizar_query_con_sesion():
+    """La temporalidad y los filtros que elige el usuario NO se pierden con el refresh.
+
+    Toda acción del usuario en la carátula (JS) añade a la URL una marca `_u`
+    que crece con el tiempo. Regla:
+      - `_u` NUEVA (mayor que la última vista)  -> acción del usuario: se guardan
+        en st.session_state los valores de la URL.
+      - cualquier otro rerun (refresh automático, reconexión, URL vieja o sin
+        parámetros)                              -> se vuelve a imponer lo último
+        que eligió el usuario.
     """
     try:
         auto = bool(st.session_state.pop("_ts_rerun_auto", False))
         guardado = st.session_state.get("_ts_query_elegida")
         if not isinstance(guardado, dict):
             guardado = {}
-        if auto and guardado:
+        try:
+            u_nuevo = int(float(_qp_valor("_u") or 0))
+        except Exception:
+            u_nuevo = 0
+        u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
+
+        if guardado and (auto or u_nuevo <= u_visto):
             for k, v in guardado.items():
-                actual = st.query_params.get(k, None)
-                if isinstance(actual, list):
-                    actual = actual[0] if actual else None
-                if actual is None or str(actual) != v:
+                if _qp_valor(k) != v:
                     st.query_params[k] = v
-        else:
-            nuevo = {}
-            for k in _CLAVES_SYNC_QUERY:
-                v = st.query_params.get(k, None)
-                if isinstance(v, list):
-                    v = v[0] if v else None
-                if v is not None and str(v) != "":
-                    nuevo[k] = str(v)
-            if nuevo:
-                st.session_state["_ts_query_elegida"] = nuevo
+            return
+
+        nuevo = {}
+        for k in _CLAVES_SYNC_QUERY:
+            v = _qp_valor(k)
+            if v is not None and v != "":
+                nuevo[k] = v
+        if nuevo:
+            st.session_state["_ts_query_elegida"] = nuevo
+        st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
     except Exception:
         pass
 
