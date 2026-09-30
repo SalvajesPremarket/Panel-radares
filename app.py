@@ -3849,9 +3849,8 @@ document.addEventListener('click',function(){setTimeout(_ajustarMarco,60);});
 window.addEventListener('load',function(){try{var mc=document.querySelector('.main-container');if(mc)new ResizeObserver(function(){_ajustarMarco();}).observe(mc);}catch(e){}});
 '''
 
-
 def _render_scanner():
-        def _ts_cambiar_refresh():
+    def _ts_cambiar_refresh():
         try:
             st.query_params["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
             _almacen = st.session_state.get("_ts_query_elegida")
@@ -3859,10 +3858,12 @@ def _render_scanner():
                 _almacen["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
         except Exception:
             pass
+
     try:
         servicio._esta_en_horario_automatico()
     except Exception:
         pass
+
 
     # Valores de interfaz seguros. Se leen de query_params para que los cambios
     # realizados desde la carátula puedan sobrevivir al rerun de Streamlit.
