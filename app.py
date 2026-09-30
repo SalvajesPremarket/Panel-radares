@@ -179,6 +179,10 @@ VALORES_POR_DEFECTO = {
     "ema_dist_max": 0.0,
     "rsi_min": 0.0,
     "rsi_max": 100.0,
+    # Pestañas EMA20/50/200: estado (arriba/abajo) + condición de entrada.
+    "ema20_estado": "Neutro", "ema50_estado": "Neutro", "ema200_estado": "Neutro",
+    "ema20_cond": "Naciendo", "ema50_cond": "Ninguna", "ema200_cond": "Ninguna",
+    "ema20_dist": 0.5, "ema50_dist": 0.5, "ema200_dist": 0.5,
 }
 
 
@@ -1276,6 +1280,8 @@ _CONFIG_USUARIO_KEYS = (
     "rsi_min", "rsi_max", "ema20_estado", "ema50_estado",
     "ema200_estado", "c_active", "c_start", "c_end",
     "c_lang", "c_wnd", "c_broker", "c_url", "refresh_sec",
+    "ema20_cond", "ema50_cond", "ema200_cond",
+    "ema20_dist", "ema50_dist", "ema200_dist",
 )
 
 def _clave_configuracion_activa():
@@ -1736,6 +1742,95 @@ def evaluar_tecnico(velas):
                 None, None, None, None, None, None, None, None, None)
 
 
+OPCIONES_COND_EMA = ("Ninguna", "Naciendo", "Distancia", "Naciendo o distancia")
+
+
+def evaluar_ema_condiciones(velas):
+    """Datos extra por EMA (20/50/200) para las pestañas de filtros.
+
+    Por cada EMA N devuelve:
+      emaN_dist_pct   -> distancia absoluta (%) entre el precio actual y la EMA N
+      emaN_nace_arriba -> la vela actual NACE sobre la EMA N (misma definición
+                          que ya usa la EMA20: open actual > EMA N de la vela
+                          anterior y mínimo actual > mínimo anterior)
+      emaN_nace_abajo  -> lo simétrico hacia abajo
+    Si no hay velas suficientes para esa EMA, no devuelve sus claves.
+    """
+    salida = {}
+    try:
+        if velas is None or len(velas) < 40:
+            return salida
+        velas = velas.sort_index()
+        if not all(col in velas.columns for col in ("open", "high", "low", "close")):
+            return salida
+        cierres = velas["close"].astype(float).dropna()
+        vela_prev = velas.iloc[-2]
+        vela_act = velas.iloc[-1]
+        open_act = float(vela_act["open"])
+        high_act = float(vela_act["high"])
+        low_act = float(vela_act["low"])
+        high_prev = float(vela_prev["high"])
+        low_prev = float(vela_prev["low"])
+        precio = float(vela_act["close"])
+        for n in (20, 50, 200):
+            if len(cierres) < n:
+                continue
+            serie = cierres.ewm(span=n, adjust=False).mean()
+            ema_act = float(serie.iloc[-1])
+            ema_prev = float(serie.iloc[-2])
+            if pd.isna(ema_act) or pd.isna(ema_prev) or ema_act <= 0 or ema_prev <= 0:
+                continue
+            salida[f"ema{n}_dist_pct"] = abs(precio - ema_act) / ema_act * 100.0
+            salida[f"ema{n}_nace_arriba"] = bool(open_act > ema_prev and low_act > low_prev)
+            salida[f"ema{n}_nace_abajo"] = bool(open_act < ema_prev and high_act < high_prev)
+    except Exception as e:
+        print(f"⚠️ Error evaluando condiciones EMA: {e}")
+    return salida
+
+
+def cumple_condiciones_ema(c, p):
+    """Aplica las pestañas EMA20 / EMA50 / EMA200.
+
+    Para cada EMA:
+      1) Estado: "Por encima" exige precio > EMA; "Por debajo" exige precio < EMA;
+         "Neutro" no exige nada.
+      2) Condición de entrada (además del estado):
+           Ninguna              -> nada más
+           Naciendo             -> primera vela naciendo sobre (o bajo) la EMA
+           Distancia            -> precio a <= X% de la EMA
+           Naciendo o distancia -> cualquiera de las dos
+    Por defecto EMA20 = "Naciendo" (la regla original del scanner) y
+    EMA50/EMA200 = "Ninguna". Si un dato no se puede calcular, la condición falla.
+    """
+    for n in (20, 50, 200):
+        pedido = p.get(f"ema{n}_estado", "Neutro")
+        cond = p.get(f"ema{n}_cond", "Naciendo" if n == 20 else "Ninguna")
+        if pedido in ("Por encima", "Por debajo") and c.get(f"ema{n}_estado", "Neutro") != pedido:
+            return False
+        if cond not in ("Naciendo", "Distancia", "Naciendo o distancia"):
+            continue
+        abajo = (pedido == "Por debajo")
+        if n == 20:
+            nace = bool(c.get("cruzando_ema20_abajo") if abajo else c.get("cruzando_ema20"))
+        else:
+            nace = bool(c.get(f"ema{n}_nace_abajo" if abajo else f"ema{n}_nace_arriba"))
+        try:
+            limite = float(p.get(f"ema{n}_dist", 0.5))
+        except Exception:
+            limite = 0.5
+        dist = c.get(f"ema{n}_dist_pct")
+        cerca = dist is not None and float(dist) <= limite
+        if cond == "Naciendo":
+            ok = nace
+        elif cond == "Distancia":
+            ok = cerca
+        else:
+            ok = nace or cerca
+        if not ok:
+            return False
+    return True
+
+
 def _timeframe_alpaca(label):
     """Convierte la selección de interfaz a un TimeFrame de Alpaca."""
     label = str(label or "1m").strip().lower()
@@ -1905,20 +2000,13 @@ def filtrar_resultados(filas, p):
             continue
         if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
             continue
-        # REGLAS TÉCNICAS FIJAS SOLICITADAS: primera vela formándose sobre EMA20 + MACD positivo.
-        if not c.get("cruzando_ema20", False):
-            continue
+        # MACD positivo sigue siendo obligatorio.
         if not c.get("macd_positivo", False):
             continue
-        # En SCALPING, EMA50 y EMA200 son SOLO informativas.
-        # No pueden bloquear una señal aunque el precio esté por encima
-        # o por debajo de ellas. La única EMA que interviene en la señal
-        # es EMA20, mediante cruzando_ema20.
-        _want_ema20 = p.get("ema20_estado", "Neutro")
-        if _want_ema20 != "Neutro" and c.get("ema20_estado", "Neutro") != _want_ema20:
+        # Pestañas EMA20 / EMA50 / EMA200: estado + condición (naciendo / distancia).
+        # Por defecto EMA20 = "Naciendo" (regla original); EMA50/200 sin condición.
+        if not cumple_condiciones_ema(c, p):
             continue
-        # EMA50 y EMA200 son exclusivamente informativas.
-        # RSI y distancia EMA20 no bloquean la búsqueda de scalping.
         resultado.append(c)
 
     claves = {
@@ -2034,6 +2122,7 @@ class ServicioScanner:
         self.resultados_por_tf = {}
         self.diag_por_tf = {}
         self.cache_tecnico_por_tf = {}
+        self.cache_ema_extra_por_tf = {}
         self._raw_prev_por_tf = {}
         # Filtros (precio, gap, float, volumen...) que el usuario tiene activos EN CADA
         # temporalidad. Así 1m y 15m pueden buscar con condiciones distintas a la vez.
@@ -2165,6 +2254,7 @@ class ServicioScanner:
                 self.resultados_por_tf.pop(tf, None)
                 self.diag_por_tf.pop(tf, None)
                 self.cache_tecnico_por_tf.pop(tf, None)
+                self.cache_ema_extra_por_tf.pop(tf, None)
                 self._raw_prev_por_tf.pop(tf, None)
                 self.filtros_por_tf.pop(tf, None)
         return lista
@@ -2258,6 +2348,7 @@ class ServicioScanner:
             self.finales_ema_macd_actual = []
             self.cache_tecnico = {}
             self.cache_tecnico_por_tf = {}
+            self.cache_ema_extra_por_tf = {}
             self.resultados_por_tf = {}
             self.diag_por_tf = {}
             self._raw_prev_por_tf = {}
@@ -2537,6 +2628,10 @@ class ServicioScanner:
         self._guardar_cache_fundamentales()
 
     # ---------- EMA20 / MACD ----------
+    def _cache_ema_extra(self, tf):
+        d = self.__dict__.setdefault("cache_ema_extra_por_tf", {})
+        return d.setdefault(str(tf).lower(), {})
+
     def _asegurar_tecnico(self, tickers, tf=None):
         ahora = time.time()
         tf_actual = str(tf or getattr(self, "tf_principal", "1m")).lower()
@@ -2568,7 +2663,9 @@ class ServicioScanner:
         _err_barras = getattr(self.data, "_ultimo_error_barras", "")
         if _err_barras:
             self.ultimo_error = f"Velas Alpaca ({tf_actual}): {_err_barras}"
+        extras_ema = self._cache_ema_extra(tf_actual)
         for t in pendientes:
+            extras_ema[t] = evaluar_ema_condiciones(series.get(t))
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
              ema_actual, bb_upper, bb_dist_pct, rsi_val, ema50_act, ema200_act) = evaluar_tecnico(series.get(t))
@@ -2994,11 +3091,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["ema50_estado"] = "Por encima" if precio_actual_tec is not None and ema50_tec is not None and precio_actual_tec > ema50_tec else ("Por debajo" if precio_actual_tec is not None and ema50_tec is not None and precio_actual_tec < ema50_tec else "Neutro")
             c["ema200_estado"] = "Por encima" if precio_actual_tec is not None and ema200_tec is not None and precio_actual_tec > ema200_tec else ("Por debajo" if precio_actual_tec is not None and ema200_tec is not None and precio_actual_tec < ema200_tec else "Neutro")
             c["cruce_ema20_confirmado"] = bool(cruz_arriba and precio_prev_tec is not None and ema_prev_tec is not None)
+            c.update(self._cache_ema_extra(tf).get(c["ticker"], {}))
             c["tiene_noticia"] = False
 
         # Después de EMA/MACD, pedimos FLOAT solo a candidatos técnicos.
         # Esto elimina el cuello de botella que estaba dejando el scanner en 0.
-        candidatos_tecnicos = [c for c in radar_gap if c.get("cruzando_ema20") and c.get("macd_positivo")]
+        candidatos_tecnicos = [c for c in radar_gap if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_positivo")]
         # Las noticias son decorativas: consultamos solo una muestra de candidatos
         # técnicos, nunca los cientos de símbolos del radar base.
         con_noticia = self._noticias_recientes([c["ticker"] for c in candidatos_tecnicos[:100]])
@@ -3027,11 +3125,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self.n_tras_float = len(enriquecidos)
 
         # Diagnóstico del embudo: no cambia ningún filtro ni el resultado del scanner.
-        ema_arriba_count = sum(1 for c in radar_gap if c.get("cruzando_ema20"))
+        ema_arriba_count = sum(1 for c in radar_gap if cumple_condiciones_ema(c, filtros_tf))
         macd_positivo_count = sum(1 for c in radar_gap if c.get("macd_positivo"))
         ema_y_macd_count = sum(
             1 for c in enriquecidos
-            if c.get("cruzando_ema20") and c.get("macd_positivo")
+            if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_positivo")
         )
         # El filtro de volumen ya se aplicó al construir 'enriquecidos', así
         # que ese conteo ES el resultado "tras volumen". El paso previo
@@ -3045,7 +3143,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # En PRUEBA 4 top_n=50, por lo que el resultado final podrá mostrar hasta 50.
         candidatos_ema_macd_brutos = sum(
             1 for c in enriquecidos
-            if c.get("cruzando_ema20") and c.get("macd_positivo")
+            if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_positivo")
         )
         _diag_tf = {
             "radar_base": radar_base_total,
@@ -3690,6 +3788,12 @@ def _render_scanner():
     ema20_estado_ui = _qtxt("ema20_estado", "Neutro")
     ema50_estado_ui = _qtxt("ema50_estado", "Neutro")
     ema200_estado_ui = _qtxt("ema200_estado", "Neutro")
+    ema_cond_ui = {}
+    ema_dist_ui = {}
+    for _n, _def in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
+        _cnd = _qtxt(f"ema{_n}_cond", _def)
+        ema_cond_ui[_n] = _cnd if _cnd in OPCIONES_COND_EMA else _def
+        ema_dist_ui[_n] = max(0.0, min(25.0, _qfloat(f"ema{_n}_dist", 0.5)))
     macd_ui = _qtxt("f_mac", "Positivo")
     orden_ui = _qtxt("f_order", "Actualizado")
     sesion_ui = "TODO EL MERCADO"
@@ -3708,13 +3812,14 @@ def _render_scanner():
     # Regla fija del scanner: la señal es siempre EMA20 hacia arriba.
     # El selector sigue visible, pero no puede cambiar la lógica dura del motor.
     ema_ui = "Hacia arriba"
-    for _var in ("ema20_estado_ui", "ema50_estado_ui", "ema200_estado_ui"):
-        if _var in globals() and globals()[_var] not in ("Por encima", "Por debajo", "Neutro"):
-            globals()[_var] = "Neutro"
-    # En la búsqueda de scalping, EMA50 y EMA200 nunca son filtros de dirección.
-    # Se muestran en la tabla, pero su exigencia queda siempre en NEUTRO.
-    ema50_estado_ui = "Neutro"
-    ema200_estado_ui = "Neutro"
+    # Las pestañas EMA20/50/200 son filtros reales (estado + condición).
+    _estados_ok = ("Por encima", "Por debajo", "Neutro")
+    if ema20_estado_ui not in _estados_ok:
+        ema20_estado_ui = "Neutro"
+    if ema50_estado_ui not in _estados_ok:
+        ema50_estado_ui = "Neutro"
+    if ema200_estado_ui not in _estados_ok:
+        ema200_estado_ui = "Neutro"
     # Regla fija del scanner: MACD positivo es obligatorio.
     # El selector queda normalizado para que la interfaz no contradiga al motor.
     macd_ui = "Positivo"
@@ -3740,6 +3845,12 @@ def _render_scanner():
         "ema20_estado": ema20_estado_ui,
         "ema50_estado": ema50_estado_ui,
         "ema200_estado": ema200_estado_ui,
+        "ema20_cond": ema_cond_ui[20],
+        "ema50_cond": ema_cond_ui[50],
+        "ema200_cond": ema_cond_ui[200],
+        "ema20_dist": ema_dist_ui[20],
+        "ema50_dist": ema_dist_ui[50],
+        "ema200_dist": ema_dist_ui[200],
     }
 
     # IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
@@ -3748,8 +3859,6 @@ def _render_scanner():
     if not PUBLIC_PREVIEW:
       try:
         servicio.filtros_dueno.update(params_ui)
-        servicio.filtros_dueno["ema50_estado"] = "Neutro"
-        servicio.filtros_dueno["ema200_estado"] = "Neutro"
         servicio.sesion = sesion_ui
       except Exception:
         pass
@@ -3853,7 +3962,7 @@ def _render_scanner():
             except Exception:
                 txt = "N/D"
             return f"{txt} · {estado}"
-        ema_txt = _ema_cell(ema20_val, "Por encima" if ema_ok else ("Por debajo" if ema_down else "Neutro"))
+        ema_txt = _ema_cell(ema20_val, row.get("ema20_estado", "Por encima" if ema_ok else ("Por debajo" if ema_down else "Neutro")))
         ema50_txt = _ema_cell(ema50_val, row.get("ema50_estado", "Neutro"))
         ema200_txt = _ema_cell(ema200_val, row.get("ema200_estado", "Neutro"))
         mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
@@ -4022,8 +4131,8 @@ def _render_scanner():
     h += "function _navegarMismaApp(q){try{q.delete('_ts');var u='/?'+q.toString();var P=window.parent;P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(e){}try{window.top.location.replace('/?'+q.toString());}catch(_e){}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
-    h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
-    h += "function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var o=cfgActual();o.nombre=n;['ema20_estado','ema50_estado','ema200_estado'].forEach(function(k){var e=document.getElementById(k);if(e)o[k]=e.value});var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}a=a.filter(function(x){return x.nombre.toLowerCase()!==n.toLowerCase()});a.unshift(o);localStorage.setItem('tradeScannerConfigs',JSON.stringify(a.slice(0,50)));_guardarUltimaConfiguracion(cfgActual());document.getElementById('config_name').value='';renderConfiguraciones();}"
+    h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_goto(q);}"
+    h += "function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var o=cfgActual();o.nombre=n;['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'].forEach(function(k){var e=document.getElementById(k);if(e)o[k]=e.value});var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}a=a.filter(function(x){return x.nombre.toLowerCase()!==n.toLowerCase()});a.unshift(o);localStorage.setItem('tradeScannerConfigs',JSON.stringify(a.slice(0,50)));_guardarUltimaConfiguracion(cfgActual());document.getElementById('config_name').value='';renderConfiguraciones();}"
     h += "function cargarConfiguracionPersonal(n){var a=[];try{a=JSON.parse(localStorage.getItem('tradeScannerConfigs')||'[]')}catch(e){}var o=a.find(function(x){return x.nombre===n});if(!o)return;var q=new URLSearchParams();Object.keys(o).forEach(function(k){if(k!=='nombre' && k!=='auth_session')q.set(k,o[k])});_goto(q)}"
     h += "function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var raw=localStorage.getItem('tradeScannerConfigs')||'[]';var a=JSON.parse(raw);if(!Array.isArray(a))a=[];var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});localStorage.removeItem('tradeScannerConfigs');localStorage.setItem('tradeScannerConfigs',JSON.stringify(restantes));renderConfiguraciones();}catch(e){try{sessionStorage.setItem('tradeScannerConfigs',JSON.stringify([]));}catch(_e){}alert('No se pudo eliminar la configuración: '+e.message);}}"
     h += "function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
@@ -4073,8 +4182,18 @@ def _render_scanner():
     for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
         h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
     h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
-    for _ename, _eid, _eval in (("EMA20", "ema20_estado", ema20_estado_ui), ("EMA50", "ema50_estado", ema50_estado_ui), ("EMA200", "ema200_estado", ema200_estado_ui)):
-        h += f"<div class='panel-card technical-control'><b>{_ename}</b><select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>POR ENCIMA</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>POR DEBAJO</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select><span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
+    _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
+                 ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
+    for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
+        _eid = f"ema{_n}_estado"
+        h += f"<div class='panel-card technical-control'><b>{_ename}</b>"
+        h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
+        h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
+        for _v, _t in _lbl_cond:
+            h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
+        h += "</select>"
+        h += f"<div class='range'><input type='number' step='0.1' min='0' max='25' id='ema{_n}_dist' value='{ema_dist_ui[_n]:g}' onchange='aplicarTecnicas()'><span>% distancia máx.</span></div>"
+        h += f"<span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
     h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
     h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()} · EMA20/MACD/RSI usan esta misma temporalidad.</span></div>"
     h += "<div class='panel-card'><b>MEDIAS</b><span>EMA20 · EMA50 · EMA200 calculadas en el timeframe seleccionado.</span></div>"
@@ -4308,6 +4427,46 @@ def _refresh_segundos_global():
     except Exception:
         return 180
 
+_CLAVES_SYNC_QUERY = tuple(_CONFIG_USUARIO_KEYS) + ("technical_timeframe",)
+
+
+def _sincronizar_query_con_sesion():
+    """Evita que el refresh automático pierda la temporalidad y los filtros.
+
+    - En una acción del usuario (cambiar temporalidad, filtro, etc.) guarda en
+      st.session_state lo que hay en la URL.
+    - En un rerun AUTOMÁTICO (el de run_every) la URL puede llegar vieja o
+      sin parámetros; entonces se vuelve a escribir lo que el usuario había
+      elegido, antes de leer temporalidad, refresh y filtros.
+    """
+    try:
+        auto = bool(st.session_state.pop("_ts_rerun_auto", False))
+        guardado = st.session_state.get("_ts_query_elegida")
+        if not isinstance(guardado, dict):
+            guardado = {}
+        if auto and guardado:
+            for k, v in guardado.items():
+                actual = st.query_params.get(k, None)
+                if isinstance(actual, list):
+                    actual = actual[0] if actual else None
+                if actual is None or str(actual) != v:
+                    st.query_params[k] = v
+        else:
+            nuevo = {}
+            for k in _CLAVES_SYNC_QUERY:
+                v = st.query_params.get(k, None)
+                if isinstance(v, list):
+                    v = v[0] if v else None
+                if v is not None and str(v) != "":
+                    nuevo[k] = str(v)
+            if nuevo:
+                st.session_state["_ts_query_elegida"] = nuevo
+    except Exception:
+        pass
+
+
+_sincronizar_query_con_sesion()
+
 if True:  # el visitante también se refresca (cada 3 min); el usuario registrado elige su intervalo
     _st_fragment = getattr(st, "fragment", None)
     if _st_fragment is not None:
@@ -4322,6 +4481,9 @@ if True:  # el visitante también se refresca (cada 3 min); el usuario registrad
             # run_every vuelve a ejecutar solamente este fragmento; st.rerun()
             # (sin scope) solicita un rerun completo de la aplicación.
             st.session_state["_ts_refresh_fragment_started"] = False
+            # Marca este rerun como AUTOMÁTICO: así _sincronizar_query_con_sesion()
+            # vuelve a imponer la temporalidad/filtros que el usuario eligió.
+            st.session_state["_ts_rerun_auto"] = True
             st.rerun()
         _refresco_nativo_scanner()
 
