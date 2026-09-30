@@ -4214,7 +4214,9 @@ def _render_scanner():
 
     # 🔄 Refresco de la interfaz: visitante fijo en 3 minutos; usuario registrado
     # puede seleccionar desde 5 segundos y valores mayores.
-    _refresh_raw = str(st.query_params.get("refresh_sec", "180"))
+    _refresh_raw = st.session_state.get("_ts_refresh_canonico") if not PUBLIC_PREVIEW else "180"
+    if _refresh_raw in (None, ""):
+        _refresh_raw = st.query_params.get("refresh_sec", "180")
     try:
         refresh_sec = max(5, int(float(_refresh_raw)))
     except Exception:
@@ -4302,7 +4304,7 @@ def _render_scanner():
     h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
     h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
-    h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);_navegarMismaApp(q)}"
+    h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
     h += "</script></head><body>"
@@ -4339,7 +4341,7 @@ def _render_scanner():
     if PUBLIC_PREVIEW:
         h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
     else:
-        h += f"<div class='panel-card'><b>CONDICIONES EMA</b><span>{_ema_resumen_html}</span></div>"
+        h += f"<div class='panel-card'><b>CONDICIONES EMA · ACTUALES</b><span>{_ema_resumen_html}</span></div>
     h += f"<div class='panel-card'><b>MACD</b><span>Condición actual: {_safe_text(macd_ui)}.</span></div>"
     h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
@@ -4486,7 +4488,9 @@ def _render_scanner():
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
     else:
-        h += f"<div class='filtro-item'><label>CONDICIONES EMA</label><span style='font-size:10px;line-height:1.4;'>{_ema_resumen_html}<i style='color:#8f99a5'>Se cambian en el panel 📐 arriba de la tabla.</i></span><input type='hidden' id='sel_ema' value='{ema_ui}'></div>"
+        # Las condiciones EMA se muestran una sola vez en el panel TÉCNICOS.
+        # Aquí no se repite el resumen ni se presenta un valor "fijo".
+        h += "<input type='hidden' id='sel_ema' value='" + _safe_text(ema_ui) + "'>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
     else:
@@ -4554,8 +4558,9 @@ def _render_scanner():
     _h_a = h + "</div></body></html>"
 
     h = _head_html + "<div class='main-container'>" + _status_line_html
-    h += _diag_html
-    h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
+    # El diagnóstico del embudo permanece interno en el motor.
+    # No se muestra como texto fijo antes de RESULTADOS.
+    h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>
     h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
     h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th><th data-col='ema20'>EMA20 ({timeframe_ui})</th><th data-col='ema50'>EMA50 ({timeframe_ui})</th><th data-col='ema200'>EMA200 ({timeframe_ui})</th><th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
@@ -4690,11 +4695,16 @@ def _tf_pendiente():
 
 
 def _refresh_segundos_global():
+    # Visitante: 3 minutos fijos. Usuario autenticado: conserva el refresh
+    # elegido por el usuario aunque Streamlit haga un rerun completo.
     if PUBLIC_PREVIEW:
-        return 180  # visitante sin registrar: refresh fijo en 3 min (no se puede forzar por URL)
+        return 180
     if _tf_pendiente():
-        return 4    # temporalidad recién elegida: revisa cada 4 s hasta que el motor la calcule
+        return 4
     try:
+        canonico = st.session_state.get("_ts_refresh_canonico")
+        if canonico is not None:
+            return max(5, int(float(str(canonico))))
         valor = st.query_params.get("refresh_sec", "180")
         if isinstance(valor, list):
             valor = valor[0] if valor else "180"
@@ -4904,6 +4914,23 @@ def _sincronizar_query_con_sesion():
                     nuevo[k] = v
             if nuevo:
                 st.session_state["_ts_query_elegida"] = nuevo
+        # REFRESH también tiene una fuente canónica por sesión.
+        # Una acción del usuario captura el nuevo valor; un auto-refresh jamás
+        # vuelve a imponer el antiguo 180 s.
+        try:
+            _rv_q = _qp_valor("refresh_sec")
+            _rv_guardado = guardado.get("refresh_sec") if isinstance(guardado, dict) else None
+            _rv_canon = st.session_state.get("_ts_refresh_canonico")
+            if not PUBLIC_PREVIEW:
+                if accion_js and _rv_q not in (None, ""):
+                    st.session_state["_ts_refresh_canonico"] = max(5, int(float(_rv_q)))
+                elif _rv_canon not in (None, ""):
+                    st.query_params["refresh_sec"] = str(max(5, int(float(_rv_canon))))
+                elif _rv_guardado not in (None, ""):
+                    st.session_state["_ts_refresh_canonico"] = max(5, int(float(_rv_guardado)))
+                    st.query_params["refresh_sec"] = str(st.session_state["_ts_refresh_canonico"])
+        except Exception:
+            pass
         st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
         _sincronizar_timeframe(tf_url, accion_js)
         _sincronizar_nativos(accion_js)
