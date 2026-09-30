@@ -4198,134 +4198,91 @@ def _render_scanner():
     fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
     _email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
 
-        # --- DICCIONARIO DE IDIOMAS INTEGRADO LIMPIO ---
-    DICCIONARIO_TRADUCTOR = {
-        "ESP": {
-            "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
-            "lbl_motor": "MOTOR", "lbl_idioma": "IDIOMA", "lbl_ventana": "VENTANA", "lbl_tf": "TEMPORALIDAD",
-            "lbl_precio": "PRECIO ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLOTACIÓN ≤", "lbl_vol": "VOLUMEN ≥",
-            "lbl_macd": "MACD", "lbl_orden": "ORDENAR", "lbl_broker": "BROKER", "lbl_puente": "PUENTE DE LAYOUT", "radar": "RADAR"
-        },
-        "ENG": {
-            "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
-            "lbl_motor": "ENGINE", "lbl_idioma": "LANGUAGE", "lbl_ventana": "WINDOW", "lbl_tf": "TIMEFRAME",
-            "lbl_precio": "PRICE ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLOAT ≤", "lbl_vol": "VOLUME ≥",
-            "lbl_macd": "MACD", "lbl_orden": "SORT BY", "lbl_broker": "BROKER", "lbl_puente": "LAYOUT BRIDGE", "radar": "RADAR"
-        },
-        "POR": {
-            "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
-            "lbl_motor": "MOTOR", "lbl_idioma": "IDIOMA", "lbl_ventana": "JANELA", "lbl_tf": "PERIODICIDADE",
-            "lbl_precio": "PREÇO ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLUTUAÇÃO ≤", "lbl_vol": "VOLUME ≥",
-            "lbl_macd": "MACD", "lbl_orden": "ORDENAR", "lbl_broker": "CORRETORA", "lbl_puente": "PONTE LAYOUT", "radar": "RADAR"
-        },
-        "FRA": {
-            "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
-            "lbl_motor": "MOTEUR", "lbl_idioma": "LANGUE", "lbl_ventana": "FENÊTRE", "lbl_tf": "UNITÉ DE TEMPS",
-            "lbl_precio": "PRIX ($)", "GAP (%)": "GAP (%)", "lbl_float": "FLOTTANT ≤", "lbl_vol": "VOLUME ≥",
-            "lbl_macd": "MACD", "lbl_orden": "TRIER PAR", "lbl_broker": "COURTIER", "lbl_puente": "PONT LAYOUT", "radar": "RADAR"
-        }
-    }
-
-    lang_actual = lang_val if lang_val in DICCIONARIO_TRADUCTOR else "ESP"
-    tr = DICCIONARIO_TRADUCTOR[lang_actual]
+        # --- INTERFAZ PLANA REPARADA ---
+    titulo_scanner = "TRADE SCANNER INSTITUTIONAL"
+    sub_scanner = "04:00–20:00 ET · REAL TIME"
 
     script_flotante = ""
     if wnd_val == "Flotante":
-        script_flotante = """<script>if (!window.name.includes('ts_externo')) { var VentanaEx = window.open(window.location.href, 'ts_externo_' + Date.now(), 'width=1300,height=850,status=no,menubar=no,toolbar=no'); if (VentanaEx) { window.parent.document.write("<body style='background:#15181d;color:#8f98a3;font-family:sans-serif;padding:50px;text-align:center;'><h2>El Scanner está operando en tu ventana flotante desglosada</h2></body>"); } }</script>"""
+        script_flotante = "<script>if (!window.name.includes('ts_externo')) { var VentanaEx = window.open(window.location.href, 'ts_externo_' + Date.now(), 'width=1300,height=850,status=no,menubar=no,toolbar=no'); if (VentanaEx) { window.parent.document.write(\"<body style='background:#15181d;color:#8f98a3;font-family:sans-serif;padding:50px;text-align:center;'><h2>El Scanner está operando en tu ventana flotante desglosada</h2></body>\"); } }</script>"
 
-    # --- HTML CORREGIDO Y SEGURO ---
-    h = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
-    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
-    <title>TradeScanner</title>{script_flotante}
-    <style>
-    *{{box-sizing:border-box;}}
-    html,body{{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}}body{{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:11px;color:#e7eaee;margin:0;padding:6px;}}
-    .main-container{{width:100%;max-width:none;margin:0 auto;padding:6px;}}
-    .topbar{{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}}
-    .brand{{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}}.brand small{{font-size:10px;font-weight:normal;color:#8f98a3;}}
-    .filtros-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}}
-    .filtro-item{{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#292e36;border:1px solid #aaa;padding:5px 7px;min-height:38px;}}
-    .filtro-item label{{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap;}}
-    input,select,button{{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #555;background:#171b20;color:#e7eaee;border-radius:0;outline:none;}}
-    input{{min-width:0;width:105px;padding:1px 4px;}}select{{min-width:105px;max-width:170px;padding:1px 3px;}}button{{cursor:pointer;background:#30353d;color:#fff;font-weight:bold;padding:2px 8px;}}
-    .logo{{display:flex;align-items:center;justify-content:center;background:#252a31;border:1px dashed #666;font-weight:900;color:#f1f3f5;min-height:34px;font-size:14px;}}
-    .subline{{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}}
-    .result-title{{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}}
-    .table-wrapper{{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}}table{{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}}
-    th{{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}}
-    td{{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}}
-    .fila-alza{{background:#1e3325}}.fila-baja{{background:#3a2426}}.fila-vacia{{background:#1c2025;color:#7f8995}}.num-col{{text-align:right}}
-    .macd-positivo{{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}}.macd-negativo{{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}}
-    .engranaje-select{{width:112px;font-size:9px;height:21px;}}
-    .footer-note{{margin-top:4px;font-size:8px;color:#7f8995;display:flex;justify-content:space-between;gap:8px;}}
-    </style>
-    <script>
-    function pushConfig(){{
-        var q = new URLSearchParams();
-        q.set('c_lang', document.getElementById('cfg_lang').value);
-        q.set('c_wnd', document.getElementById('cfg_wnd').value);
-        q.set('timeframe', document.getElementById('timeframe').value);
-        q.set('f_price_min', document.getElementById('price_min').value);
-        q.set('f_price_max', document.getElementById('price_max').value);
-        q.set('f_gap_min', document.getElementById('gap_min').value);
-        q.set('f_gap_max', document.getElementById('gap_max').value);
-        q.set('f_float_max', document.getElementById('float_max').value);
-        q.set('f_vol', document.getElementById('txt_vol').value);
-        q.set('f_mac', document.getElementById('sel_mac').value);
-        q.set('f_order', document.getElementById('sel_order').value);
-        q.set('c_broker', document.getElementById('cfg_broker').value);
-        q.set('c_url', document.getElementById('cfg_url').value);
-        
-        q.set('ema20_estado', document.getElementById('ema20_estado').value);
-        q.set('ema50_estado', document.getElementById('ema50_estado').value);
-        q.set('ema200_estado', document.getElementById('ema200_estado').value);
-        q.set('ema20_cond', document.getElementById('ema20_cond').value);
-        q.set('ema50_cond', document.getElementById('ema50_cond').value);
-        q.set('ema200_cond', document.getElementById('ema200_cond').value);
-        q.set('ema20_dist', document.getElementById('ema20_dist').value);
-        q.set('ema50_dist', document.getElementById('ema50_dist').value);
-        q.set('ema200_dist', document.getElementById('ema200_dist').value);
-        
-        q.set('_u', String(Date.now()));
-        try{{
-            var u = '/?' + q.toString();
-            window.parent.history.replaceState(null, '', u);
-            var bs = window.parent.document.querySelectorAll('button');
-            for(var i=0; i<bs.length; i++){{
-                if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){{ bs[i].click(); break; }}
-            }}
-        }}catch(e){{ window.top.location.replace('/?' + q.toString()); }}
-    }}
-    function cambiarLayout(t,e){{
-        if(!e.value)return;
-        alert("Enviando Ticker " + t + " al puente");
-    }}
-    </script></head><body>
-    <div class='main-container'>
-    <div class='topbar'><div class='brand'>{tr['title']} <small>{tr['sub']}</small></div></div>
+    # Construcción limpia sin comillas cruzadas
+    h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+    h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+    h += "<title>TradeScanner</title>" + script_flotante
+    h += "<style>"
+    h += "*{box-sizing:border-box;}"
+    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:11px;color:#e7eaee;margin:0;padding:6px;}"
+    h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
+    h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
+    h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
+    h += ".filtros-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}"
+    h += ".filtro-item{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#292e36;border:1px solid #aaa;padding:5px 7px;min-height:38px;}"
+    h += ".filtro-item label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap;}"
+    h += "input,select,button{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #555;background:#171b20;color:#e7eaee;border-radius:0;outline:none;}"
+    h += "input{min-width:0;width:105px;padding:1px 4px;}select{min-width:105px;max-width:170px;padding:1px 3px;}button{cursor:pointer;background:#30353d;color:#fff;font-weight:bold;padding:2px 8px;}"
+    h += ".logo{display:flex;align-items:center;justify-content:center;background:#252a31;border:1px dashed #666;font-weight:900;color:#f1f3f5;min-height:34px;font-size:14px;}"
+    h += ".subline{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}"
+    h += ".result-title{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}"
+    h += ".table-wrapper{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
+    h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
+    h += "td{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}"
+    h += ".fila-alza{background:#1e3325}.fila-baja{background:#3a2426}.fila-vacia{background:#1c2025;color:#7f8995}.num-col{text-align:right}"
+    h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}"
+    h += ".engranaje-select{width:112px;font-size:9px;height:21px;}"
+    h += ".footer-note{margin-top:4px;font-size:8px;color:#7f8995;display:flex;justify-content:space-between;gap:8px;}"
+    h += "</style>"
+    h += "<script>"
+    h += "function pushConfig(){"
+    h += "var q = new URLSearchParams();"
+    h += "q.set('c_lang', document.getElementById('cfg_lang').value);"
+    h += "q.set('c_wnd', document.getElementById('cfg_wnd').value);"
+    h += "q.set('timeframe', document.getElementById('timeframe').value);"
+    h += "q.set('f_price_min', document.getElementById('price_min').value);"
+    h += "q.set('f_price_max', document.getElementById('price_max').value);"
+    h += "q.set('f_gap_min', document.getElementById('gap_min').value);"
+    h += "q.set('f_gap_max', document.getElementById('gap_max').value);"
+    h += "q.set('f_float_max', document.getElementById('float_max').value);"
+    h += "q.set('f_vol', document.getElementById('txt_vol').value);"
+    h += "q.set('f_mac', document.getElementById('sel_mac').value);"
+    h += "q.set('f_order', document.getElementById('sel_order').value);"
+    h += "q.set('c_broker', document.getElementById('cfg_broker').value);"
+    h += "q.set('c_url', document.getElementById('cfg_url').value);"
+    h += "q.set('ema20_estado', document.getElementById('ema20_estado').value);"
+    h += "q.set('ema50_estado', document.getElementById('ema50_estado').value);"
+    h += "q.set('ema200_estado', document.getElementById('ema200_estado').value);"
+    h += "q.set('ema20_cond', document.getElementById('ema20_cond').value);"
+    h += "q.set('ema50_cond', document.getElementById('ema50_cond').value);"
+    h += "q.set('ema200_cond', document.getElementById('ema200_cond').value);"
+    h += "q.set('ema20_dist', document.getElementById('ema20_dist').value);"
+    h += "q.set('ema50_dist', document.getElementById('ema50_dist').value);"
+    h += "q.set('ema200_dist', document.getElementById('ema200_dist').value);"
+    h += "q.set('_u', String(Date.now()));"
+    h += "try{ var u = '/?' + q.toString(); window.parent.history.replaceState(null, '', u); var bs = window.parent.document.querySelectorAll('button'); for(var i=0; i<bs.length; i++){ if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){ bs[i].click(); break; } } }catch(e){ window.top.location.replace('/?' + q.toString()); }"
+    h += "}"
+    h += "</script></head><body>"
     
-    <div class='filtros-grid'>
-        <div class='logo'>TRADE SCANNER</div>
-        <div class='filtro-item'><label>{tr['lbl_motor']}</label>
-            <select id='cfg_active' onchange='pushConfig()'>
-                <option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option>
-                <option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option>
-            </select>
-        </div>
-        <div class='filtro-item'><label>{tr['lbl_horario']}</label><span>04:00 – 20:00 ET</span></div>
-        <div class='filtro-item'><label>{tr['lbl_idioma']}</label>
-            <select id='cfg_lang' onchange='pushConfig()'>
-                <option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option>
-                <option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option>
-                <option value='POR' {'selected' if lang_val=='POR' else ''}>POR</option>
-                <option value='FRA' {'selected' if lang_val=='FRA' else ''}>FRA</option>
-            </select>
-        </div>
-        <div class='filtro-item'><label>{tr['lbl_ventana']}</label>
-            <select id='cfg_wnd' onchange='pushConfig()'>
-                <option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option>
-                <option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option>
-            </select>
-        </div>
-        <div class='filtro-item'><label>{tr['lbl_tf']}</label>
-            <select id='timeframe' onchange='pushConfig()'>
+    h += "<div class='main-container'>"
+    h += "<div class='topbar'><div class='brand'>" + titulo_scanner + " <small>" + sub_scanner + "</small></div></div>"
+    
+    h += "<div class='filtros-grid'>"
+    h += "<div class='logo'>TRADE SCANNER</div>"
+    h += "<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' " + ("selected" if active_val=="True" else "") + ">🟢 ON</option><option value='False' " + ("selected" if active_val=="False" else "") + ">🔴 OFF</option></select></div>"
+    h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 ET</span></div>"
+    h += "<div class='filtro-item'><label>IDIOMA / LANG</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' " + ("selected" if lang_val=="ESP" else "") + ">ESP (Español)</option><option value='ENG' " + ("selected" if lang_val=="ENG" else "") + ">ENG (English)</option><option value='POR' " + ("selected" if lang_val=="POR" else "") + ">POR (Português)</option><option value='FRA' " + ("selected" if lang_val=="FRA" else "") + ">FRA (Français)</option></select></div>"
+    h += "<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' " + ("selected" if wnd_val=="Incrustada" else "") + ">Incrustada</option><option value='Flotante' " + ("selected" if wnd_val=="Flotante" else "") + ">Flotante</option></select></div>"
+    
+    h += "<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
+    for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("15m","15 MIN")):
+        h += "<option value='" + _tf[0] + "' " + ("selected" if timeframe_ui==_tf[0] else "") + ">" + _tf[1] + "</option>"
+    h += "</select></div>"
+    
+    h += "<div class='filtro-item'><label>PRECIO Min</label><input type='number' step='0.01' id='price_min' value='" + f"{precio_min_ui:g}" + "'></div>"
+    h += "<div class='filtro-item'><label>PRECIO Max</label><input type='number' step='0.01' id='price_max' value='" + f"{precio_max_ui:g}" + "'></div>"
+    h += "<div class='filtro-item'><label>GAP Min %</label><input type='number' step='0.1' id='gap_min' value='" + f"{gap_min_ui:g}" + "'></div>"
+    h += "<div class='filtro-item'><label>GAP Max %</label><input type='number' step='0.1' id='gap_max' value='" + f"{gap_max_ui:g}" + "'></div>"
+    h += "<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='" + str(float_max_ui) + "'></div>"
+    h += "<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='" + str(volumen_min_ui) + "'></div>"
+    
+    h += "<div class='filtro-item'><label>FILTRO MACD</label><select id='sel_mac' onchange='pushConfig()'><option value='Positivo' " + ("selected" if macd_ui=="Positivo" else "") + ">Positivo</option><option value='Negativo' " + ("selected" if macd_ui=="Negativo" else "") + ">Negativo</option><option value='No exigir' " + ("selected" if macd_ui=="No exigir" else "") + ">No exigir</option></select></div>"
+    h += "<div class='filtro-item'><label>ORDENAR POR</label><select id='sel_order' onchange='pushConfig()'><option value='Actualizado' " + ("selected" if orden_ui=="Actualizado" else "") + ">Actualizado</option><option value='Cambio %' " + ("selected" if orden_ui=="Cambio %" else "") + ">Cambio %</option><option value='Volumen' " + ("selected" if orden_ui=="Volumen" else "") + ">Volumen</option></select></div>"
