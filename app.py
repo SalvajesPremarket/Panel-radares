@@ -3768,6 +3768,65 @@ st.markdown("""
 #    No reemplaza ni modifica el motor, sus hilos, cache, Alpaca, FMP ni pruebas.
 # ==============================================================================
 
+_JS_COLUMNAS = r'''
+var COLS=[['layout','⚙️ Layout'],['ticker','Ticker'],['sector','Sector'],['precio','Precio ($)'],['cambio','Cambio %'],['volumen','Volumen'],['gap','Gap %'],['flot','Flotación (M)'],['ema20','EMA20'],['ema50','EMA50'],['ema200','EMA200'],['macd','MACD']];
+function _colKey(){try{return String(TS_USER_KEY).replace('tradeScannerLastState','tradeScannerCols')}catch(e){return 'tradeScannerCols'}}
+function _colLoad(){
+  var ids=COLS.map(function(c){return c[0]});var raw='';
+  try{raw=window.top.localStorage.getItem(_colKey())||''}catch(e){}
+  if(!raw){try{raw=localStorage.getItem(_colKey())||''}catch(e){}}
+  var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e){o={}}
+  var order=[];(Array.isArray(o.order)?o.order:[]).forEach(function(id){if(ids.indexOf(id)>=0&&order.indexOf(id)<0)order.push(id)});
+  ids.forEach(function(id){if(order.indexOf(id)<0)order.push(id)});
+  var hidden=(Array.isArray(o.hidden)?o.hidden:[]).filter(function(id){return ids.indexOf(id)>=0});
+  return {order:order,hidden:hidden};
+}
+function _colSave(s){
+  var txt=JSON.stringify(s);
+  try{window.top.localStorage.setItem(_colKey(),txt)}catch(e1){}
+  try{window.parent.localStorage.setItem(_colKey(),txt)}catch(e2){}
+  try{localStorage.setItem(_colKey(),txt)}catch(e3){}
+}
+function aplicarColumnas(){
+  var s=_colLoad();var tbl=document.querySelector('#resultados-tabla table');if(!tbl)return;
+  var filas=tbl.querySelectorAll('tr');
+  for(var r=0;r<filas.length;r++){
+    var tr=filas[r];var celdas={};var hay=false;
+    for(var k=0;k<tr.children.length;k++){var c=tr.children[k];var id=c.getAttribute('data-col');if(id){celdas[id]=c;hay=true}}
+    if(!hay)continue;
+    for(var i=0;i<s.order.length;i++){var cid=s.order[i];var cel=celdas[cid];if(!cel)continue;cel.style.display=(s.hidden.indexOf(cid)>=0)?'none':'';tr.appendChild(cel);}
+  }
+}
+function renderColumnas(){
+  var box=document.getElementById('cols_list');if(!box)return;
+  var s=_colLoad();var nombres={};COLS.forEach(function(c){nombres[c[0]]=c[1]});
+  box.innerHTML=s.order.map(function(id,i){
+    var vis=s.hidden.indexOf(id)<0;
+    return '<div class="col-row"><label><input type="checkbox" data-col-vis="'+id+'" '+(vis?'checked':'')+'> '+nombres[id]+'</label><span><button type="button" data-col-act="up" data-col-id="'+id+'"'+(i===0?' disabled':'')+'>▲</button><button type="button" data-col-act="down" data-col-id="'+id+'"'+(i===s.order.length-1?' disabled':'')+'>▼</button></span></div>';
+  }).join('');
+}
+document.addEventListener('click',function(ev){
+  var t=ev.target;var b=(t&&t.closest)?t.closest('[data-col-act]'):null;if(!b)return;
+  ev.preventDefault();
+  var act=b.getAttribute('data-col-act');var id=b.getAttribute('data-col-id');var s=_colLoad();
+  if(act==='reset'){s={order:COLS.map(function(c){return c[0]}),hidden:[]};}
+  else{
+    var i=s.order.indexOf(id);if(i<0)return;
+    var j=(act==='up')?i-1:i+1;if(j<0||j>=s.order.length)return;
+    var tmp=s.order[i];s.order[i]=s.order[j];s.order[j]=tmp;
+  }
+  _colSave(s);aplicarColumnas();renderColumnas();
+});
+document.addEventListener('change',function(ev){
+  var t=ev.target;if(!t||!t.getAttribute)return;var id=t.getAttribute('data-col-vis');if(!id)return;
+  var s=_colLoad();var k=s.hidden.indexOf(id);
+  if(t.checked){if(k>=0)s.hidden.splice(k,1)}else{if(k<0)s.hidden.push(id)}
+  _colSave(s);aplicarColumnas();
+});
+document.addEventListener('DOMContentLoaded',function(){renderColumnas();aplicarColumnas();});
+'''
+
+
 def _render_scanner():
     try:
         servicio._esta_en_horario_automatico()
@@ -3826,6 +3885,9 @@ def _render_scanner():
     if timeframe_ui not in ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo"):
         timeframe_ui = "1m"
     ema_dist_max_ui = max(0.0, min(25.0, ema_dist_max_ui))
+    if not PUBLIC_PREVIEW:
+        # Un solo dato de distancia: el del panel nativo de EMA20 (antes esto quedaba en 0).
+        ema_dist_max_ui = ema_dist_ui[20]
     rsi_min_ui = max(0.0, min(100.0, rsi_min_ui))
     rsi_max_ui = max(rsi_min_ui, min(100.0, rsi_max_ui))
     # (El registro de la temporalidad en el motor se hace más abajo, justo después de
@@ -3992,7 +4054,7 @@ def _render_scanner():
         news = " 🔥" if noticia else ""
         return (
             f"<tr class='{fila}'>"
-            f"<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
+            f"<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
             f"<option value=''>⚙️ Layout</option>"
             f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
             f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
@@ -4000,17 +4062,17 @@ def _render_scanner():
             f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
             f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
             f"</select></td>"
-            f"<td><b>{ticker}</b>{news}</td>"
-            f"<td>{sector}</td>"
-            f"<td class='num-col'>{_money(precio)}</td>"
-            f"<td class='num-col'>{_pct(cambio)}</td>"
-            f"<td class='num-col'>{_big(volumen)}</td>"
-            f"<td class='num-col'>{_pct(row.get('gap_pct'))}</td>"
-            f"<td class='num-col'>{flotacion:.2f}M</td>"
-            f"<td>{_safe_text(ema_txt)}</td>"
-            f"<td>{_safe_text(ema50_txt)}</td>"
-            f"<td>{_safe_text(ema200_txt)}</td>"
-            f"<td class='{mac_cls}'>{mac_txt}</td></tr>"
+            f"<td data-col='ticker'><b>{ticker}</b>{news}</td>"
+            f"<td data-col='sector'>{sector}</td>"
+            f"<td class='num-col' data-col='precio'>{_money(precio)}</td>"
+            f"<td class='num-col' data-col='cambio'>{_pct(cambio)}</td>"
+            f"<td class='num-col' data-col='volumen'>{_big(volumen)}</td>"
+            f"<td class='num-col' data-col='gap'>{_pct(row.get('gap_pct'))}</td>"
+            f"<td class='num-col' data-col='flot'>{flotacion:.2f}M</td>"
+            f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>"
+            f"<td data-col='ema50'>{_safe_text(ema50_txt)}</td>"
+            f"<td data-col='ema200'>{_safe_text(ema200_txt)}</td>"
+            f"<td class='{mac_cls}' data-col='macd'>{mac_txt}</td></tr>"
         )
 
 
@@ -4026,7 +4088,7 @@ def _render_scanner():
         if item is None:
             return (
                 "<tr class='fila-vacia'>"
-                "<td class='layout-col'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
+                "<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
                 "<option value=''>⚙️ Layout</option>"
                 "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
                 "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
@@ -4034,9 +4096,9 @@ def _render_scanner():
                 "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
                 "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
                 "</select></td>"
-                "<td><b>—</b></td><td>—</td><td class='num-col'>—</td>"
-                "<td class='num-col'>—</td><td class='num-col'>—</td><td class='num-col'>—</td>"
-                "<td class='num-col'>—</td><td>—</td><td>—</td><td>—</td><td class='macd-neutro'>—</td></tr>"
+                "<td data-col='ticker'><b>—</b></td><td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
+                "<td class='num-col' data-col='cambio'>—</td><td class='num-col' data-col='volumen'>—</td><td class='num-col' data-col='gap'>—</td>"
+                "<td class='num-col' data-col='flot'>—</td><td data-col='ema20'>—</td><td data-col='ema50'>—</td><td data-col='ema200'>—</td><td class='macd-neutro' data-col='macd'>—</td></tr>"
             )
         return _row_html(item)
 
@@ -4135,7 +4197,7 @@ def _render_scanner():
     h += ".tab-panel{display:none;background:#20252b;color:#dce1e6;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#292e36;border:1px solid #4a515b;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;color:#f1f3f5;}.panel-card span{font-size:10px;color:#b8c0ca;}.technical-control{display:flex;flex-direction:column;align-items:stretch;gap:5px}.technical-control select{width:100%;max-width:none;}"
     h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
     h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
-    h += ".tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.technical-control select{min-width:0;width:100%;}.tab-panel{font-size:9px;padding:6px}}"
+    h += ".tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.technical-control select{min-width:0;width:100%;}.tab-panel{font-size:9px;padding:6px}}"
     h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900}.technical-subtab.active{background:#3a4048}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
     h += "</style>"
     h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
@@ -4178,6 +4240,7 @@ def _render_scanner():
     h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
     h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);_navegarMismaApp(q)}"
     h += ""
+    h += _JS_COLUMNAS
     h += "</script></head><body>"
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#555'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
@@ -4185,16 +4248,32 @@ def _render_scanner():
     # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
     h += f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div></div>"
+    _le = {"Por encima": "ARRIBA", "Por debajo": "ABAJO", "Neutro": "NEUTRO"}
+    _estados_ema = {20: ema20_estado_ui, 50: ema50_estado_ui, 200: ema200_estado_ui}
+
+    def _cond_txt(n, cond):
+        d = ema_dist_ui[n]
+        return {"Ninguna": "sin condición extra", "Naciendo": "primera vela naciendo",
+                "Distancia": f"a ≤ {d:g}% de la EMA", "Naciendo o distancia": f"naciendo o a ≤ {d:g}%"}.get(cond, cond)
+
+    _ema_resumen_html = "".join(
+        f"<div>EMA{n}: <b>{_le.get(_estados_ema[n], _estados_ema[n])}</b> · {_cond_txt(n, ema_cond_ui[n])}</div>"
+        for n in (20, 50, 200)
+    )
     h += "<div class='tabs'>"
     h += "<button type='button' class='tab active' data-tab-target='panel-radar'>RADAR</button>"
     h += "<button type='button' class='tab' data-tab-target='panel-tecnicos'>TÉCNICOS</button>"
     h += "<button type='button' class='tab' data-tab-target='panel-technical'>TECHNICAL</button>"
     h += "<button type='button' class='tab' data-tab-target='panel-config'>CONFIGURACIÓN</button>"
     h += "<button type='button' class='tab' data-tab-target='panel-resultados'>RESULTADOS</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-columnas'>COLUMNAS</button>"
     h += "</div>"
     h += "<div id='panel-radar' class='tab-panel active'><b>RADAR</b><br>Filtros principales del radar: precio, gap, flotación y volumen.</div>"
     h += "<div id='panel-tecnicos' class='tab-panel'><div class='panel-grid'>"
-    h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
+    else:
+        h += f"<div class='panel-card'><b>CONDICIONES EMA</b><span>{_ema_resumen_html}</span></div>"
     h += f"<div class='panel-card'><b>MACD</b><span>Condición actual: {_safe_text(macd_ui)}.</span></div>"
     h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
@@ -4245,6 +4324,8 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
     h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
     h += "</div></div>"
+    h += "<style>.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
+    h += "<div id='panel-columnas' class='tab-panel'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
     h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
     h += "<div class='filtros-grid'>"
     h += "<div class='logo'>TRADE SCANNER</div>"
@@ -4260,12 +4341,18 @@ def _render_scanner():
         h += "</select></div>"
     else:
         h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><span>{timeframe_ui.upper()} · se cambia con el selector 🕒 de arriba</span><input type='hidden' id='timeframe' value='{timeframe_ui}'></div>"
-    h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
+    else:
+        h += f"<input type='hidden' id='ema_dist_max' value='{ema_dist_max_ui:g}'>"
     h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
     h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
     h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
     h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
-    h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
+    else:
+        h += f"<div class='filtro-item'><label>CONDICIONES EMA</label><span style='font-size:10px;line-height:1.4;'>{_ema_resumen_html}<i style='color:#8f99a5'>Se cambian en el panel 📐 arriba de la tabla.</i></span><input type='hidden' id='sel_ema' value='{ema_ui}'></div>"
     h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
     h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
     h += "<div class='filtro-item'><label>SCHWAB CREDENCIALES</label><span style='font-size:9px;line-height:1.25;color:#b8c0ca;'>Se leen desde Streamlit Secrets. No se guardan en URL ni navegador.</span></div>"
@@ -4315,8 +4402,9 @@ def _render_scanner():
 
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
     h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-    h += f"<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50 ({timeframe_ui})</th><th>EMA200 ({timeframe_ui})</th><th>MACD ({timeframe_ui})</th>"
+    h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th><th data-col='ema20'>EMA20 ({timeframe_ui})</th><th data-col='ema50'>EMA50 ({timeframe_ui})</th><th data-col='ema200'>EMA200 ({timeframe_ui})</th><th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
+    h += "<script>try{aplicarColumnas()}catch(e){}</script>"
     _ultima_scan_txt = servicio.ultima_actualizacion.strftime("%H:%M:%S ET") if servicio.ultima_actualizacion else "aún no ejecutado"
     _error_scan_txt = str(getattr(servicio, "ultimo_error", "") or "").strip()
     if len(_error_scan_txt) > 140:
