@@ -4178,10 +4178,13 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
     h += "</div></div>"
     h += "<div id='panel-technical' class='tab-panel'><div class='panel-grid'>"
-    h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
-    for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
-        h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
-    h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
+    if PUBLIC_PREVIEW:
+        h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
+        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+            h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+        h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
+    else:
+        h += f"<div class='panel-card technical-control'><b>TIMEFRAME</b><span>{timeframe_ui.upper()} · se cambia con el selector 🕒 de arriba. Se aplica al motor, EMA20/50/200 y MACD.</span></div>"
     _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
                  ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
     for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
@@ -4223,10 +4226,13 @@ def _render_scanner():
     h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
     h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
     h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · ventana única</span></div>"
-    h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
-    for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
-        h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
-    h += "</select></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
+        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+            h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+        h += "</select></div>"
+    else:
+        h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><span>{timeframe_ui.upper()} · se cambia con el selector 🕒 de arriba</span><input type='hidden' id='timeframe' value='{timeframe_ui}'></div>"
     h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
     h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
     h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
@@ -4386,6 +4392,22 @@ def _render_scanner():
     )
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
+    # Selector NATIVO de temporalidad: vive en st.session_state, así que el refresh
+    # automático y el puente del iframe ya no pueden regresarlo a 1m.
+    if not PUBLIC_PREVIEW:
+        _tf_etiquetas = {"1m": "1 MIN", "3m": "3 MIN", "5m": "5 MIN", "10m": "10 MIN", "13m": "13 MIN",
+                         "15m": "15 MIN", "30m": "30 MIN", "1h": "1 HORA", "1d": "1 DÍA", "1w": "1 SEMANA", "1mo": "1 MES"}
+        if st.session_state.get("ts_tf_sel") not in _tf_etiquetas:
+            st.session_state["ts_tf_sel"] = timeframe_ui if timeframe_ui in _tf_etiquetas else "1m"
+        with st.container(key="ts_tf_bar"):
+            st.selectbox(
+                "TEMPORALIDAD",
+                list(_tf_etiquetas.keys()),
+                key="ts_tf_sel",
+                format_func=lambda x: f"🕒 {_tf_etiquetas.get(x, x)}",
+                help="Temporalidad de las velas para EMA20/50/200, MACD y RSI.",
+            )
+
     components.html(h, height=1900, scrolling=False)
 
 
@@ -4442,19 +4464,51 @@ def _qp_valor(k):
     return None if v is None else str(v)
 
 
+_TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
+
+
+def _sincronizar_timeframe(tf_url, accion_js):
+    """La temporalidad la decide el selector nativo de Streamlit (key ts_tf_sel).
+
+    Un widget nativo vive en st.session_state y NO depende de la URL ni del puente
+    del iframe, por eso ya no rebota a 1m. La URL solo se usa al cargar por primera
+    vez o cuando el usuario carga una configuración guardada.
+    """
+    widget = st.session_state.get("ts_tf_sel")
+    previo = st.session_state.get("_ts_tf_elegido")
+    if widget in _TF_VALIDOS and widget != previo:
+        tf = widget                                   # el usuario tocó el selector
+    elif accion_js and tf_url in _TF_VALIDOS and tf_url != previo:
+        tf = tf_url                                   # configuración guardada cargada
+    elif previo in _TF_VALIDOS:
+        tf = previo
+    elif widget in _TF_VALIDOS:
+        tf = widget
+    elif tf_url in _TF_VALIDOS:
+        tf = tf_url
+    else:
+        tf = "1m"
+    st.session_state["_ts_tf_elegido"] = tf
+    if st.session_state.get("ts_tf_sel") != tf:
+        st.session_state["ts_tf_sel"] = tf
+    if _qp_valor("timeframe") != tf:
+        st.query_params["timeframe"] = tf
+    almacen = st.session_state.get("_ts_query_elegida")
+    if isinstance(almacen, dict):
+        almacen["timeframe"] = tf
+
+
 def _sincronizar_query_con_sesion():
     """La temporalidad y los filtros que elige el usuario NO se pierden con el refresh.
 
     Toda acción del usuario en la carátula (JS) añade a la URL una marca `_u`
-    que crece con el tiempo. Regla:
-      - `_u` NUEVA (mayor que la última vista)  -> acción del usuario: se guardan
-        en st.session_state los valores de la URL.
-      - cualquier otro rerun (refresh automático, reconexión, URL vieja o sin
-        parámetros)                              -> se vuelve a imponer lo último
-        que eligió el usuario.
+    creciente. `_u` nueva = acción del usuario (se guarda lo de la URL); cualquier
+    otro rerun (refresh, reconexión, URL vieja) = se re-impone lo último elegido.
+    La temporalidad se maneja aparte (_sincronizar_timeframe).
     """
     try:
         auto = bool(st.session_state.pop("_ts_rerun_auto", False))
+        tf_url = _qp_valor("timeframe")
         guardado = st.session_state.get("_ts_query_elegida")
         if not isinstance(guardado, dict):
             guardado = {}
@@ -4463,21 +4517,22 @@ def _sincronizar_query_con_sesion():
         except Exception:
             u_nuevo = 0
         u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
+        accion_js = (not auto) and u_nuevo > u_visto
 
-        if guardado and (auto or u_nuevo <= u_visto):
+        if guardado and not accion_js:
             for k, v in guardado.items():
-                if _qp_valor(k) != v:
+                if k != "timeframe" and _qp_valor(k) != v:
                     st.query_params[k] = v
-            return
-
-        nuevo = {}
-        for k in _CLAVES_SYNC_QUERY:
-            v = _qp_valor(k)
-            if v is not None and v != "":
-                nuevo[k] = v
-        if nuevo:
-            st.session_state["_ts_query_elegida"] = nuevo
+        else:
+            nuevo = {}
+            for k in _CLAVES_SYNC_QUERY:
+                v = _qp_valor(k)
+                if v is not None and v != "":
+                    nuevo[k] = v
+            if nuevo:
+                st.session_state["_ts_query_elegida"] = nuevo
         st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
+        _sincronizar_timeframe(tf_url, accion_js)
     except Exception:
         pass
 
