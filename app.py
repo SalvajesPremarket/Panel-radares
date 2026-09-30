@@ -3973,7 +3973,7 @@ def _render_scanner():
         "cruce_ema": ema_ui,
         "macd": macd_ui,
         "orden": orden_ui,
-        "top_n": 50,
+        "top_n": 10,
         "sesion": sesion_ui,
         "timeframe": timeframe_ui,
         "ema_dist_max": ema_dist_max_ui,
@@ -4789,19 +4789,19 @@ def _sincronizar_nativos(accion_js):
         previo = st.session_state.get("_ts_prev_" + wk)
         u = _norm_nativo(tipo, ops, _qp_valor(qk))
         if accion_js and u is not None:
-            # Cuando el usuario acaba de cambiar un control en el iframe,
-            # la URL contiene el valor nuevo. El widget nativo puede todavía
-            # conservar el valor anterior durante este rerun; nunca debe pisar
-            # la elección recién hecha.
+            # Acción del iframe recién hecha: la URL contiene el valor nuevo.
             val = u
         elif w is not None and w != previo:
+            # Interacción directa con el widget nativo de Streamlit.
             val = w
+        elif u is not None:
+            # En un autorefresh/reconexión, la URL es la fuente de verdad.
+            # No permitimos que el valor viejo de session_state rebote encima.
+            val = u
         elif previo is not None:
             val = previo
         elif w is not None:
             val = w
-        elif u is not None:
-            val = u
         else:
             val = _valor_defecto_nativo(tipo, ops, defecto)
         st.session_state["_ts_prev_" + wk] = val
@@ -4831,15 +4831,15 @@ def _sincronizar_timeframe(tf_url, accion_js):
     widget = st.session_state.get("ts_tf_sel")
     previo = st.session_state.get("_ts_tf_elegido")
     if accion_js and tf_url in _TF_VALIDOS:
-        tf = tf_url                                   # el usuario acaba de cambiarlo
+        tf = tf_url                                   # cambio recién hecho en el iframe
     elif widget in _TF_VALIDOS and widget != previo:
-        tf = widget                                   # el widget nativo cambió
+        tf = widget                                   # cambio directo del widget nativo
+    elif tf_url in _TF_VALIDOS:
+        tf = tf_url                                   # en autorefresh manda la URL
     elif previo in _TF_VALIDOS:
         tf = previo
     elif widget in _TF_VALIDOS:
         tf = widget
-    elif tf_url in _TF_VALIDOS:
-        tf = tf_url
     else:
         tf = "1m"
     st.session_state["_ts_tf_elegido"] = tf
@@ -4873,11 +4873,16 @@ def _sincronizar_query_con_sesion():
         u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
         accion_js = (not auto) and u_nuevo > u_visto
 
-        if guardado and not accion_js:
-            for k, v in guardado.items():
-                if k not in _CLAVES_NATIVAS and _qp_valor(k) != v:
-                    st.query_params[k] = v
-        else:
+        # La URL es la fuente de verdad durante la sesión. Antes, en cada
+        # autorefresh, este bloque reimponía "_ts_query_elegida" y podía
+        # devolver los controles al valor anterior.
+        # Solo usamos el estado guardado como respaldo cuando todavía no hay
+        # ningún parámetro de configuración en la URL.
+        hay_config_url = any(
+            _qp_valor(k) not in (None, "")
+            for k in _CLAVES_SYNC_QUERY
+        )
+        if accion_js or hay_config_url:
             nuevo = {}
             for k in _CLAVES_SYNC_QUERY:
                 v = _qp_valor(k)
@@ -4885,6 +4890,11 @@ def _sincronizar_query_con_sesion():
                     nuevo[k] = v
             if nuevo:
                 st.session_state["_ts_query_elegida"] = nuevo
+        elif guardado:
+            for k, v in guardado.items():
+                if k not in _CLAVES_NATIVAS and _qp_valor(k) != v:
+                    st.query_params[k] = v
+            st.session_state["_ts_query_elegida"] = dict(guardado)
         st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
         _sincronizar_timeframe(tf_url, accion_js)
         _sincronizar_nativos(accion_js)
