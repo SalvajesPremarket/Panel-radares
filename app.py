@@ -4277,12 +4277,15 @@ def _render_scanner():
     h += "var _tsScrollTimer=null;window.addEventListener('scroll',function(){if(!TS_AUTH)return;if(_tsScrollTimer)return;_tsScrollTimer=setTimeout(function(){_tsScrollTimer=null;try{_guardarUltimaConfiguracion(_qtop());}catch(e){}},250);},{passive:true});"
     h += 'document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){renderConfiguraciones();try{var raw=localStorage.getItem(TS_USER_KEY)||\'\';var o=JSON.parse(raw||\'{}\');if(o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target=\"\'+o._activeTab+\'\"]\');if(b)showTab(o._activeTab,b)}if(o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target=\"\'+o._technicalSubtab+\'\"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\'};var k=map[id];if(k)q.set(k,el.value);_guardarUltimaConfiguracion(q);}catch(e){}});});},100)});'
     h += "document.addEventListener('click',function(ev){var tab=ev.target.closest?ev.target.closest('.tab[data-tab-target]'):null;if(tab){ev.preventDefault();showTab(tab.getAttribute('data-tab-target'),tab);return;}var sub=ev.target.closest?ev.target.closest('.technical-subtab[data-subtab-target]'):null;if(sub){ev.preventDefault();showTechnicalSubTab(sub.getAttribute('data-subtab-target'),sub);return;}var save=ev.target.closest?ev.target.closest('.btn-guardar-config'):null;if(save){ev.preventDefault();guardarConfiguracionPersonal();return;}var btn=ev.target.closest?ev.target.closest('.btn-eliminar-config'):null;if(btn){ev.preventDefault();ev.stopPropagation();borrarConfiguracionPersonal(decodeURIComponent(btn.getAttribute('data-config-name')||''));return;}var cargar=ev.target.closest?ev.target.closest('.btn-cargar-config'):null;if(cargar){ev.preventDefault();ev.stopPropagation();cargarConfiguracionPersonal(decodeURIComponent(cargar.getAttribute('data-config-name')||''));return;}});"
+    h += "var TS_LANGS={ESP:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'CONFIGURACIÓN','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUMNAS','PRECIO ($)':'PRECIO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTACIÓN ≤','VOLUMEN ≥':'VOLUMEN ≥','MACD':'MACD','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'VENTANA','TEMPORALIDAD':'TEMPORALIDAD','MOTOR':'MOTOR','HORARIO (ET)':'HORARIO (ET)','HORARIO DEL SCANNER':'HORARIO DEL SCANNER','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'PUENTE DE LAYOUT','GUARDAR':'GUARDAR','ELIMINAR':'ELIMINAR','CARGAR':'CARGAR'},ENG:{'RADAR':'RADAR','TÉCNICOS':'TECHNICALS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'SETTINGS','RESULTADOS':'RESULTS','COLUMNAS':'COLUMNS','PRECIO ($)':'PRICE ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','MACD':'MACD','ORDENAR':'SORT','IDIOMA':'LANGUAGE','VENTANA':'WINDOW','TEMPORALIDAD':'TIMEFRAME','MOTOR':'ENGINE','HORARIO (ET)':'SCHEDULE (ET)','HORARIO DEL SCANNER':'SCANNER SCHEDULE','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'LAYOUT BRIDGE','GUARDAR':'SAVE','ELIMINAR':'DELETE','CARGAR':'LOAD'},POR:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TÉCNICO','CONFIGURACIÓN':'CONFIGURAÇÃO','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUNAS','PRECIO ($)':'PREÇO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'JANELA','TEMPORALIDAD':'PERÍODO','MOTOR':'MOTOR','GUARDAR':'SALVAR','ELIMINAR':'EXCLUIR','CARGAR':'CARREGAR'},FRA:{'RADAR':'RADAR','TÉCNICOS':'TECHNIQUES','TECHNICAL':'TECHNIQUE','CONFIGURACIÓN':'CONFIGURATION','RESULTADOS':'RÉSULTATS','COLUMNAS':'COLONNES','PRECIO ($)':'PRIX ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTATION ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'TRIER','IDIOMA':'LANGUE','VENTANA':'FENÊTRE','TEMPORALIDAD':'UNITÉ DE TEMPS','MOTOR':'MOTEUR','GUARDAR':'ENREGISTRER','ELIMINAR':'SUPPRIMER','CARGAR':'CHARGER'},DEU:{'RADAR':'RADAR','TÉCNICOS':'TECHNIK','TECHNICAL':'TECHNIK','CONFIGURACIÓN':'EINSTELLUNGEN','RESULTADOS':'ERGEBNISSE','COLUMNAS':'SPALTEN','PRECIO ($)':'PREIS ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUMEN','ORDENAR':'SORTIEREN','IDIOMA':'SPRACHE','VENTANA':'FENSTER','TEMPORALIDAD':'ZEITRAHMEN','MOTOR':'MOTOR','GUARDAR':'SPEICHERN','ELIMINAR':'LÖSCHEN','CARGAR':'LADEN'},ITA:{'RADAR':'RADAR','TÉCNICOS':'TECNICI','TECHNICAL':'TECNICO','CONFIGURACIÓN':'CONFIGURAZIONE','RESULTADOS':'RISULTATI','COLUMNAS':'COLONNE','PRECIO ($)':'PREZZO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME','ORDENAR':'ORDINA','IDIOMA':'LINGUA','VENTANA':'FINESTRA','TEMPORALIDAD':'TIMEFRAME','MOTOR':'MOTORE','GUARDAR':'SALVA','ELIMINAR':'ELIMINA','CARGAR':'CARICA'},CHN:{'RADAR':'雷达','TÉCNICOS':'技术','TECHNICAL':'技术分析','CONFIGURACIÓN':'设置','RESULTADOS':'结果','COLUMNAS':'列','PRECIO ($)':'价格 ($)','GAP (%)':'跳空 (%)','FLOTACIÓN ≤':'流通股 ≤','VOLUMEN ≥':'成交量 ≥','ORDENAR':'排序','IDIOMA':'语言','VENTANA':'窗口','TEMPORALIDAD':'时间周期','MOTOR':'引擎','GUARDAR':'保存','ELIMINAR':'删除','CARGAR':'加载'},JPN:{'RADAR':'レーダー','TÉCNICOS':'テクニカル','TECHNICAL':'テクニカル分析','CONFIGURACIÓN':'設定','RESULTADOS':'結果','COLUMNAS':'列','PRECIO ($)':'価格 ($)','GAP (%)':'ギャップ (%)','FLOTACIÓN ≤':'浮動株 ≤','VOLUMEN ≥':'出来高 ≥','ORDENAR':'並べ替え','IDIOMA':'言語','VENTANA':'ウィンドウ','TEMPORALIDAD':'時間足','MOTOR':'エンジン','GUARDAR':'保存','ELIMINAR':'削除','CARGAR':'読み込み'}};"
+    h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var t=(el.textContent||'').trim();if(d[t])el.textContent=d[t]});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}";
     h += "function pushConfig(){var q=_qtop();"
     h += "q.set('f_price_min',document.getElementById('price_min').value);q.set('f_price_max',document.getElementById('price_max').value);"
     h += "q.set('f_gap_min',document.getElementById('gap_min').value);q.set('f_gap_max',document.getElementById('gap_max').value);"
     h += "q.set('f_float_max',document.getElementById('float_max').value);q.set('f_vol',document.getElementById('txt_vol').value);"
     h += "q.set('f_ema',document.getElementById('sel_ema').value);q.set('f_mac',document.getElementById('sel_mac').value);"
     h += "q.set('f_order',document.getElementById('sel_order').value);q.set('c_active',document.getElementById('cfg_active').value);"
+    h += "['f_gap_on','f_float_on','f_vol_on','ema20_on'].forEach(function(id){var e=document.getElementById(id);if(e)q.set(id,e.value)});"
     h += "q.set('c_start','04:00');q.set('c_end','20:00');"
     h += "q.set('c_lang',document.getElementById('cfg_lang').value);q.set('c_wnd',document.getElementById('cfg_wnd').value);q.set('market_session','TODO EL MERCADO');q.set('timeframe',document.getElementById('timeframe').value);q.set('ema_dist_max',document.getElementById('ema_dist_max').value);q.set('rsi_min',document.getElementById('rsi_min').value);q.set('rsi_max',document.getElementById('rsi_max').value);q.set('ema20_estado',document.getElementById('ema20_estado')?document.getElementById('ema20_estado').value:'Neutro');q.set('ema50_estado',document.getElementById('ema50_estado')?document.getElementById('ema50_estado').value:'Neutro');q.set('ema200_estado',document.getElementById('ema200_estado')?document.getElementById('ema200_estado').value:'Neutro');"
     h += "q.set('c_broker',document.getElementById('cfg_broker').value);q.set('c_url',document.getElementById('cfg_url').value);"
@@ -4334,30 +4337,31 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
     h += "</div></div>"
     h += "<div id='panel-technical' class='tab-panel'><div class='panel-grid'>"
-    if PUBLIC_PREVIEW:
-        h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
-        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
-            h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
-        h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
-    else:
-        h += f"<div class='panel-card technical-control'><b>TIMEFRAME</b><span>{timeframe_ui.upper()} · se cambia con el selector 🕒 de arriba. Se aplica al motor, EMA20/50/200 y MACD.</span></div>"
-    if PUBLIC_PREVIEW:
-        _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
-                     ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
-        for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
-            _eid = f"ema{_n}_estado"
-            h += f"<div class='panel-card technical-control'><b>{_ename}</b>"
-            h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
-            h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
-            for _v, _t in _lbl_cond:
-                h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
-            h += "</select>"
-            h += f"<div class='range'><input type='number' step='0.1' min='0' max='25' id='ema{_n}_dist' value='{ema_dist_ui[_n]:g}' onchange='aplicarTecnicas()'><span>% distancia máx.</span></div>"
-            h += f"<span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
-    else:
-        for _n, _v in ((20, ema20_estado_ui), (50, ema50_estado_ui), (200, ema200_estado_ui)):
-            h += f"<input type='hidden' id='ema{_n}_estado' value='{_v}'>"
-        h += "<div class='panel-card'><b>EMA20 · EMA50 · EMA200</b><span>Estado (arriba/abajo), condición (primera vela naciendo o ≤ % de distancia) y distancia se cambian en el panel 📐 que está arriba de la tabla.</span></div>"
+    h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
+    for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+        h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+    h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20/50/200, MACD y RSI.</span></div>"
+    _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
+                 ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
+    for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
+        _eid = f"ema{_n}_estado"
+        h += f"<div class='panel-card technical-control'><b>{_ename}</b>"
+        h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
+        h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
+        for _v, _t in _lbl_cond:
+            h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
+        h += "</select>"
+        h += f"<div class='range'><input type='number' step='0.1' min='0' max='25' id='ema{_n}_dist' value='{ema_dist_ui[_n]:g}' onchange='aplicarTecnicas()'><span>% distancia máx.</span></div>"
+        h += f"<span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
+    h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
+    h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()} · EMA20/MACD/RSI usan esta misma temporalidad.</span></div>"
+    h += "<div class='panel-card'><b>MEDIAS</b><span>EMA20 · EMA50 · EMA200 calculadas en el timeframe seleccionado.</span></div>"
+    h += "<div class='panel-card'><b>BOLLINGER</b><span>Bandas y distancia a banda.</span></div>"
+    h += "<div class='panel-card'><b>MFI</b><span>Money Flow Index.</span></div>"
+    h += "<div class='panel-card'><b>VOLATILIDAD</b><span>ATR · Beta.</span></div>"
+    h += "<div class='panel-card'><b>PERFORMANCE</b><span>Semana · mes · trimestre · YTD · año.</span></div>"
+    h += "<div class='panel-card'><b>GAP / VOLUMEN</b><span>Gap % · volumen actual · volumen promedio · relativo.</span></div>"
+    h += "</div></div>"
     h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
     h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()} · EMA20/MACD/RSI usan esta misma temporalidad.</span></div>"
     h += "<div class='panel-card'><b>MEDIAS</b><span>EMA20 · EMA50 · EMA200 calculadas en el timeframe seleccionado.</span></div>"
@@ -4383,9 +4387,43 @@ def _render_scanner():
     h += "<div id='panel-columnas' class='tab-panel'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
     h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
     def _ctl_res(label, texto, campos):
-        ocultos = "".join(f"<input type='hidden' id='{i}' value='{_safe_text(v)}'>" for i, v in campos)
-        return (f"<div class='filtro-item'><label>{label}</label>"
-                f"<span style='font-size:11px;word-break:break-all;'>{_safe_text(texto)}</span>{ocultos}</div>")
+        def _v(i, d=""):
+            for k, v in campos:
+                if k == i:
+                    return str(v)
+            return d
+        if label == "PRECIO ($)":
+            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.01' id='price_min' value='{_safe_text(_v('price_min', precio_min_ui))}'><span>–</span><input type='number' step='0.01' id='price_max' value='{_safe_text(_v('price_max', precio_max_ui))}'></div></div>"
+        if label == "GAP (%)":
+            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{_safe_text(_v('gap_min', gap_min_ui))}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{_safe_text(_v('gap_max', gap_max_ui))}'></div></div>"
+        if label == "FLOTACIÓN ≤":
+            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='float_max' value='{_safe_text(_v('float_max', float_max_ui))}'></div>"
+        if label == "VOLUMEN ≥":
+            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='txt_vol' value='{_safe_text(_v('txt_vol', volumen_min_ui))}'></div>"
+        if label == "MACD":
+            v=_v('sel_mac', macd_ui)
+            return f"<div class='filtro-item'><label>{label}</label><select id='sel_mac' onchange='pushConfig()'><option value='Positivo' {'selected' if v=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if v=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if v=='No exigir' else ''}>No exigir</option></select></div>"
+        if label == "ORDENAR":
+            v=_v('sel_order', orden_ui)
+            return f"<div class='filtro-item'><label>{label}</label><select id='sel_order' onchange='pushConfig()'><option value='Actualizado' {'selected' if v=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if v=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if v=='Volumen' else ''}>Volumen</option></select></div>"
+        if label == "IDIOMA":
+            v=_v('cfg_lang', lang_val)
+            langs=(('ESP','Español'),('ENG','English'),('POR','Português'),('FRA','Français'),('DEU','Deutsch'),('ITA','Italiano'),('CHN','中文'),('JPN','日本語'))
+            opts=''.join(f"<option value='{k}' {'selected' if v==k else ''}>{name}</option>" for k,name in langs)
+            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_lang' onchange='pushConfig();aplicarIdioma(this.value)'>{opts}</select></div>"
+        if label == "BROKER":
+            v=_v('cfg_broker', broker_val)
+            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_broker' onchange='pushConfig()'><option value='Interactive Brokers' {'selected' if v=='Interactive Brokers' else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if v=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if v=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if v=='Otro' else ''}>Otro</option></select></div>"
+        if label == "VENTANA":
+            v=_v('cfg_wnd', wnd_val)
+            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if v=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if v=='Flotante' else ''}>Flotante</option></select></div>"
+        if label == "MOTOR":
+            v=_v('cfg_active', active_val)
+            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if v=='True' else ''}>🟢 ON</option><option value='False' {'selected' if v!='True' else ''}>🔴 OFF</option></select></div>"
+        if label == "PUENTE DE LAYOUT":
+            v=_v('cfg_url', bridge_val)
+            return f"<div class='filtro-item'><label>{label}</label><input type='text' id='cfg_url' value='{_safe_text(v)}' style='width:100%;' onchange='pushConfig()'></div>"
+        return f"<div class='filtro-item'><label>{label}</label><span style='font-size:11px;'>{_safe_text(texto)}</span></div>"
 
     h += "<div class='filtros-grid'>"
     h += "<div class='logo'>TRADE SCANNER</div>"
@@ -4402,6 +4440,10 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
     else:
         h += _ctl_res("VENTANA", wnd_val, [("cfg_wnd", wnd_val)])
+    h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    h += f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_float_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_float_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    h += f"<div class='filtro-item'><label>VOLUMEN · FILTRO</label><select id='f_vol_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_vol_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_vol_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    h += f"<div class='filtro-item'><label>EMA20 · FILTRO</label><select id='ema20_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('ema20_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('ema20_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · ventana única</span></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
@@ -4409,7 +4451,10 @@ def _render_scanner():
             h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
         h += "</select></div>"
     else:
-        h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><span>{timeframe_ui.upper()} · se cambia con el selector 🕒 de arriba</span><input type='hidden' id='timeframe' value='{timeframe_ui}'></div>"
+        h += "<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
+        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+            h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+        h += "</select></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
     else:
@@ -4597,75 +4642,7 @@ def _render_scanner():
     )
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
-    # Selector NATIVO de temporalidad: vive en st.session_state, así que el refresh
-    # automático y el puente del iframe ya no pueden regresarlo a 1m.
-    if not PUBLIC_PREVIEW:
-        _tf_etiquetas = {"1m": "1 MIN", "3m": "3 MIN", "5m": "5 MIN", "10m": "10 MIN", "13m": "13 MIN",
-                         "15m": "15 MIN", "30m": "30 MIN", "1h": "1 HORA", "1d": "1 DÍA", "1w": "1 SEMANA", "1mo": "1 MES"}
-        if st.session_state.get("ts_tf_sel") not in _tf_etiquetas:
-            st.session_state["ts_tf_sel"] = timeframe_ui if timeframe_ui in _tf_etiquetas else "1m"
-        with st.container(key="ts_tf_bar"):
-            st.selectbox(
-                "TEMPORALIDAD",
-                list(_tf_etiquetas.keys()),
-                key="ts_tf_sel",
-                format_func=lambda x: f"🕒 {_tf_etiquetas.get(x, x)}",
-                help="Temporalidad de las velas para EMA20/50/200, MACD y RSI.",
-            )
-        for _qk, _wk, _tipo, _ops, _def in _NATIVOS_TODOS:
-            if st.session_state.get(_wk) is None:
-                st.session_state[_wk] = _valor_defecto_nativo(_tipo, _ops, _def)
-                if _tipo in ("num", "flt"):
-                    st.session_state[_wk] = float(st.session_state[_wk])
-        _lbl_estado = {"Por encima": "ARRIBA (vela sobre la EMA)", "Por debajo": "ABAJO (vela bajo la EMA)", "Neutro": "NEUTRO"}
-        _lbl_cond2 = {"Ninguna": "Sin condición extra", "Naciendo": "Primera vela naciendo",
-                      "Distancia": "A ≤ distancia % de la EMA", "Naciendo o distancia": "Naciendo o ≤ distancia %"}
-        with st.expander("📐 Condiciones EMA20 · EMA50 · EMA200", expanded=False):
-            _cols_ema = st.columns(3)
-            for _col, _n in zip(_cols_ema, (20, 50, 200)):
-                with _col:
-                    st.markdown(f"**EMA{_n}**")
-                    st.selectbox("Estado", ["Por encima", "Por debajo", "Neutro"], key=f"ts_ema{_n}_estado",
-                                 format_func=lambda x: _lbl_estado.get(x, x))
-                    st.selectbox("Condición extra", list(OPCIONES_COND_EMA), key=f"ts_ema{_n}_cond",
-                                 format_func=lambda x: _lbl_cond2.get(x, x))
-                    st.number_input("Distancia máx. (%)", min_value=0.0, max_value=25.0, step=0.1,
-                                    format="%.1f", key=f"ts_ema{_n}_dist")
-
-        with st.expander("⚙️ Filtros y configuración del scanner", expanded=False):
-            _g1, _g2, _g3 = st.columns(3)
-            with _g1:
-                st.selectbox("Motor", ["True", "False"], key="ts_c_active",
-                             format_func=lambda x: "🟢 ON" if x == "True" else "🔴 OFF")
-            with _g2:
-                st.selectbox("Idioma", ["ESP", "ENG"], key="ts_c_lang")
-            with _g3:
-                st.selectbox("Ventana", ["Incrustada", "Flotante"], key="ts_c_wnd")
-            _p1, _p2, _p3, _p4 = st.columns(4)
-            with _p1:
-                st.number_input("Precio mín ($)", min_value=0.0, max_value=100000.0, step=0.01, format="%.2f", key="ts_f_price_min")
-            with _p2:
-                st.number_input("Precio máx ($)", min_value=0.0, max_value=100000.0, step=0.01, format="%.2f", key="ts_f_price_max")
-            with _p3:
-                st.number_input("Gap mín (%)", min_value=-100.0, max_value=10000.0, step=0.1, format="%.1f", key="ts_f_gap_min")
-            with _p4:
-                st.number_input("Gap máx (%)", min_value=-100.0, max_value=10000.0, step=0.1, format="%.1f", key="ts_f_gap_max")
-            _q1, _q2, _q3, _q4 = st.columns(4)
-            with _q1:
-                st.number_input("Flotación ≤", min_value=0, max_value=10 ** 12, step=1_000_000, key="ts_f_float_max")
-            with _q2:
-                st.number_input("Volumen ≥", min_value=0, max_value=10 ** 12, step=1_000, key="ts_f_vol")
-            with _q3:
-                st.selectbox("MACD", ["Positivo", "Negativo", "No exigir"], key="ts_f_mac")
-            with _q4:
-                st.selectbox("Ordenar", ["Actualizado", "Cambio %", "Volumen"], key="ts_f_order")
-            _r1, _r2 = st.columns([1, 2])
-            with _r1:
-                st.selectbox("Broker", ["Interactive Brokers", "Tradestation", "Charles Schwab", "Otro"], key="ts_c_broker")
-            with _r2:
-                st.text_input("Puente de layout (URL)", key="ts_c_url")
-
-    components.html(_h_a, height=1000, scrolling=False)
+    # Temporalidad, EMA y filtros se manejan dentro del cuadro gris del scanner.\n    components.html(_h_a, height=1000, scrolling=False)
 
     # REFRESH justo encima de la tabla de resultados.
     if not PUBLIC_PREVIEW:
@@ -4750,7 +4727,7 @@ for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
 _FILTROS_NATIVOS = [
     ("ema20_on", "ts_ema20_on", "sel", ("OFF", "ON"), "OFF"),
     ("c_active", "ts_c_active", "sel", ("True", "False"), lambda: "True" if getattr(servicio, "encendido", True) else "False"),
-    ("c_lang", "ts_c_lang", "sel", ("ESP", "ENG"), "ESP"),
+    ("c_lang", "ts_c_lang", "sel", ("ESP", "ENG", "POR", "FRA", "DEU", "ITA", "CHN", "JPN"), "ESP"),
     ("c_wnd", "ts_c_wnd", "sel", ("Incrustada", "Flotante"), "Incrustada"),
     ("f_price_min", "ts_f_price_min", "flt", (0.0, 100000.0), 0.50),
     ("f_price_max", "ts_f_price_max", "flt", (0.0, 100000.0), 20.0),
