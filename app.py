@@ -4429,7 +4429,11 @@ def _render_scanner():
         h += _ctl_res("MOTOR", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
     h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · fijo</span></div>"
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig()'><option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option><option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option></select></div>"
+        _langs_pub=(('ESP','Español'),('ENG','English'),('POR','Português'),('FRA','Français'),('DEU','Deutsch'),('ITA','Italiano'),('CHN','中文'),('JPN','日本語'))
+        h += "<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig();aplicarIdioma(this.value)'>"
+        for _lk, _ln in _langs_pub:
+            h += f"<option value='{_lk}' {'selected' if lang_val==_lk else ''}>{_ln}</option>"
+        h += "</select></div>"
     else:
         h += _ctl_res("IDIOMA", lang_val, [("cfg_lang", lang_val)])
     if PUBLIC_PREVIEW:
