@@ -3851,6 +3851,14 @@ window.addEventListener('load',function(){try{var mc=document.querySelector('.ma
 
 
 def _render_scanner():
+        def _ts_cambiar_refresh():
+        try:
+            st.query_params["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
+            _almacen = st.session_state.get("_ts_query_elegida")
+            if isinstance(_almacen, dict):
+                _almacen["refresh_sec"] = str(int(st.session_state["ts_refresh_sel"]))
+        except Exception:
+            pass
     try:
         servicio._esta_en_horario_automatico()
     except Exception:
