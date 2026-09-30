@@ -4231,37 +4231,102 @@ def _render_scanner():
 
     script_flotante = ""
     if wnd_val == "Flotante":
-        script_flotante = "<script>if (!window.name.includes('ts_externo')) { var VentanaEx = window.open(window.location.href, 'ts_externo_' + Date.now(), 'width=1300,height=850,status=no,menubar=no,toolbar=no'); if (VentanaEx) { window.parent.document.write(\"<body style='background:#15181d;color:#8f98a3;font-family:sans-serif;padding:50px;text-align:center;'><h2>El Scanner está operando en tu ventana flotante desglosada</h2></body>\"); } }</script>"
+        script_flotante = """<script>if (!window.name.includes('ts_externo')) { var VentanaEx = window.open(window.location.href, 'ts_externo_' + Date.now(), 'width=1300,height=850,status=no,menubar=no,toolbar=no'); if (VentanaEx) { window.parent.document.write("<body style='background:#15181d;color:#8f98a3;font-family:sans-serif;padding:50px;text-align:center;'><h2>El Scanner está operando en tu ventana flotante desglosada</h2></body>"); } }</script>"""
 
-    h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-    h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
-    h += f"<title>TradeScanner</title>{script_flotante}"
-    h += "<style>"
-    h += "*{box-sizing:border-box;}"
-    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:11px;color:#e7eaee;margin:0;padding:6px;}"
-    h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
-    h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
-    h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
-    h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
-    h += ".status-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-top:1px solid #3c424a;padding-top:4px;}.status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}.date-time{font-size:9px;font-weight:bold;color:#b8c0ca;white-space:nowrap;margin-left:auto;}"
-    h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#20242a;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
-    h += ".tab{font-size:10px;font-weight:bold;padding:4px 9px;background:#2a2f37;color:#dfe3e8;border:1px solid #555;cursor:pointer;}.tab.active{background:#11151a;color:#fff;border-bottom:2px solid #d4af37;}"
-    h += ".filtros-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}"
-    h += ".filtro-item{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#292e36;border:1px solid #aaa;padding:5px 7px;min-height:38px;}"
-    h += ".filtro-item label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap;}"
-    h += "input,select,button{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #555;background:#171b20;color:#e7eaee;border-radius:0;outline:none;}"
-    h += "input{min-width:0;width:105px;padding:1px 4px;}select{min-width:105px;max-width:170px;padding:1px 3px;}button{cursor:pointer;background:#30353d;color:#fff;font-weight:bold;padding:2px 8px;}"
-    h += ".range{display:flex;gap:2px;align-items:center;}.range span{font-size:8px;color:#8d96a0;}"
-    h += ".logo{display:flex;align-items:center;justify-content:center;background:#252a31;border:1px dashed #666;font-weight:900;color:#f1f3f5;min-height:34px;font-size:14px;}"
-    h += ".engine{font-weight:bold;}.subline{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}.subline span,.subline span *{color:#f0f2f4 !important;opacity:1 !important;text-shadow:none !important;}.subline b{color:#f0f2f4 !important;font-weight:900;opacity:1 !important;text-shadow:none !important;}"
-    h += ".result-title{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}"
-    h += ".table-wrapper{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
-    h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
-    h += "td{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}"
-    h += ".fila-alza{background:#1e3325}.fila-baja{background:#3a2426}.fila-vacia{background:#1c2025;color:#7f8995}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#555;font-style:italic;}"
-    h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
-    h += ".layout-col{width:120px;text-align:center;background:#242930;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
-    h += ".footer-note{margin-top:4px;font-size:8px;color:#7f8995;display:flex;justify-content:space-between;gap:8px;}"
-    h += ".tab-panel{display:none;background:#20252b;color:#dce1e6;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#292e36;border:1px solid #4a515b;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;color:#f1f3f5;}.panel-card span{font-size:10px;color:#b8c0ca;}.technical-control{display:flex;flex-direction:column;align-items:stretch;gap:5px}.technical-control select{width:100%;max-width:none;}"
-    h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
-    h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
+    # --- HTML PRINCIPAL CON COMILLAS TRIPLES PARA ELIMINAR CONFLICTOS VISUALES ---
+    h = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
+    <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+    <title>TradeScanner</title>{script_flotante}
+    <style>
+    *{{box-sizing:border-box;}}
+    html,body{{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}}body{{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:11px;color:#e7eaee;margin:0;padding:6px;}}
+    .main-container{{width:100%;max-width:none;margin:0 auto;padding:6px;}}
+    .topbar{{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}}
+    .brand{{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}}.brand small{{font-size:10px;font-weight:normal;color:#8f98a3;}}
+    .filtros-grid{{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}}
+    .filtro-item{{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#292e36;border:1px solid #aaa;padding:5px 7px;min-height:38px;}}
+    .filtro-item label{{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap;}}
+    input,select,button{{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #555;background:#171b20;color:#e7eaee;border-radius:0;outline:none;}}
+    input{{min-width:0;width:105px;padding:1px 4px;}}select{{min-width:105px;max-width:170px;padding:1px 3px;}}button{{cursor:pointer;background:#30353d;color:#fff;font-weight:bold;padding:2px 8px;}}
+    .logo{{display:flex;align-items:center;justify-content:center;background:#252a31;border:1px dashed #666;font-weight:900;color:#f1f3f5;min-height:34px;font-size:14px;}}
+    .subline{{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}}
+    .table-wrapper{{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}}table{{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}}
+    th{{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}}
+    td{{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}}
+    .fila-alza{{background:#1e3325}}.fila-baja{{background:#3a2426}}.fila-vacia{{background:#1c2025;color:#7f8995}}.num-col{{text-align:right}}
+    .macd-positivo{{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}}.macd-negativo{{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}}
+    .engranaje-select{{width:112px;font-size:9px;height:21px;}}
+    .footer-note{{margin-top:4px;font-size:8px;color:#7f8995;display:flex;justify-content:space-between;gap:8px;}}
+    </style>
+    <script>
+    function pushConfig(){{
+        var q = new URLSearchParams();
+        q.set('c_lang', document.getElementById('cfg_lang').value);
+        q.set('c_wnd', document.getElementById('cfg_wnd').value);
+        q.set('timeframe', document.getElementById('timeframe').value);
+        q.set('f_price_min', document.getElementById('price_min').value);
+        q.set('f_price_max', document.getElementById('price_max').value);
+        q.set('f_gap_min', document.getElementById('gap_min').value);
+        q.set('f_gap_max', document.getElementById('gap_max').value);
+        q.set('f_float_max', document.getElementById('float_max').value);
+        q.set('f_vol', document.getElementById('txt_vol').value);
+        q.set('f_mac', document.getElementById('sel_mac').value);
+        q.set('f_order', document.getElementById('sel_order').value);
+        q.set('c_broker', document.getElementById('cfg_broker').value);
+        q.set('c_url', document.getElementById('cfg_url').value);
+        
+        q.set('ema20_estado', document.getElementById('ema20_estado').value);
+        q.set('ema50_estado', document.getElementById('ema50_estado').value);
+        q.set('ema200_estado', document.getElementById('ema200_estado').value);
+        q.set('ema20_cond', document.getElementById('ema20_cond').value);
+        q.set('ema50_cond', document.getElementById('ema50_cond').value);
+        q.set('ema200_cond', document.getElementById('ema200_cond').value);
+        q.set('ema20_dist', document.getElementById('ema20_dist').value);
+        q.set('ema50_dist', document.getElementById('ema50_dist').value);
+        q.set('ema200_dist', document.getElementById('ema200_dist').value);
+        
+        q.set('_u', String(Date.now()));
+        try{{
+            var u = '/?' + q.toString();
+            window.parent.history.replaceState(null, '', u);
+            var bs = window.parent.document.querySelectorAll('button');
+            for(var i=0; i<bs.length; i++){{
+                if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){{ bs[i].click(); break; }}
+            }}
+        }}catch(e){{ window.top.location.replace('/?' + q.toString()); }}
+    }}
+    function cambiarLayout(t,e){{
+        if(!e.value)return;
+        alert("Enviando Ticker " + t + " al puente de layout");
+    }}
+    </script></head><body>
+    <div class='main-container'>
+    <div class='topbar'><div class='brand'>{tr['title']} <small>{tr['sub']}</small></div></div>
+    
+    <div class='filtros-grid'>
+        <div class='logo'>TRADE SCANNER</div>
+        <div class='filtro-item'><label>{tr['lbl_motor']}</label>
+            <select id='cfg_active' onchange='pushConfig()'>
+                <option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option>
+                <option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option>
+            </select>
+        </div>
+        <div class='filtro-item'><label>{tr['lbl_horario']}</label><span>04:00 – 20:00 ET</span></div>
+        <div class='filtro-item'><label>{tr['lbl_idioma']}</label>
+            <select id='cfg_lang' onchange='pushConfig()'>
+                <option value='ESP' {'selected' if lang_val=='ESP' else ''}>ESP</option>
+                <option value='ENG' {'selected' if lang_val=='ENG' else ''}>ENG</option>
+                <option value='POR' {'selected' if lang_val=='POR' else ''}>POR</option>
+                <option value='FRA' {'selected' if lang_val=='FRA' else ''}>FRA</option>
+            </select>
+        </div>
+        <div class='filtro-item'><label>{tr['lbl_ventana']}</label>
+            <select id='cfg_wnd' onchange='pushConfig()'>
+                <option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option>
+                <option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option>
+            </select>
+        </div>
+        <div class='filtro-item'><label>{tr['lbl_tf']}</label>
+            <select id='timeframe' onchange='pushConfig()'>
+                <option value='1m' {'selected' if timeframe_ui=='1m' else ''}>1 MIN</option>
+                <option value='3m' {'selected' if timeframe_ui=='3m' else ''}>3 MIN</option>
