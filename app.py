@@ -4789,17 +4789,21 @@ def _sincronizar_nativos(accion_js):
         previo = st.session_state.get("_ts_prev_" + wk)
         u = _norm_nativo(tipo, ops, _qp_valor(qk))
         if accion_js and u is not None:
-            # Acción del iframe recién hecha: la URL contiene el valor nuevo.
+            # Cambio recién hecho por el usuario: la URL recién escrita manda.
             val = u
         elif w is not None and w != previo:
-            # Interacción directa con el widget nativo de Streamlit.
+            # Cambio directo del widget nativo: capturarlo y convertirlo en estado canónico.
             val = w
-        elif u is not None:
-            # En un autorefresh/reconexión, la URL es la fuente de verdad.
-            # No permitimos que el valor viejo de session_state rebote encima.
-            val = u
+        elif isinstance(almacen, dict) and qk in almacen:
+            # AUTO-REFRESH: conservar el último valor confirmado por esta sesión.
+            # La URL puede contener una copia antigua; no debe ganar al estado canónico.
+            val = _norm_nativo(tipo, ops, almacen.get(qk))
+            if val is None:
+                val = u if u is not None else (previo if previo is not None else w)
         elif previo is not None:
             val = previo
+        elif u is not None:
+            val = u
         elif w is not None:
             val = w
         else:
@@ -4830,14 +4834,17 @@ def _sincronizar_timeframe(tf_url, accion_js):
     """
     widget = st.session_state.get("ts_tf_sel")
     previo = st.session_state.get("_ts_tf_elegido")
+    almacen = st.session_state.get("_ts_query_elegida")
     if accion_js and tf_url in _TF_VALIDOS:
-        tf = tf_url                                   # cambio recién hecho en el iframe
+        tf = tf_url
     elif widget in _TF_VALIDOS and widget != previo:
-        tf = widget                                   # cambio directo del widget nativo
-    elif tf_url in _TF_VALIDOS:
-        tf = tf_url                                   # en autorefresh manda la URL
+        tf = widget
+    elif isinstance(almacen, dict) and almacen.get("timeframe") in _TF_VALIDOS:
+        tf = almacen.get("timeframe")
     elif previo in _TF_VALIDOS:
         tf = previo
+    elif tf_url in _TF_VALIDOS:
+        tf = tf_url
     elif widget in _TF_VALIDOS:
         tf = widget
     else:
@@ -4873,16 +4880,10 @@ def _sincronizar_query_con_sesion():
         u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
         accion_js = (not auto) and u_nuevo > u_visto
 
-        # La URL es la fuente de verdad durante la sesión. Antes, en cada
-        # autorefresh, este bloque reimponía "_ts_query_elegida" y podía
-        # devolver los controles al valor anterior.
-        # Solo usamos el estado guardado como respaldo cuando todavía no hay
-        # ningún parámetro de configuración en la URL.
-        hay_config_url = any(
-            _qp_valor(k) not in (None, "")
-            for k in _CLAVES_SYNC_QUERY
-        )
-        if accion_js or hay_config_url:
+        # Estado canónico por sesión:
+        # - una acción del usuario captura la URL nueva;
+        # - cualquier auto-refresh reutiliza ese estado, sin leer una URL antigua.
+        if accion_js:
             nuevo = {}
             for k in _CLAVES_SYNC_QUERY:
                 v = _qp_valor(k)
@@ -4891,10 +4892,21 @@ def _sincronizar_query_con_sesion():
             if nuevo:
                 st.session_state["_ts_query_elegida"] = nuevo
         elif guardado:
+            # No dejamos que el auto-refresh sustituya los valores elegidos.
             for k, v in guardado.items():
-                if k not in _CLAVES_NATIVAS and _qp_valor(k) != v:
+                if k != "timeframe" and _qp_valor(k) != v:
                     st.query_params[k] = v
-            st.session_state["_ts_query_elegida"] = dict(guardado)
+            if guardado.get("timeframe") and _qp_valor("timeframe") != guardado.get("timeframe"):
+                st.query_params["timeframe"] = guardado["timeframe"]
+        else:
+            # Primera carga sin estado previo: tomar la URL existente.
+            nuevo = {}
+            for k in _CLAVES_SYNC_QUERY:
+                v = _qp_valor(k)
+                if v is not None and v != "":
+                    nuevo[k] = v
+            if nuevo:
+                st.session_state["_ts_query_elegida"] = nuevo
         st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
         _sincronizar_timeframe(tf_url, accion_js)
         _sincronizar_nativos(accion_js)
