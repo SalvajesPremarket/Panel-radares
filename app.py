@@ -205,6 +205,11 @@ VALORES_POR_DEFECTO = {
     "ema20_estado": "Neutro", "ema50_estado": "Neutro", "ema200_estado": "Neutro",
     "ema20_cond": "Naciendo", "ema50_cond": "Ninguna", "ema200_cond": "Ninguna",
     "ema20_dist": 0.5, "ema50_dist": 0.5, "ema200_dist": 0.5,
+    # Filtros opcionales: el usuario decide cuáles activar.
+    "gap_activo": False,
+    "flotacion_activa": False,
+    "volumen_activo": False,
+    "ema20_activa": False,
 }
 
 
@@ -1302,6 +1307,7 @@ _CONFIG_USUARIO_KEYS = (
     "rsi_min", "rsi_max", "ema20_estado", "ema50_estado",
     "ema200_estado", "c_active", "c_start", "c_end",
     "c_lang", "c_wnd", "c_broker", "c_url", "refresh_sec",
+    "f_gap_on", "f_float_on", "f_vol_on", "ema20_on",
     "ema20_cond", "ema50_cond", "ema200_cond",
     "ema20_dist", "ema50_dist", "ema200_dist",
 )
@@ -1835,6 +1841,8 @@ def cumple_condiciones_ema(c, p):
     EMA50/EMA200 = "Ninguna". Si un dato no se puede calcular, la condición falla.
     """
     for n in (20, 50, 200):
+        if n == 20 and not _filtro_activo(p, "ema20_activa", _filtro_activo(p, "ema20_on", False)):
+            continue
         pedido = p.get(f"ema{n}_estado", "Neutro")
         cond = p.get(f"ema{n}_cond", "Naciendo" if n == 20 else "Ninguna")
         if pedido in ("Por encima", "Por debajo") and c.get(f"ema{n}_estado", "Neutro") != pedido:
@@ -2015,23 +2023,29 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
             continue
     return salida
 
+def _filtro_activo(p, clave, defecto=False):
+    """Determina si un filtro opcional está activo; acepta bool y valores de URL."""
+    v = p.get(clave, defecto)
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("1", "true", "on", "si", "sí", "yes")
+
 def filtrar_resultados(filas, p):
     resultado = []
     for c in filas:
         if not (p["precio_min"] <= c["precio"] <= p["precio_max"]):
             continue
-        # RSI y distancia a EMA20 son informativos en SCALPING; no bloquean la señal.
-        # REGLAS DURAS DEL SCANNER: estas condiciones SIEMPRE se aplican.
-        # Precio: $0.50-$20; GAP REAL: 3%-50%; Float <=20M; Volumen >=15K.
-        gap = c.get("gap_pct")
-        if gap is None or not (float(p.get("gap_min", 3.0)) <= float(gap) <= float(p.get("gap_max", 50.0))):
-            continue
-        if c.get("float_shares") is None:
-            continue
-        if float(c.get("float_shares")) > float(p.get("flotacion_max", 20_000_000)):
-            continue
-        if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
-            continue
+        # GAP, flotación y volumen dejaron de ser filtros obligatorios.
+        if _filtro_activo(p, "gap_activo", _filtro_activo(p, "f_gap_on", False)):
+            gap = c.get("gap_pct")
+            if gap is None or not (float(p.get("gap_min", 3.0)) <= float(gap) <= float(p.get("gap_max", 50.0))):
+                continue
+        if _filtro_activo(p, "flotacion_activa", _filtro_activo(p, "f_float_on", False)):
+            if c.get("float_shares") is None or float(c.get("float_shares")) > float(p.get("flotacion_max", 20_000_000)):
+                continue
+        if _filtro_activo(p, "volumen_activo", _filtro_activo(p, "f_vol_on", False)):
+            if c.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
+                continue
         # MACD según el selector (Positivo por defecto).
         if not cumple_macd(c, p):
             continue
@@ -2062,13 +2076,16 @@ def filtrar_eventos(eventos, p):
     for e in eventos:
         if not (p["precio_min"] <= e["precio"] <= p["precio_max"]):
             continue
-        gap = e.get("gap_pct")
-        if gap is None or not (p["gap_min"] <= gap <= p["gap_max"]):
-            continue
-        if e["float_shares"] is not None and e["float_shares"] > p["flotacion_max"]:
-            continue
-        if e.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
-            continue
+        if _filtro_activo(p, "gap_activo", _filtro_activo(p, "f_gap_on", False)):
+            gap = e.get("gap_pct")
+            if gap is None or not (p["gap_min"] <= gap <= p["gap_max"]):
+                continue
+        if _filtro_activo(p, "flotacion_activa", _filtro_activo(p, "f_float_on", False)):
+            if e.get("float_shares") is None or e.get("float_shares") > p["flotacion_max"]:
+                continue
+        if _filtro_activo(p, "volumen_activo", _filtro_activo(p, "f_vol_on", False)):
+            if e.get("volumen_dia", 0) < p.get("volumen_min", 15_000):
+                continue
         salida.append(e)
     return salida
 
@@ -3075,11 +3092,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # todo el universo quedara descartado por float desconocido.
         radar_gap = []
         for c in base:
-            gap = c.get("gap_pct")
-            if gap is None or not (float(filtros_tf.get("gap_min", 3.0)) <= float(gap) <= float(filtros_tf.get("gap_max", 50.0))):
-                continue
-            if c.get("volumen_dia", 0) < filtros_tf.get("volumen_min", 15_000):
-                continue
+            if _filtro_activo(filtros_tf, "gap_activo", _filtro_activo(filtros_tf, "f_gap_on", False)):
+                gap = c.get("gap_pct")
+                if gap is None or not (float(filtros_tf.get("gap_min", 3.0)) <= float(gap) <= float(filtros_tf.get("gap_max", 50.0))):
+                    continue
+            if _filtro_activo(filtros_tf, "volumen_activo", _filtro_activo(filtros_tf, "f_vol_on", False)):
+                if c.get("volumen_dia", 0) < filtros_tf.get("volumen_min", 15_000):
+                    continue
             c["volumen_relativo"] = c["cambio_pct"]
             radar_gap.append(c)
 
@@ -3137,6 +3156,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self._asegurar_fundamentales([c["ticker"] for c in candidatos_tecnicos])
 
         limite_float = float(filtros_tf.get("flotacion_max", 20_000_000))
+        float_activa = _filtro_activo(filtros_tf, "flotacion_activa", _filtro_activo(filtros_tf, "f_float_on", False))
         enriquecidos = []
         float_sin_dato_count = 0
         float_excede_count = 0
@@ -3145,8 +3165,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             float_shares = entrada.get("float")
             if float_shares is None:
                 float_sin_dato_count += 1
+                if float_activa:
+                    continue
+                c["float_shares"] = None
+                c["float_status"] = "sin_dato"
+                c["float_source"] = ""
+                enriquecidos.append(c)
                 continue
-            if float(float_shares) > limite_float:
+            if float_activa and float(float_shares) > limite_float:
                 float_excede_count += 1
                 continue
             c["float_shares"] = float_shares
@@ -3958,6 +3984,10 @@ def _render_scanner():
         "ema20_dist": ema_dist_ui[20],
         "ema50_dist": ema_dist_ui[50],
         "ema200_dist": ema_dist_ui[200],
+        "gap_activo": _qtxt("f_gap_on", "OFF") == "ON",
+        "flotacion_activa": _qtxt("f_float_on", "OFF") == "ON",
+        "volumen_activo": _qtxt("f_vol_on", "OFF") == "ON",
+        "ema20_activa": _qtxt("ema20_on", "OFF") == "ON",
     }
 
     # IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
@@ -4718,6 +4748,7 @@ for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
         (f"ema{_n}_dist", f"ts_ema{_n}_dist", "num", None, 0.5),
     ]
 _FILTROS_NATIVOS = [
+    ("ema20_on", "ts_ema20_on", "sel", ("OFF", "ON"), "OFF"),
     ("c_active", "ts_c_active", "sel", ("True", "False"), lambda: "True" if getattr(servicio, "encendido", True) else "False"),
     ("c_lang", "ts_c_lang", "sel", ("ESP", "ENG"), "ESP"),
     ("c_wnd", "ts_c_wnd", "sel", ("Incrustada", "Flotante"), "Incrustada"),
@@ -4725,8 +4756,11 @@ _FILTROS_NATIVOS = [
     ("f_price_max", "ts_f_price_max", "flt", (0.0, 100000.0), 20.0),
     ("f_gap_min", "ts_f_gap_min", "flt", (-100.0, 10000.0), 3.0),
     ("f_gap_max", "ts_f_gap_max", "flt", (-100.0, 10000.0), 50.0),
+    ("f_gap_on", "ts_f_gap_on", "sel", ("OFF", "ON"), "OFF"),
+    ("f_float_on", "ts_f_float_on", "sel", ("OFF", "ON"), "OFF"),
     ("f_float_max", "ts_f_float_max", "int", (0, 10 ** 12), 20_000_000),
     ("f_vol", "ts_f_vol", "int", (0, 10 ** 12), 15_000),
+    ("f_vol_on", "ts_f_vol_on", "sel", ("OFF", "ON"), "OFF"),
     ("f_mac", "ts_f_mac", "sel", ("Positivo", "Negativo", "No exigir"), "Positivo"),
     ("f_order", "ts_f_order", "sel", ("Actualizado", "Cambio %", "Volumen"), "Actualizado"),
     ("c_broker", "ts_c_broker", "sel", ("Interactive Brokers", "Tradestation", "Charles Schwab", "Otro"),
