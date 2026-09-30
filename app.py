@@ -4198,7 +4198,7 @@ def _render_scanner():
     fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
     _email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
 
-        # --- DICCIONARIO DE IDIOMAS INTEGRADO PARA SOPORTE FINVIZ REAL ---
+           # --- DICCIONARIO DE IDIOMAS INTEGRADO LIMPIO ---
     DICCIONARIO_TRADUCTOR = {
         "ESP": {
             "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
@@ -4229,29 +4229,19 @@ def _render_scanner():
     lang_actual = lang_val if lang_val in DICCIONARIO_TRADUCTOR else "ESP"
     tr = DICCIONARIO_TRADUCTOR[lang_actual]
 
-    # Script para ejecutar la ventana flotante externa desvinculada si se selecciona "Flotante"
     script_flotante = ""
     if wnd_val == "Flotante":
-        script_flotante = """
-        <script>
-        if (!window.name.includes("ts_externo")) {
-            var VentanaEx = window.open(window.location.href, "ts_externo_" + Date.now(), "width=1300,height=850,status=no,menubar=no,toolbar=no");
-            if (VentanaEx) {
-                window.parent.document.write("<body style='background:#15181d;color:#8f98a3;font-family:sans-serif;padding:50px;text-align:center;'><h2>El Scanner está operando en tu ventana flotante desglosada</h2></body>");
-            }
-        }
-        </script>
-        """
+        script_flotante = "<script>if (!window.name.includes('ts_externo')) { var VentanaEx = window.open(window.location.href, 'ts_externo_' + Date.now(), 'width=1300,height=850,status=no,menubar=no,toolbar=no'); if (VentanaEx) { window.parent.document.write(\"<body style='background:#15181d;color:#8f98a3;font-family:sans-serif;padding:50px;text-align:center;'><h2>El Scanner está operando en tu ventana flotante desglosada</h2></body>\"); } }</script>"
 
     h = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
     h += "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
     h += f"<title>TradeScanner</title>{script_flotante}"
     h += "<style>"
     h += "*{box-sizing:border-box;}"
-    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
+    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:11px;color:#e7eaee;margin:0;padding:6px;}"
     h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
     h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
-    h += f".brand{{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}}.brand small{{font-size:10px;font-weight:normal;color:#8f98a3;}}"
+    h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
     h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
     h += ".status-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-top:1px solid #3c424a;padding-top:4px;}.status{font-weight:bold;white-space:nowrap;}.status.on{color:#08752c}.status.off{color:#a40000}.status.wait{color:#9a6b00}.date-time{font-size:9px;font-weight:bold;color:#b8c0ca;white-space:nowrap;margin-left:auto;}"
     h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#20242a;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
@@ -4275,22 +4265,6 @@ def _render_scanner():
     h += ".tab-panel{display:none;background:#20252b;color:#dce1e6;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#292e36;border:1px solid #4a515b;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;color:#f1f3f5;}.panel-card span{font-size:10px;color:#b8c0ca;}.technical-control{display:flex;flex-direction:column;align-items:stretch;gap:5px}.technical-control select{width:100%;max-width:none;}"
     h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
     h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
-
-    # REFRESH justo encima de la tabla de resultados.
-    if not PUBLIC_PREVIEW:
-        with st.container(key="ts_refresh_bar"):
-            st.session_state["ts_refresh_sel"] = refresh_sec
-            st.selectbox(
-                "REFRESH DE LA TABLA",
-                refresh_options,
-                key="ts_refresh_sel",
-                format_func=lambda x: f"⏱ {x}s" if x < 60 else f"⏱ {x // 60} min",
-                on_change=_ts_cambiar_refresh,
-                help="Cada cuánto se actualiza la tabla de resultados.",
-            )
-
-    components.html(h, height=640, scrolling=False)
-
 
 # El temporizador se mantiene FUERA de components.html().
 # No navega el navegador ni modifica window.location desde el iframe.
