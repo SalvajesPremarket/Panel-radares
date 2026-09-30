@@ -24,6 +24,28 @@ from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
+# Sin "flash" en el refresh automático: Streamlit atenúa (opacity) los elementos
+# mientras se recalcula y el iframe de la tabla parpadea al recargarse. Se deja todo
+# opaco, sin transición, y el iframe con el mismo color de fondo que su contenido.
+st.markdown("""
+<style>
+    [data-stale="true"], [data-stale="true"] * {
+        opacity: 1 !important;
+        transition: none !important;
+        filter: none !important;
+    }
+    .stApp [data-testid="stAppViewContainer"], .stApp [data-testid="stMain"],
+    .stApp [data-testid="stElementContainer"], .stApp .element-container {
+        transition: none !important;
+        animation: none !important;
+    }
+    iframe, [data-testid="stCustomComponentV1"], [data-testid="stIFrame"] {
+        background: #15181d !important;
+        transition: none !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ==========================================
 # 🙈 OCULTAR BARRA SUPERIOR DE STREAMLIT (Share, GitHub, editar, menú, badges)
 # 📱 + AJUSTES RESPONSIVOS para que se vea bien en celular
@@ -4185,18 +4207,23 @@ def _render_scanner():
         h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20 y MACD.</span></div>"
     else:
         h += f"<div class='panel-card technical-control'><b>TIMEFRAME</b><span>{timeframe_ui.upper()} · se cambia con el selector 🕒 de arriba. Se aplica al motor, EMA20/50/200 y MACD.</span></div>"
-    _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
-                 ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
-    for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
-        _eid = f"ema{_n}_estado"
-        h += f"<div class='panel-card technical-control'><b>{_ename}</b>"
-        h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
-        h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
-        for _v, _t in _lbl_cond:
-            h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
-        h += "</select>"
-        h += f"<div class='range'><input type='number' step='0.1' min='0' max='25' id='ema{_n}_dist' value='{ema_dist_ui[_n]:g}' onchange='aplicarTecnicas()'><span>% distancia máx.</span></div>"
-        h += f"<span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
+    if PUBLIC_PREVIEW:
+        _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
+                     ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
+        for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
+            _eid = f"ema{_n}_estado"
+            h += f"<div class='panel-card technical-control'><b>{_ename}</b>"
+            h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
+            h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
+            for _v, _t in _lbl_cond:
+                h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
+            h += "</select>"
+            h += f"<div class='range'><input type='number' step='0.1' min='0' max='25' id='ema{_n}_dist' value='{ema_dist_ui[_n]:g}' onchange='aplicarTecnicas()'><span>% distancia máx.</span></div>"
+            h += f"<span>Filtro real frente a {_ename} en {timeframe_ui.upper()}.</span></div>"
+    else:
+        for _n, _v in ((20, ema20_estado_ui), (50, ema50_estado_ui), (200, ema200_estado_ui)):
+            h += f"<input type='hidden' id='ema{_n}_estado' value='{_v}'>"
+        h += "<div class='panel-card'><b>EMA20 · EMA50 · EMA200</b><span>Estado (arriba/abajo), condición (primera vela naciendo o ≤ % de distancia) y distancia se cambian en el panel 📐 que está arriba de la tabla.</span></div>"
     h += f"<div class='panel-card technical-control'><b>RSI (14) · RANGO</b><div class='range'><input type='number' step='1' min='0' max='100' id='rsi_min' value='{rsi_min_ui:g}'><span>–</span><input type='number' step='1' min='0' max='100' id='rsi_max' value='{rsi_max_ui:g}'></div><button onclick='pushConfig()' style='width:100%;height:24px;'>APLICAR RSI</button><span>Filtra las señales por RSI(14) en la temporalidad seleccionada.</span></div>"
     h += f"<div class='panel-card'><b>MACD</b><span>{_safe_text(macd_ui)} · cálculo actual: {timeframe_ui.upper()} · EMA20/MACD/RSI usan esta misma temporalidad.</span></div>"
     h += "<div class='panel-card'><b>MEDIAS</b><span>EMA20 · EMA50 · EMA200 calculadas en el timeframe seleccionado.</span></div>"
@@ -4407,6 +4434,23 @@ def _render_scanner():
                 format_func=lambda x: f"🕒 {_tf_etiquetas.get(x, x)}",
                 help="Temporalidad de las velas para EMA20/50/200, MACD y RSI.",
             )
+        for _qk, _wk, _tipo, _ops, _def in _EMA_NATIVOS:
+            if st.session_state.get(_wk) is None:
+                st.session_state[_wk] = float(_def) if _tipo == "num" else _def
+        _lbl_estado = {"Por encima": "ARRIBA (vela sobre la EMA)", "Por debajo": "ABAJO (vela bajo la EMA)", "Neutro": "NEUTRO"}
+        _lbl_cond2 = {"Ninguna": "Sin condición extra", "Naciendo": "Primera vela naciendo",
+                      "Distancia": "A ≤ distancia % de la EMA", "Naciendo o distancia": "Naciendo o ≤ distancia %"}
+        with st.expander("📐 Condiciones EMA20 · EMA50 · EMA200", expanded=False):
+            _cols_ema = st.columns(3)
+            for _col, _n in zip(_cols_ema, (20, 50, 200)):
+                with _col:
+                    st.markdown(f"**EMA{_n}**")
+                    st.selectbox("Estado", ["Por encima", "Por debajo", "Neutro"], key=f"ts_ema{_n}_estado",
+                                 format_func=lambda x: _lbl_estado.get(x, x))
+                    st.selectbox("Condición extra", list(OPCIONES_COND_EMA), key=f"ts_ema{_n}_cond",
+                                 format_func=lambda x: _lbl_cond2.get(x, x))
+                    st.number_input("Distancia máx. (%)", min_value=0.0, max_value=25.0, step=0.1,
+                                    format="%.1f", key=f"ts_ema{_n}_dist")
 
     components.html(h, height=1900, scrolling=False)
 
@@ -4466,6 +4510,59 @@ def _qp_valor(k):
 
 _TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
 
+# Controles NATIVOS de las pestañas EMA20/50/200: (param URL, key del widget, tipo, opciones, defecto)
+_EMA_NATIVOS = []
+for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
+    _EMA_NATIVOS += [
+        (f"ema{_n}_estado", f"ts_ema{_n}_estado", "sel", ("Por encima", "Por debajo", "Neutro"), "Neutro"),
+        (f"ema{_n}_cond", f"ts_ema{_n}_cond", "sel", OPCIONES_COND_EMA, _cd),
+        (f"ema{_n}_dist", f"ts_ema{_n}_dist", "num", None, 0.5),
+    ]
+_CLAVES_NATIVAS = {"timeframe"} | {_e[0] for _e in _EMA_NATIVOS}
+
+
+def _norm_nativo(tipo, opciones, v):
+    if tipo == "sel":
+        return v if v in opciones else None
+    try:
+        return round(max(0.0, min(25.0, float(v))), 2)
+    except Exception:
+        return None
+
+
+def _sincronizar_ema_nativos(accion_js):
+    """Igual que la temporalidad: el widget nativo manda; la URL solo al cargar
+    por primera vez o al cargar una configuración guardada."""
+    almacen = st.session_state.get("_ts_query_elegida")
+    for qk, wk, tipo, opciones, defecto in _EMA_NATIVOS:
+        w = _norm_nativo(tipo, opciones, st.session_state.get(wk))
+        previo = st.session_state.get("_ts_prev_" + wk)
+        u = _norm_nativo(tipo, opciones, _qp_valor(qk))
+        if w is not None and w != previo:
+            val = w
+        elif accion_js and u is not None and u != previo:
+            val = u
+        elif previo is not None:
+            val = previo
+        elif w is not None:
+            val = w
+        elif u is not None:
+            val = u
+        else:
+            val = defecto
+        st.session_state["_ts_prev_" + wk] = val
+        if tipo == "num":
+            val = float(val)
+            txt = f"{val:g}"
+        else:
+            txt = str(val)
+        if st.session_state.get(wk) != val:
+            st.session_state[wk] = val
+        if _qp_valor(qk) != txt:
+            st.query_params[qk] = txt
+        if isinstance(almacen, dict):
+            almacen[qk] = txt
+
 
 def _sincronizar_timeframe(tf_url, accion_js):
     """La temporalidad la decide el selector nativo de Streamlit (key ts_tf_sel).
@@ -4521,7 +4618,7 @@ def _sincronizar_query_con_sesion():
 
         if guardado and not accion_js:
             for k, v in guardado.items():
-                if k != "timeframe" and _qp_valor(k) != v:
+                if k not in _CLAVES_NATIVAS and _qp_valor(k) != v:
                     st.query_params[k] = v
         else:
             nuevo = {}
@@ -4533,6 +4630,7 @@ def _sincronizar_query_con_sesion():
                 st.session_state["_ts_query_elegida"] = nuevo
         st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
         _sincronizar_timeframe(tf_url, accion_js)
+        _sincronizar_ema_nativos(accion_js)
     except Exception:
         pass
 
