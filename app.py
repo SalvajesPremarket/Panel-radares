@@ -1619,6 +1619,21 @@ def formatear_numero_grande(numero):
     return f"{numero:.0f}"
 
 
+def _big(v):
+    """Formato compacto (K/M) para volumen y float. Nivel de módulo: lo usa el motor
+    (mensaje de Telegram) y antes solo existía dentro de _render_scanner, así que
+    _ciclo lanzaba NameError al armar la tabla cada vez que había resultados."""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        n = 0.0
+    if n >= 1_000_000:
+        return f"{n/1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n/1_000:.0f}K"
+    return f"{n:.0f}"
+
+
 def evaluar_tecnico(velas):
     """Calcula EMA20/MACD/Bollinger/RSI sobre la temporalidad seleccionada.
 
@@ -2020,6 +2035,9 @@ class ServicioScanner:
         self.diag_por_tf = {}
         self.cache_tecnico_por_tf = {}
         self._raw_prev_por_tf = {}
+        # Filtros (precio, gap, float, volumen...) que el usuario tiene activos EN CADA
+        # temporalidad. Así 1m y 15m pueden buscar con condiciones distintas a la vez.
+        self.filtros_por_tf = {}
         self._ultimos_snapshots = None
         self._despertar = threading.Event()
         self.cache_fund = self._leer_cache_fundamentales()
@@ -2088,7 +2106,7 @@ class ServicioScanner:
             }
             self.calendario_ts = time.time()
 
-    def configurar_modo_operacion(self, sesion, timeframe, ema_dist_max=1.0, principal=False):
+    def configurar_modo_operacion(self, sesion, timeframe, ema_dist_max=1.0, principal=False, filtros=None):
         # El scanner trabaja siempre en una única ventana continua 04:00–20:00 ET.
         # La temporalidad ya NO se comparte: cada una tiene sus propias velas,
         # su caché y sus resultados, así que cambiarla no borra nada de las demás.
@@ -2100,10 +2118,13 @@ class ServicioScanner:
         self.ema_dist_max = nueva_distancia
         self.filtros_dueno["sesion"] = self.sesion
         self.filtros_dueno["ema_dist_max"] = self.ema_dist_max
-        self.registrar_timeframe(timeframe, principal=principal)
+        self.registrar_timeframe(timeframe, principal=principal, filtros=filtros)
 
-    def registrar_timeframe(self, tf, principal=False):
-        """Marca una temporalidad como pedida por alguna pantalla."""
+    def registrar_timeframe(self, tf, principal=False, filtros=None):
+        """Marca una temporalidad como pedida por alguna pantalla.
+
+        Si se pasan `filtros`, quedan asociados a ESA temporalidad: el motor los usa
+        al escanearla, sin mezclarlos con los de otras temporalidades."""
         tf = str(tf or "1m").lower()
         es_nueva = tf not in self.resultados_por_tf
         self.tfs_activos[tf] = time.time()
@@ -2111,8 +2132,22 @@ class ServicioScanner:
             self.tf_principal = tf
             self.timeframe = tf
             self.filtros_dueno["timeframe"] = tf
-        if es_nueva:
+        filtros_cambiaron = False
+        if isinstance(filtros, dict):
+            nuevos = dict(filtros)
+            nuevos["timeframe"] = tf
+            filtros_cambiaron = (self.filtros_por_tf.get(tf) != nuevos)
+            self.filtros_por_tf[tf] = nuevos
+        if es_nueva or filtros_cambiaron:
             self._despertar.set()   # calcularla ya, sin esperar al siguiente ciclo
+
+    def _filtros_para(self, tf):
+        """Filtros vigentes para UNA temporalidad (los suyos; si no hay, los generales)."""
+        f = dict(self.filtros_dueno)
+        propios = self.filtros_por_tf.get(str(tf or "").lower())
+        if propios:
+            f.update(propios)
+        return f
 
     def _timeframes_a_procesar(self):
         ahora = time.time()
@@ -2131,6 +2166,7 @@ class ServicioScanner:
                 self.diag_por_tf.pop(tf, None)
                 self.cache_tecnico_por_tf.pop(tf, None)
                 self._raw_prev_por_tf.pop(tf, None)
+                self.filtros_por_tf.pop(tf, None)
         return lista
 
     def _esta_en_horario_automatico(self):
@@ -2810,6 +2846,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         tf = str(tf or self.tf_principal or self.timeframe or "1m").lower()
         es_principal = (tf == str(self.tf_principal).lower())
         cache_tf = self.cache_tecnico_por_tf.setdefault(tf, {})
+        # Filtros de ESTA temporalidad (precio, gap, volumen, float...). Se toman una vez
+        # al inicio para que todo el ciclo use un conjunto coherente.
+        filtros_tf = self._filtros_para(tf)
         if es_principal:
             self.ultimo_error = None
 
@@ -2908,9 +2947,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         radar_gap = []
         for c in base:
             gap = c.get("gap_pct")
-            if gap is None or not (float(self.filtros_dueno.get("gap_min", 3.0)) <= float(gap) <= float(self.filtros_dueno.get("gap_max", 50.0))):
+            if gap is None or not (float(filtros_tf.get("gap_min", 3.0)) <= float(gap) <= float(filtros_tf.get("gap_max", 50.0))):
                 continue
-            if c.get("volumen_dia", 0) < self.filtros_dueno.get("volumen_min", 15_000):
+            if c.get("volumen_dia", 0) < filtros_tf.get("volumen_min", 15_000):
                 continue
             c["volumen_relativo"] = c["cambio_pct"]
             radar_gap.append(c)
@@ -2967,7 +3006,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c["tiene_noticia"] = c["ticker"] in con_noticia
         self._asegurar_fundamentales([c["ticker"] for c in candidatos_tecnicos])
 
-        limite_float = float(self.filtros_dueno.get("flotacion_max", 20_000_000))
+        limite_float = float(filtros_tf.get("flotacion_max", 20_000_000))
         enriquecidos = []
         float_sin_dato_count = 0
         float_excede_count = 0
@@ -3027,10 +3066,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "candidatos_ema_macd_brutos": candidatos_ema_macd_brutos,
             "tickers_unicos": tickers_enr_unicos,
             "duplicados": len(enriquecidos) - tickers_enr_unicos,
-            "resultados": len(filtrar_resultados(enriquecidos, self.filtros_dueno)),
+            "resultados": len(filtrar_resultados(enriquecidos, filtros_tf)),
             "gap_aplicado": True,
-            "gap_min": self.filtros_dueno.get("gap_min", BASE_GAP_MIN),
-            "gap_max": self.filtros_dueno.get("gap_max", BASE_GAP_MAX),
+            "gap_min": filtros_tf.get("gap_min", BASE_GAP_MIN),
+            "gap_max": filtros_tf.get("gap_max", BASE_GAP_MAX),
             "sesion": str(self.sesion),
             "gap_modo": "precio_vs_cierre",
             "timeframe": tf,
@@ -3041,7 +3080,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         # Guardamos una fotografía del resultado REAL de este ciclo antes de publicar
         # la lista nueva. Esto evita perder candidatos cuando desaparecen en el siguiente ciclo.
-        p_hist = dict(self.filtros_dueno)
+        p_hist = dict(filtros_tf)
         p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
         resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
 
@@ -3663,13 +3702,8 @@ def _render_scanner():
     ema_dist_max_ui = max(0.0, min(25.0, ema_dist_max_ui))
     rsi_min_ui = max(0.0, min(100.0, rsi_min_ui))
     rsi_max_ui = max(rsi_min_ui, min(100.0, rsi_max_ui))
-    # Solo usuarios con acceso reconfiguran el motor compartido. Un visitante (con
-    # valores por defecto en 1m) no debe pisar la temporalidad elegida por otro.
-    if not PUBLIC_PREVIEW:
-        try:
-            servicio.configurar_modo_operacion("TODO EL MERCADO", timeframe_ui, ema_dist_max_ui, principal=bool(ES_ADMIN))
-        except Exception:
-            pass
+    # (El registro de la temporalidad en el motor se hace más abajo, justo después de
+    # armar params_ui, para entregarle junto con ella los filtros de esta pantalla.)
 
     # Regla fija del scanner: la señal es siempre EMA20 hacia arriba.
     # El selector sigue visible, pero no puede cambiar la lógica dura del motor.
@@ -3717,6 +3751,17 @@ def _render_scanner():
         servicio.filtros_dueno["ema50_estado"] = "Neutro"
         servicio.filtros_dueno["ema200_estado"] = "Neutro"
         servicio.sesion = sesion_ui
+      except Exception:
+        pass
+      # Solo usuarios con acceso reconfiguran el motor compartido. Un visitante (con
+      # valores por defecto en 1m) no debe pisar la temporalidad elegida por otro.
+      # La temporalidad viaja CON sus filtros: el motor escanea esa temporalidad
+      # con precio/gap/float/volumen/EMA/MACD de esta pantalla.
+      try:
+        servicio.configurar_modo_operacion(
+            "TODO EL MERCADO", timeframe_ui, ema_dist_max_ui,
+            principal=bool(ES_ADMIN), filtros=params_ui,
+        )
       except Exception:
         pass
 
@@ -4092,7 +4137,7 @@ def _render_scanner():
     _layout_status = str(st.session_state.get("layout_send_status", ""))
     if _layout_status:
         h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
-    h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
+    h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Velas:</b> {timeframe_ui.upper()}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
     # Diagnóstico compacto del embudo: no expone credenciales ni datos sensibles.
     _rp_map = getattr(servicio, "resultados_por_tf", None)
     _dg_map = getattr(servicio, "diag_por_tf", None)
@@ -4118,7 +4163,7 @@ def _render_scanner():
 
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
     h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-    h += "<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50</th><th>EMA200</th><th>MACD</th>"
+    h += f"<th class='layout-col'>⚙️ Layout</th><th>Ticker</th><th>Sector</th><th>Precio ($)</th><th>Cambio %</th><th>Volumen</th><th>Gap %</th><th>Flotación (M)</th><th>EMA20 ({timeframe_ui})</th><th>EMA50 ({timeframe_ui})</th><th>EMA200 ({timeframe_ui})</th><th>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
     _ultima_scan_txt = servicio.ultima_actualizacion.strftime("%H:%M:%S ET") if servicio.ultima_actualizacion else "aún no ejecutado"
     _error_scan_txt = str(getattr(servicio, "ultimo_error", "") or "").strip()
