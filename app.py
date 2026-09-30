@@ -14,7 +14,6 @@ from concurrent.futures import ThreadPoolExecutor
 import pandas as pd
 import requests
 import streamlit as st
-import streamlit.components.v1 as components
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -2799,10 +2798,45 @@ class ServicioScanner:
                 elif "message is not modified" in r.text:
                     self.tg_ultimo_hash = hash_actual
                     self.telegram_estado = "OK: Telegram sin cambios"
-                elif "message to edit not found" in r.text.lower() or "message not found" in r.text.lower():
+                elif (
+                    "message to edit not found" in r.text.lower()
+                    or "message not found" in r.text.lower()
+                    or "message_id_invalid" in r.text.lower()
+                    or "message id invalid" in r.text.lower()
+                ):
+                    # Telegram puede conservar en memoria un message_id que ya no
+                    # existe. Invalidamos el ID y creamos inmediatamente un mensaje nuevo.
                     self.tg_msg_id = None
-                    self.telegram_estado = "Aviso: mensaje anterior no existe; se creará uno nuevo"
-                    self.telegram_ultimo_error = None
+                    send_url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
+                    send_payload = dict(payload)
+                    send_payload.pop("message_id", None)
+                    r_nuevo = requests.post(
+                        send_url,
+                        json=send_payload,
+                        headers=cabeceras,
+                        timeout=15,
+                    )
+                    if r_nuevo.ok:
+                        try:
+                            data_nuevo = r_nuevo.json()
+                            self.tg_msg_id = data_nuevo.get("result", {}).get("message_id")
+                        except Exception:
+                            self.tg_msg_id = None
+                        if self.tg_msg_id is not None:
+                            self.tg_ultimo_hash = hash_actual
+                            self.telegram_estado = "OK: mensaje de Telegram recreado"
+                            self.telegram_ultimo_error = None
+                        else:
+                            self.telegram_estado = "ERROR Telegram: respuesta sin message_id"
+                            self.telegram_ultimo_error = self.telegram_estado
+                    else:
+                        detalle_nuevo = r_nuevo.text[:500]
+                        self.telegram_estado = (
+                            f"ERROR Telegram al recrear {r_nuevo.status_code}: {detalle_nuevo}"
+                        )
+                        self.telegram_ultimo_error = self.telegram_estado
+                    if self.telegram_ultimo_error:
+                        print(self.telegram_estado)
                 else:
                     detalle = r.text[:500]
                     self.telegram_estado = f"ERROR al editar Telegram {r.status_code}: {detalle}"
@@ -4642,10 +4676,12 @@ def _render_scanner():
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
     # Todo el scanner se renderiza en un único iframe.
-    components.html(h, height=1200, scrolling=True)
+    # st.iframe es el reemplazo actual de components.v1.html y conserva
+    # HTML/JavaScript inline con acceso same-origin, que este puente necesita.
+    st.iframe(h, height=1200)
 
 
-# El temporizador se mantiene FUERA de components.html().
+# El temporizador se mantiene FUERA del iframe.
 # No navega el navegador ni modifica window.location desde el iframe.
 # IMPORTANTE: refresh_sec es local a _render_scanner(), por lo que aquí no se
 # puede referenciar directamente. Lo volvemos a leer de query_params de forma
