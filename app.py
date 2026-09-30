@@ -195,7 +195,7 @@ VALORES_POR_DEFECTO = {
     "cruce_ema": "Hacia arriba",
     "macd": "Positivo",
     "orden": "Actualizado",
-    "top_n": 50,
+    "top_n": 10,
     "sesion": "TODO EL MERCADO",
     "timeframe": "1m",
     "ema_dist_max": 0.0,
@@ -3237,7 +3237,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Guardamos una fotografía del resultado REAL de este ciclo antes de publicar
         # la lista nueva. Esto evita perder candidatos cuando desaparecen en el siguiente ciclo.
         p_hist = dict(filtros_tf)
-        p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 50, "orden": "Actualizado"})
+        p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 10, "orden": "Actualizado"})
         resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
 
         # PRUEBA 6: iniciar/actualizar observaciones posteriores a la señal.
@@ -3304,7 +3304,11 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # TELEGRAM INMEDIATO: usa exactamente los resultados que el motor acaba
         # de publicar en self.resultados. No hace una segunda pasada de filtros
         # que pueda dejar la pantalla con datos y Telegram sin datos.
-        top = list(resultados_finales_hist)
+        top = sorted(
+            list(resultados_finales_hist),
+            key=lambda x: x.get("actualizado") or datetime.min.replace(tzinfo=ET),
+            reverse=True,
+        )[:10]
         if top:
             # Telegram usa la misma información que la tabla de RESULTADOS,
             # pero en una versión compacta de ancho fijo para que todos los
@@ -3337,9 +3341,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                     f"{volumen:>6} {gap:>+5.1f}% {flotacion:>6} {ema20:>4} "
                     f"{ema50:>4} {ema200:>4} {macd:>5}\n"
                 )
-            # Se llama aquí, inmediatamente después de publicar el resultado
-            # del ciclo. Si cambia la señal, se actualiza Telegram; si es igual,
-            # se evita duplicarla mediante el hash.
+            # Un solo mensaje de Telegram: el primer ciclo lo crea y los
+            # siguientes ciclos EDITAN ese mismo mensaje. El hash evita llamadas
+            # cuando las 10 filas no cambiaron.
             self._enviar_telegram(tabla)
             self._escribir_html(tabla)
         else:
@@ -4030,6 +4034,13 @@ def _render_scanner():
             else:
                 _lista_tf = list(servicio.resultados)
             filas_reales = filtrar_resultados(_lista_tf, params_ui)
+            # La tabla visible siempre usa exactamente las 10 señales más recientes.
+            # El orden "Actualizado" es fijo para que la primera fila sea la más nueva.
+            filas_reales = sorted(
+                list(filas_reales),
+                key=lambda x: x.get("actualizado") or datetime.min.replace(tzinfo=ET),
+                reverse=True,
+            )[:10]
         except Exception as _ex_ui:
             filas_reales = list(getattr(servicio, "resultados", []) or [])
             try:
@@ -4777,10 +4788,14 @@ def _sincronizar_nativos(accion_js):
         w = _norm_nativo(tipo, ops, st.session_state.get(wk))
         previo = st.session_state.get("_ts_prev_" + wk)
         u = _norm_nativo(tipo, ops, _qp_valor(qk))
-        if w is not None and w != previo:
-            val = w
-        elif accion_js and u is not None and u != previo:
+        if accion_js and u is not None:
+            # Cuando el usuario acaba de cambiar un control en el iframe,
+            # la URL contiene el valor nuevo. El widget nativo puede todavía
+            # conservar el valor anterior durante este rerun; nunca debe pisar
+            # la elección recién hecha.
             val = u
+        elif w is not None and w != previo:
+            val = w
         elif previo is not None:
             val = previo
         elif w is not None:
@@ -4815,10 +4830,10 @@ def _sincronizar_timeframe(tf_url, accion_js):
     """
     widget = st.session_state.get("ts_tf_sel")
     previo = st.session_state.get("_ts_tf_elegido")
-    if widget in _TF_VALIDOS and widget != previo:
-        tf = widget                                   # el usuario tocó el selector
-    elif accion_js and tf_url in _TF_VALIDOS and tf_url != previo:
-        tf = tf_url                                   # configuración guardada cargada
+    if accion_js and tf_url in _TF_VALIDOS:
+        tf = tf_url                                   # el usuario acaba de cambiarlo
+    elif widget in _TF_VALIDOS and widget != previo:
+        tf = widget                                   # el widget nativo cambió
     elif previo in _TF_VALIDOS:
         tf = previo
     elif widget in _TF_VALIDOS:
