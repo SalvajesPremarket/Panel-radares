@@ -4198,7 +4198,7 @@ def _render_scanner():
     fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
     _email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
 
-    # --- DICCIONARIO DE IDIOMAS INTEGRADO LIMPIO ---
+        # --- DICCIONARIO DE IDIOMAS INTEGRADO LIMPIO ---
     DICCIONARIO_TRADUCTOR = {
         "ESP": {
             "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
@@ -4221,7 +4221,7 @@ def _render_scanner():
         "FRA": {
             "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
             "lbl_motor": "MOTEUR", "lbl_idioma": "LANGUE", "lbl_ventana": "FENÊTRE", "lbl_tf": "UNITÉ DE TEMPS",
-            "lbl_precio": "PRIX ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLOTTANT ≤", "lbl_vol": "VOLUME ≥",
+            "lbl_precio": "PRIX ($)", "GAP (%)": "GAP (%)", "lbl_float": "FLOTTANT ≤", "lbl_vol": "VOLUME ≥",
             "lbl_macd": "MACD", "lbl_orden": "TRIER PAR", "lbl_broker": "COURTIER", "lbl_puente": "PONT LAYOUT", "radar": "RADAR"
         }
     }
@@ -4233,7 +4233,7 @@ def _render_scanner():
     if wnd_val == "Flotante":
         script_flotante = """<script>if (!window.name.includes('ts_externo')) { var VentanaEx = window.open(window.location.href, 'ts_externo_' + Date.now(), 'width=1300,height=850,status=no,menubar=no,toolbar=no'); if (VentanaEx) { window.parent.document.write("<body style='background:#15181d;color:#8f98a3;font-family:sans-serif;padding:50px;text-align:center;'><h2>El Scanner está operando en tu ventana flotante desglosada</h2></body>"); } }</script>"""
 
-    # --- HTML PRINCIPAL CON COMILLAS TRIPLES PARA ELIMINAR CONFLICTOS VISUALES ---
+    # --- HTML CORREGIDO Y SEGURO ---
     h = f"""<!DOCTYPE html><html><head><meta charset='UTF-8'>
     <meta name='viewport' content='width=device-width, initial-scale=1.0'>
     <title>TradeScanner</title>{script_flotante}
@@ -4250,6 +4250,7 @@ def _render_scanner():
     input{{min-width:0;width:105px;padding:1px 4px;}}select{{min-width:105px;max-width:170px;padding:1px 3px;}}button{{cursor:pointer;background:#30353d;color:#fff;font-weight:bold;padding:2px 8px;}}
     .logo{{display:flex;align-items:center;justify-content:center;background:#252a31;border:1px dashed #666;font-weight:900;color:#f1f3f5;min-height:34px;font-size:14px;}}
     .subline{{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}}
+    .result-title{{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}}
     .table-wrapper{{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}}table{{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}}
     th{{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}}
     td{{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}}
@@ -4297,7 +4298,7 @@ def _render_scanner():
     }}
     function cambiarLayout(t,e){{
         if(!e.value)return;
-        alert("Enviando Ticker " + t + " al puente de layout");
+        alert("Enviando Ticker " + t + " al puente");
     }}
     </script></head><body>
     <div class='main-container'>
@@ -4328,5 +4329,3 @@ def _render_scanner():
         </div>
         <div class='filtro-item'><label>{tr['lbl_tf']}</label>
             <select id='timeframe' onchange='pushConfig()'>
-                <option value='1m' {'selected' if timeframe_ui=='1m' else ''}>1 MIN</option>
-                <option value='3m' {'selected' if timeframe_ui=='3m' else ''}>3 MIN</option>
