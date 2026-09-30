@@ -4341,7 +4341,7 @@ def _render_scanner():
     if PUBLIC_PREVIEW:
         h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
     else:
-        h += f"<div class='panel-card'><b>CONDICIONES EMA · ACTUALES</b><span>{_ema_resumen_html}</span></div>
+        h += f"<div class='panel-card'><b>CONDICIONES EMA · ACTUALES</b><span>{_ema_resumen_html}</span></div>"
     h += f"<div class='panel-card'><b>MACD</b><span>Condición actual: {_safe_text(macd_ui)}.</span></div>"
     h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
@@ -4530,27 +4530,8 @@ def _render_scanner():
     if _layout_status:
         h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
     h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Velas:</b> {timeframe_ui.upper()}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
-    # Diagnóstico compacto del embudo: no expone credenciales ni datos sensibles.
-    _rp_map = getattr(servicio, "resultados_por_tf", None)
-    _dg_map = getattr(servicio, "diag_por_tf", None)
-    if isinstance(_rp_map, dict) and isinstance(_dg_map, dict):
-        _tf_listo = timeframe_ui in _rp_map
-        _diag = _dg_map.get(timeframe_ui) or {}
-    else:
-        _tf_listo = True
-        _diag = getattr(servicio, "diagnostico_filtros", {}) or {}
-    _dur = getattr(servicio, "duracion_ciclo", None)
-    _dur_txt = f" · Ciclo {_dur:.1f}s" if isinstance(_dur, (int, float)) else ""
-    _espera_tf = "" if _tf_listo else f"⏳ Calculando velas de {timeframe_ui.upper()}… · "
-    _diag_html = (
-        f"<div class='footer-note' style='margin-top:4px;'>"
-        f"<span>{_espera_tf}Embudo {timeframe_ui.upper()}: base {_entero(_diag.get('radar_base'))} → GAP/vol {_entero(_diag.get('tras_gap_volumen'))} → "
-        f"EMA {_entero(_diag.get('ema_arriba'))} → MACD {_entero(_diag.get('macd_positivo'))} → "
-        f"Float {_entero(_diag.get('tras_float'))} → FINAL {_entero(_diag.get('resultados'))}</span>"
-        f"<span>Velas≥40: {_entero(_diag.get('con_40_barras'))}/{_entero(_diag.get('enviados_tecnico'))} · "
-        f"Float sin dato: {_entero(_diag.get('float_sin_dato'))} · Float&gt;límite: {_entero(_diag.get('float_excede'))}</span>"
-        f"<span>{_safe_text(getattr(servicio, 'auto_motivo', ''))}{_dur_txt}</span></div>"
-    )
+    # El diagnóstico del embudo se conserva internamente en el motor y no se muestra
+    # como un bloque fijo antes de RESULTADOS.
     # Un único marco HTML para TODO el scanner.
     # Antes se separaba en dos components.html(); eso dejaba la carátula gris
     # en un iframe y los resultados en otro, y en determinadas cargas el primero
@@ -4560,7 +4541,7 @@ def _render_scanner():
     h = _head_html + "<div class='main-container'>" + _status_line_html
     # El diagnóstico del embudo permanece interno en el motor.
     # No se muestra como texto fijo antes de RESULTADOS.
-    h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>
+    h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
     h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
     h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th><th data-col='ema20'>EMA20 ({timeframe_ui})</th><th data-col='ema50'>EMA50 ({timeframe_ui})</th><th data-col='ema200'>EMA200 ({timeframe_ui})</th><th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
