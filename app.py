@@ -4539,12 +4539,14 @@ def _render_scanner():
         f"Float sin dato: {_entero(_diag.get('float_sin_dato'))} · Float&gt;límite: {_entero(_diag.get('float_excede'))}</span>"
         f"<span>{_safe_text(getattr(servicio, 'auto_motivo', ''))}{_dur_txt}</span></div>"
     )
-    # Marco 1 (panel, tabs y filtros): no cambia entre refrescos, por eso ya no parpadea.
+    # Un único marco HTML para TODO el scanner.
+    # Antes se separaba en dos components.html(); eso dejaba la carátula gris
+    # en un iframe y los resultados en otro, y en determinadas cargas el primero
+    # aparecía vacío. Ahora todo comparte el mismo DOM y CSS.
     _h_a = h + "</div></body></html>"
-    # Marco 2 (estado + tabla): es el único que se recarga en cada refresh.
+
     h = _head_html + "<div class='main-container'>" + _status_line_html
     h += _diag_html
-
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
     h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
     h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th><th data-col='ema20'>EMA20 ({timeframe_ui})</th><th data-col='ema50'>EMA50 ({timeframe_ui})</th><th data-col='ema200'>EMA200 ({timeframe_ui})</th><th data-col='macd'>MACD ({timeframe_ui})</th>"
@@ -4558,16 +4560,19 @@ def _render_scanner():
     _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
     _universo_txt = str(len(getattr(servicio, "universo", []) or []))
     h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
-    # IMPORTANTE: el refresco automático NO debe navegar desde el iframe.
-    # components.html() vive dentro de un iframe sandboxed; si JavaScript intenta
-    # hacer window.location.replace() desde ese iframe, puede terminar cargando
-    # otra copia del propio Streamlit dentro del iframe. El resultado es
-    # exactamente el efecto de "ventanas una encima de otra".
-    #
-    # El timer de abajo vive fuera del iframe y usa el mecanismo nativo de
-    # Streamlit. Al vencer el intervalo se hace un rerun completo de la app, por
-    # lo que el iframe anterior se reemplaza en lugar de anidarse.
-    h += "</div></body></html>"
+
+    # Insertamos el bloque de resultados dentro del mismo main-container del panel.
+    _panel_final = _h_a.rsplit("</div></body></html>", 1)[0]
+    _result_body = h[len(_head_html):]
+    if _result_body.startswith("<div class='main-container'>"):
+        _result_body = _result_body[len("<div class='main-container'>"):]
+    if _result_body.endswith("</div></body></html>"):
+        _result_body = _result_body[:-len("</div></body></html>")]
+    _panel_final += _result_body + "</div></body></html>"
+
+    # Un solo iframe. La altura permite mostrar controles y tabla sin crear un
+    # segundo marco blanco debajo.
+    h = _panel_final
 
     # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
     def _ts_abrir_auth():
@@ -4642,9 +4647,8 @@ def _render_scanner():
     )
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
-    # Temporalidad, EMA y filtros se manejan dentro del cuadro gris del scanner.\n    components.html(_h_a, height=1000, scrolling=False)
-
-    # Refresh integrado en el cuadro gris; no se crea un selector externo adicional.\n    components.html(h, height=640, scrolling=False)
+    # Todo el scanner se renderiza en un único iframe.
+    components.html(h, height=1200, scrolling=True)
 
 
 # El temporizador se mantiene FUERA de components.html().
