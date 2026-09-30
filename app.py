@@ -4198,31 +4198,31 @@ def _render_scanner():
     fecha_hora_actual = datetime.now(ET).strftime("%d/%m/%Y %H:%M:%S ET")
     _email_top = st.session_state.get("usuario_auth", {}).get("email", "") if USUARIO_AUTENTICADO else ""
 
-           # --- DICCIONARIO DE IDIOMAS INTEGRADO LIMPIO ---
+    # --- DICCIONARIO DE IDIOMAS INTEGRADO LIMPIO ---
     DICCIONARIO_TRADUCTOR = {
         "ESP": {
             "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
             "lbl_motor": "MOTOR", "lbl_idioma": "IDIOMA", "lbl_ventana": "VENTANA", "lbl_tf": "TEMPORALIDAD",
             "lbl_precio": "PRECIO ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLOTACIÓN ≤", "lbl_vol": "VOLUMEN ≥",
-            "lbl_macd": "MACD", "lbl_orden": "ORDENAR", "lbl_broker": "BROKER", "lbl_puente": "PUENTE DE LAYOUT"
+            "lbl_macd": "MACD", "lbl_orden": "ORDENAR", "lbl_broker": "BROKER", "lbl_puente": "PUENTE DE LAYOUT", "radar": "RADAR"
         },
         "ENG": {
             "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
             "lbl_motor": "ENGINE", "lbl_idioma": "LANGUAGE", "lbl_ventana": "WINDOW", "lbl_tf": "TIMEFRAME",
             "lbl_precio": "PRICE ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLOAT ≤", "lbl_vol": "VOLUME ≥",
-            "lbl_macd": "MACD", "lbl_orden": "SORT BY", "lbl_broker": "BROKER", "lbl_puente": "LAYOUT BRIDGE"
+            "lbl_macd": "MACD", "lbl_orden": "SORT BY", "lbl_broker": "BROKER", "lbl_puente": "LAYOUT BRIDGE", "radar": "RADAR"
         },
         "POR": {
             "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
             "lbl_motor": "MOTOR", "lbl_idioma": "IDIOMA", "lbl_ventana": "JANELA", "lbl_tf": "PERIODICIDADE",
             "lbl_precio": "PREÇO ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLUTUAÇÃO ≤", "lbl_vol": "VOLUME ≥",
-            "lbl_macd": "MACD", "lbl_orden": "ORDENAR", "lbl_broker": "CORRETORA", "lbl_puente": "PONTE LAYOUT"
+            "lbl_macd": "MACD", "lbl_orden": "ORDENAR", "lbl_broker": "CORRETORA", "lbl_puente": "PONTE LAYOUT", "radar": "RADAR"
         },
         "FRA": {
             "title": "TRADE SCANNER INSTITUTIONAL", "sub": "04:00–20:00 ET · REAL TIME",
             "lbl_motor": "MOTEUR", "lbl_idioma": "LANGUE", "lbl_ventana": "FENÊTRE", "lbl_tf": "UNITÉ DE TEMPS",
             "lbl_precio": "PRIX ($)", "lbl_gap": "GAP (%)", "lbl_float": "FLOTTANT ≤", "lbl_vol": "VOLUME ≥",
-            "lbl_macd": "MACD", "lbl_orden": "TRIER PAR", "lbl_broker": "COURTIER", "lbl_puente": "PONT LAYOUT"
+            "lbl_macd": "MACD", "lbl_orden": "TRIER PAR", "lbl_broker": "COURTIER", "lbl_puente": "PONT LAYOUT", "radar": "RADAR"
         }
     }
 
@@ -4265,248 +4265,3 @@ def _render_scanner():
     h += ".tab-panel{display:none;background:#20252b;color:#dce1e6;border:1px solid #888;border-top:0;padding:7px;margin-bottom:6px;font-size:10px;}.tab-panel.active{display:block;}.panel-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;}.panel-card{background:#292e36;border:1px solid #4a515b;padding:7px;min-height:44px;}.panel-card b{display:block;margin-bottom:3px;font-size:9px;color:#f1f3f5;}.panel-card span{font-size:10px;color:#b8c0ca;}.technical-control{display:flex;flex-direction:column;align-items:stretch;gap:5px}.technical-control select{width:100%;max-width:none;}"
     h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
     h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
-
-# El temporizador se mantiene FUERA de components.html().
-# No navega el navegador ni modifica window.location desde el iframe.
-# IMPORTANTE: refresh_sec es local a _render_scanner(), por lo que aquí no se
-# puede referenciar directamente. Lo volvemos a leer de query_params de forma
-# segura para que el decorador de st.fragment reciba el valor correcto.
-def _tf_pendiente():
-    """True mientras el motor todavía no calculó la temporalidad pedida (máx. ~20 intentos)."""
-    try:
-        if PUBLIC_PREVIEW or not getattr(servicio, "encendido", True):
-            st.session_state["_tf_pend_n"] = 0
-            return False
-        valor = st.query_params.get("timeframe", "1m")
-        if isinstance(valor, list):
-            valor = valor[0] if valor else "1m"
-        tf = str(valor).lower()
-        if tf not in ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo"):
-            tf = "1m"
-        rp = getattr(servicio, "resultados_por_tf", None)
-        pendiente = isinstance(rp, dict) and tf not in rp
-        n = int(st.session_state.get("_tf_pend_n", 0))
-        if pendiente and n < 20:
-            st.session_state["_tf_pend_n"] = n + 1
-            return True
-        if not pendiente:
-            st.session_state["_tf_pend_n"] = 0
-        return False
-    except Exception:
-        return False
-
-
-def _refresh_segundos_global():
-    if PUBLIC_PREVIEW:
-        return 180  # visitante sin registrar: refresh fijo en 3 min (no se puede forzar por URL)
-    if _tf_pendiente():
-        return 4    # temporalidad recién elegida: revisa cada 4 s hasta que el motor la calcule
-    try:
-        valor = st.query_params.get("refresh_sec", "180")
-        if isinstance(valor, list):
-            valor = valor[0] if valor else "180"
-        return max(5, int(float(str(valor))))
-    except Exception:
-        return 180
-
-_CLAVES_SYNC_QUERY = tuple(_CONFIG_USUARIO_KEYS) + ("technical_timeframe",)
-
-
-def _qp_valor(k):
-    v = st.query_params.get(k, None)
-    if isinstance(v, list):
-        v = v[0] if v else None
-    return None if v is None else str(v)
-
-
-_TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
-
-# Controles NATIVOS: (param URL, key del widget, tipo, opciones/rango, defecto)
-#   tipos: sel (opciones) · num (0-25) · flt / int (rango min,max) · txt (largo máx.)
-_EMA_NATIVOS = []
-for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
-    _EMA_NATIVOS += [
-        (f"ema{_n}_estado", f"ts_ema{_n}_estado", "sel", ("Por encima", "Por debajo", "Neutro"), "Neutro"),
-        (f"ema{_n}_cond", f"ts_ema{_n}_cond", "sel", OPCIONES_COND_EMA, _cd),
-        (f"ema{_n}_dist", f"ts_ema{_n}_dist", "num", None, 0.5),
-    ]
-_FILTROS_NATIVOS = [
-    ("c_active", "ts_c_active", "sel", ("True", "False"), lambda: "True" if getattr(servicio, "encendido", True) else "False"),
-    ("c_lang", "ts_c_lang", "sel", ("ESP", "ENG"), "ESP"),
-    ("c_wnd", "ts_c_wnd", "sel", ("Incrustada", "Flotante"), "Incrustada"),
-    ("f_price_min", "ts_f_price_min", "flt", (0.0, 100000.0), 0.50),
-    ("f_price_max", "ts_f_price_max", "flt", (0.0, 100000.0), 20.0),
-    ("f_gap_min", "ts_f_gap_min", "flt", (-100.0, 10000.0), 3.0),
-    ("f_gap_max", "ts_f_gap_max", "flt", (-100.0, 10000.0), 50.0),
-    ("f_float_max", "ts_f_float_max", "int", (0, 10 ** 12), 20_000_000),
-    ("f_vol", "ts_f_vol", "int", (0, 10 ** 12), 15_000),
-    ("f_mac", "ts_f_mac", "sel", ("Positivo", "Negativo", "No exigir"), "Positivo"),
-    ("f_order", "ts_f_order", "sel", ("Actualizado", "Cambio %", "Volumen"), "Actualizado"),
-    ("c_broker", "ts_c_broker", "sel", ("Interactive Brokers", "Tradestation", "Charles Schwab", "Otro"),
-     lambda: st.session_state.get("bk_nombre", "Interactive Brokers")),
-    ("c_url", "ts_c_url", "txt", 300, lambda: st.session_state.get("bk_puente", "http://localhost:8080/layout")),
-]
-_NATIVOS_TODOS = _EMA_NATIVOS + _FILTROS_NATIVOS
-_CLAVES_NATIVAS = {"timeframe"} | {_e[0] for _e in _NATIVOS_TODOS}
-
-
-def _norm_nativo(tipo, opciones, v):
-    if v is None:
-        return None
-    if tipo == "sel":
-        return v if v in opciones else None
-    if tipo == "txt":
-        t = str(v).strip()
-        return t[: int(opciones or 300)] if t else None
-    try:
-        x = float(v)
-    except Exception:
-        return None
-    if tipo == "num":
-        mn, mx = 0.0, 25.0
-    else:
-        mn, mx = opciones
-    x = max(mn, min(mx, x))
-    if tipo == "int":
-        return int(x)
-    return round(x, 4 if tipo == "flt" else 2)
-
-
-def _valor_defecto_nativo(tipo, opciones, defecto):
-    d = defecto() if callable(defecto) else defecto
-    val = _norm_nativo(tipo, opciones, d)
-    if val is None:
-        val = opciones[0] if tipo == "sel" else (0 if tipo == "int" else (0.0 if tipo in ("num", "flt") else ""))
-    return val
-
-
-def _sincronizar_nativos(accion_js):
-    """El widget nativo manda; la URL solo se acepta al cargar por primera vez o al
-    cargar una configuración guardada. Así el refresh nunca revierte lo elegido."""
-    almacen = st.session_state.get("_ts_query_elegida")
-    for qk, wk, tipo, ops, defecto in _NATIVOS_TODOS:
-        w = _norm_nativo(tipo, ops, st.session_state.get(wk))
-        previo = st.session_state.get("_ts_prev_" + wk)
-        u = _norm_nativo(tipo, ops, _qp_valor(qk))
-        if w is not None and w != previo:
-            val = w
-        elif accion_js and u is not None and u != previo:
-            val = u
-        elif previo is not None:
-            val = previo
-        elif w is not None:
-            val = w
-        elif u is not None:
-            val = u
-        else:
-            val = _valor_defecto_nativo(tipo, ops, defecto)
-        st.session_state["_ts_prev_" + wk] = val
-        if tipo in ("num", "flt"):
-            val = float(val)
-            txt = f"{val:g}"
-        elif tipo == "int":
-            val = int(val)
-            txt = str(val)
-        else:
-            txt = str(val)
-        if st.session_state.get(wk) != val:
-            st.session_state[wk] = val
-        if _qp_valor(qk) != txt:
-            st.query_params[qk] = txt
-        if isinstance(almacen, dict):
-            almacen[qk] = txt
-
-
-def _sincronizar_timeframe(tf_url, accion_js):
-    """La temporalidad la decide el selector nativo de Streamlit (key ts_tf_sel).
-
-    Un widget nativo vive en st.session_state y NO depende de la URL ni del puente
-    del iframe, por eso ya no rebota a 1m. La URL solo se usa al cargar por primera
-    vez o cuando el usuario carga una configuración guardada.
-    """
-    widget = st.session_state.get("ts_tf_sel")
-    previo = st.session_state.get("_ts_tf_elegido")
-    if widget in _TF_VALIDOS and widget != previo:
-        tf = widget                                   # el usuario tocó el selector
-    elif accion_js and tf_url in _TF_VALIDOS and tf_url != previo:
-        tf = tf_url                                   # configuración guardada cargada
-    elif previo in _TF_VALIDOS:
-        tf = previo
-    elif widget in _TF_VALIDOS:
-        tf = widget
-    elif tf_url in _TF_VALIDOS:
-        tf = tf_url
-    else:
-        tf = "1m"
-    st.session_state["_ts_tf_elegido"] = tf
-    if st.session_state.get("ts_tf_sel") != tf:
-        st.session_state["ts_tf_sel"] = tf
-    if _qp_valor("timeframe") != tf:
-        st.query_params["timeframe"] = tf
-    almacen = st.session_state.get("_ts_query_elegida")
-    if isinstance(almacen, dict):
-        almacen["timeframe"] = tf
-
-
-def _sincronizar_query_con_sesion():
-    """La temporalidad y los filtros que elige el usuario NO se pierden con el refresh.
-
-    Toda acción del usuario en la carátula (JS) añade a la URL una marca `_u`
-    creciente. `_u` nueva = acción del usuario (se guarda lo de la URL); cualquier
-    otro rerun (refresh, reconexión, URL vieja) = se re-impone lo último elegido.
-    La temporalidad se maneja aparte (_sincronizar_timeframe).
-    """
-    try:
-        auto = bool(st.session_state.pop("_ts_rerun_auto", False))
-        tf_url = _qp_valor("timeframe")
-        guardado = st.session_state.get("_ts_query_elegida")
-        if not isinstance(guardado, dict):
-            guardado = {}
-        try:
-            u_nuevo = int(float(_qp_valor("_u") or 0))
-        except Exception:
-            u_nuevo = 0
-        u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
-        accion_js = (not auto) and u_nuevo > u_visto
-
-        if guardado and not accion_js:
-            for k, v in guardado.items():
-                if k not in _CLAVES_NATIVAS and _qp_valor(k) != v:
-                    st.query_params[k] = v
-        else:
-            nuevo = {}
-            for k in _CLAVES_SYNC_QUERY:
-                v = _qp_valor(k)
-                if v is not None and v != "":
-                    nuevo[k] = v
-            if nuevo:
-                st.session_state["_ts_query_elegida"] = nuevo
-        st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
-        _sincronizar_timeframe(tf_url, accion_js)
-        _sincronizar_nativos(accion_js)
-    except Exception:
-        pass
-
-_sincronizar_query_con_sesion()
-
-if True:  # el visitante también se refresca (cada 3 min); el usuario registrado elige su intervalo
-    _st_fragment = getattr(st, "fragment", None)
-    if _st_fragment is not None:
-        @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
-        def _refresco_nativo_scanner():
-            # La primera ejecución del fragmento ocurre inmediatamente al cargar
-            # la página. No debemos hacer rerun en ese instante porque produciría
-            # un ciclo de reruns. Las siguientes ejecuciones llegan por run_every.
-            if not st.session_state.get("_ts_refresh_fragment_started", False):
-                st.session_state["_ts_refresh_fragment_started"] = True
-                return
-            # run_every vuelve a ejecutar solamente este fragmento; st.rerun()
-            # (sin scope) solicita un rerun completo de la aplicación.
-            st.session_state["_ts_refresh_fragment_started"] = False
-            # Marca este rerun como AUTOMÁTICO: así _sincronizar_query_con_sesion()
-            # vuelve a imponer la temporalidad/filtros que el usuario eligió.
-            st.session_state["_ts_rerun_auto"] = True
-            st.rerun()
-        _refresco_nativo_scanner()
-
-_render_scanner()
