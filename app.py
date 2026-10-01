@@ -4680,7 +4680,13 @@ def _render_scanner():
             with _n1:
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
             with _n2:
+                # El selector nativo tiene estado propio (ts_refresh_sel). Si conserva
+                # un valor antiguo (por ejemplo 180) puede imponerse sobre refresh_sec
+                # después de un rerun aunque el estado canónico ya sea 10.
+                # Sincronizarlo ANTES de crear el widget evita ese rebote.
                 _refresh_idx = refresh_options.index(refresh_sec) if refresh_sec in refresh_options else 0
+                if st.session_state.get("ts_refresh_sel") != refresh_sec:
+                    st.session_state["ts_refresh_sel"] = refresh_sec
                 st.selectbox(
                     "REFRESH",
                     refresh_options,
