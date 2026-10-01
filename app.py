@@ -4519,11 +4519,11 @@ def _render_scanner():
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
     else:
-        h += _ctl_res("PRECIO ($)", f"{precio_min_ui:g} – {precio_max_ui:g}", [("price_min", f"{precio_min_ui:g}"), ("price_max", f"{precio_max_ui:g}")])
+        h += "<div class='filtro-item' id='iframe-price-placeholder'><label>PRECIO ($)</label><span>Configurado en el control nativo del scanner.</span></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
     else:
-        h += _ctl_res("GAP (%)", f"{gap_min_ui:g} – {gap_max_ui:g}", [("gap_min", f"{gap_min_ui:g}"), ("gap_max", f"{gap_max_ui:g}")])
+        h += "<div class='filtro-item' id='iframe-gap-placeholder'><label>GAP (%)</label><span>Configurado en el control nativo del scanner.</span></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
     else:
@@ -4702,6 +4702,77 @@ def _render_scanner():
             with _n4:
                 st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
+    # Filtros nativos críticos: Precio y GAP.
+    # Se dibujan como una capa compacta sobre la carátula para que sigan
+    # perteneciendo visualmente al scanner, pero su estado vive en Streamlit
+    # y no depende del iframe.
+    def _ts_cambiar_filtro_precio():
+        try:
+            pmin = max(0.0, float(st.session_state["ts_f_price_min_native"]))
+            pmax = max(pmin, float(st.session_state["ts_f_price_max_native"]))
+            st.session_state["ts_f_price_min"] = pmin
+            st.session_state["ts_f_price_max"] = pmax
+            st.session_state["_ts_prev_ts_f_price_min"] = pmin
+            st.session_state["_ts_prev_ts_f_price_max"] = pmax
+            st.query_params["f_price_min"] = f"{pmin:g}"
+            st.query_params["f_price_max"] = f"{pmax:g}"
+            a = st.session_state.get("_ts_query_elegida")
+            if not isinstance(a, dict):
+                a = {}; st.session_state["_ts_query_elegida"] = a
+            a["f_price_min"] = f"{pmin:g}"; a["f_price_max"] = f"{pmax:g}"
+            _guardar_ultima_configuracion_servidor()
+        except Exception:
+            pass
+
+    def _ts_cambiar_filtro_gap():
+        try:
+            gmin = float(st.session_state["ts_f_gap_min_native"])
+            gmax = max(gmin, float(st.session_state["ts_f_gap_max_native"]))
+            st.session_state["ts_f_gap_min"] = gmin
+            st.session_state["ts_f_gap_max"] = gmax
+            st.session_state["_ts_prev_ts_f_gap_min"] = gmin
+            st.session_state["_ts_prev_ts_f_gap_max"] = gmax
+            st.query_params["f_gap_min"] = f"{gmin:g}"
+            st.query_params["f_gap_max"] = f"{gmax:g}"
+            a = st.session_state.get("_ts_query_elegida")
+            if not isinstance(a, dict):
+                a = {}; st.session_state["_ts_query_elegida"] = a
+            a["f_gap_min"] = f"{gmin:g}"; a["f_gap_max"] = f"{gmax:g}"
+            _guardar_ultima_configuracion_servidor()
+        except Exception:
+            pass
+
+    if not PUBLIC_PREVIEW:
+        _pmin0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_min"))
+        _pmax0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_max"))
+        _gmin0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_min"))
+        _gmax0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_max"))
+        st.session_state.setdefault("ts_f_price_min_native", float(_pmin0 if _pmin0 is not None else precio_min_ui))
+        st.session_state.setdefault("ts_f_price_max_native", float(_pmax0 if _pmax0 is not None else precio_max_ui))
+        st.session_state.setdefault("ts_f_gap_min_native", float(_gmin0 if _gmin0 is not None else gap_min_ui))
+        st.session_state.setdefault("ts_f_gap_max_native", float(_gmax0 if _gmax0 is not None else gap_max_ui))
+
+    st.markdown("""<style>
+    .st-key-ts_filter_native{position:relative !important;height:0 !important;min-height:0 !important;z-index:80 !important;pointer-events:none !important;}
+    .st-key-ts_filter_native > div{position:relative !important;top:82px !important;pointer-events:auto !important;margin:0 !important;}
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"]{justify-content:center !important;align-items:center !important;gap:4px !important;flex-wrap:nowrap !important;}
+    .st-key-ts_filter_native [data-testid="stNumberInput"]{width:72px !important;min-width:72px !important;}
+    .st-key-ts_filter_native [data-testid="stNumberInput"] input{width:100% !important;max-width:none !important;min-width:0 !important;height:25px !important;font-size:10px !important;}
+    .st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:8px !important;line-height:1 !important;margin:0 !important;white-space:nowrap !important;}
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div{flex:0 0 auto !important;min-width:0 !important;}
+    @media(max-width:640px){.st-key-ts_filter_native > div{top:112px !important;}.st-key-ts_filter_native [data-testid="stNumberInput"]{width:54px !important;min-width:54px !important;}.st-key-ts_filter_native [data-testid="stNumberInput"] input{height:21px !important;font-size:8px !important;padding:1px 2px !important;}.st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:6px !important;}}
+    </style>""", unsafe_allow_html=True)
+    if not PUBLIC_PREVIEW:
+        with st.container(key="ts_filter_native"):
+            _a1, _a2, _a3, _a4 = st.columns([1, 1, 1, 1])
+            with _a1:
+                st.number_input("PRECIO MIN", min_value=0.0, max_value=100000.0, step=0.01, key="ts_f_price_min_native", on_change=_ts_cambiar_filtro_precio, label_visibility="visible")
+            with _a2:
+                st.number_input("PRECIO MAX", min_value=0.0, max_value=100000.0, step=0.01, key="ts_f_price_max_native", on_change=_ts_cambiar_filtro_precio, label_visibility="visible")
+            with _a3:
+                st.number_input("GAP MIN", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_min_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
+            with _a4:
+                st.number_input("GAP MAX", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_max_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
     # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
     # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
     # padre con history.replaceState y pulsa este botón oculto, lo que provoca un
