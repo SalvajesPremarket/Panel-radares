@@ -1339,8 +1339,21 @@ def _restaurar_ultima_configuracion_servidor():
         _ses_cfg = _PERSISTENT_AUTH_SESSIONS.get(_sid_cfg, {}) if _sid_cfg else {}
         _cfg_sid = _ses_cfg.get("config") if isinstance(_ses_cfg, dict) else None
         if isinstance(_cfg_sid, dict) and _cfg_sid:
-            guardada = _cfg_sid
-            _ULTIMA_CONFIG_USUARIOS[email] = dict(_cfg_sid)
+            # La sesión persistente y el almacenamiento por usuario pueden
+            # tener versiones distintas. Elegimos la más reciente por
+            # _saved_at para no resucitar una configuración antigua.
+            _cfg_usr = guardada if isinstance(guardada, dict) else None
+            try:
+                _ts_usr = datetime.fromisoformat(str(_cfg_usr.get("_saved_at", "")).replace("Z", "+00:00")) if _cfg_usr else datetime.min.replace(tzinfo=timezone.utc)
+            except Exception:
+                _ts_usr = datetime.min.replace(tzinfo=timezone.utc)
+            try:
+                _ts_sid = datetime.fromisoformat(str(_cfg_sid.get("_saved_at", "")).replace("Z", "+00:00"))
+            except Exception:
+                _ts_sid = datetime.min.replace(tzinfo=timezone.utc)
+            guardada = _cfg_sid if _ts_sid >= _ts_usr else _cfg_usr
+            if isinstance(guardada, dict):
+                _ULTIMA_CONFIG_USUARIOS[email] = dict(guardada)
     except Exception:
         pass
     if not isinstance(guardada, dict) or not guardada:
@@ -4936,7 +4949,12 @@ def _sincronizar_query_con_sesion():
         elif guardado:
             # No dejamos que el auto-refresh sustituya los valores elegidos.
             for k, v in guardado.items():
-                if k != "timeframe" and _qp_valor(k) != v:
+                # refresh_sec tiene su propio arbitraje de prioridad más abajo.
+                # No lo reescribimos aquí, porque una selección nueva en la
+                # URL podría ser reemplazada por un valor antiguo de sesión.
+                if k in ("timeframe", "refresh_sec"):
+                    continue
+                if _qp_valor(k) != v:
                     st.query_params[k] = v
             if guardado.get("timeframe") and _qp_valor("timeframe") != guardado.get("timeframe"):
                 st.query_params["timeframe"] = guardado["timeframe"]
@@ -4958,8 +4976,12 @@ def _sincronizar_query_con_sesion():
             if not PUBLIC_PREVIEW:
                 if _rv_q not in (None, ""):
                     _rv_num = max(5, int(float(_rv_q)))
-                    if accion_js or _rv_canon in (None, "") or int(float(_rv_canon)) != _rv_num:
-                        st.session_state["_ts_refresh_canonico"] = _rv_num
+                    # Si la URL contiene un valor válido, es el estado que
+                    # acaba de llegar del selector y debe adoptarse como
+                    # canónico, incluso si la sesión conserva un valor viejo.
+                    st.session_state["_ts_refresh_canonico"] = _rv_num
+                    if isinstance(st.session_state.get("_ts_query_elegida"), dict):
+                        st.session_state["_ts_query_elegida"]["refresh_sec"] = str(_rv_num)
                 elif _rv_canon not in (None, ""):
                     st.query_params["refresh_sec"] = str(max(5, int(float(_rv_canon))))
                 elif _rv_guardado not in (None, ""):
