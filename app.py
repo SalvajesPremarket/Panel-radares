@@ -4949,21 +4949,23 @@ def _sincronizar_query_con_sesion():
                     nuevo[k] = v
             if nuevo:
                 st.session_state["_ts_query_elegida"] = nuevo
-        # REFRESH también tiene una fuente canónica por sesión.
-        # Una acción del usuario captura el nuevo valor; un auto-refresh jamás
-        # vuelve a imponer el antiguo 180 s.
+        # REFRESH: un refresh_sec explícito en la URL representa la selección
+        # actual. Debe pasar al estado canónico antes de cualquier auto-refresh.
         try:
             _rv_q = _qp_valor("refresh_sec")
             _rv_guardado = guardado.get("refresh_sec") if isinstance(guardado, dict) else None
             _rv_canon = st.session_state.get("_ts_refresh_canonico")
             if not PUBLIC_PREVIEW:
-                if accion_js and _rv_q not in (None, ""):
-                    st.session_state["_ts_refresh_canonico"] = max(5, int(float(_rv_q)))
+                if _rv_q not in (None, ""):
+                    _rv_num = max(5, int(float(_rv_q)))
+                    if accion_js or _rv_canon in (None, "") or int(float(_rv_canon)) != _rv_num:
+                        st.session_state["_ts_refresh_canonico"] = _rv_num
                 elif _rv_canon not in (None, ""):
                     st.query_params["refresh_sec"] = str(max(5, int(float(_rv_canon))))
                 elif _rv_guardado not in (None, ""):
-                    st.session_state["_ts_refresh_canonico"] = max(5, int(float(_rv_guardado)))
-                    st.query_params["refresh_sec"] = str(st.session_state["_ts_refresh_canonico"])
+                    _rv_num = max(5, int(float(_rv_guardado)))
+                    st.session_state["_ts_refresh_canonico"] = _rv_num
+                    st.query_params["refresh_sec"] = str(_rv_num)
         except Exception:
             pass
         st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
