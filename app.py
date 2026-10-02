@@ -4770,6 +4770,9 @@ def _refresh_segundos_global():
     if _tf_pendiente():
         return 4
     try:
+        estado = st.session_state.get("_ts_estado_unico")
+        if isinstance(estado, dict) and estado.get("refresh_sec") not in (None, ""):
+            return max(5, int(float(str(estado["refresh_sec"]))))
         canonico = st.session_state.get("_ts_refresh_canonico")
         if canonico is not None:
             return max(5, int(float(str(canonico))))
