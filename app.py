@@ -4306,7 +4306,7 @@ def _render_scanner():
     h += "</style>"
     h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
-    h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"\n    h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));_guardarUltimaConfiguracion(q);_goto(q);}"
+    h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
     h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
     h += "var TS_BASE_QUERY=" + json.dumps({str(k): str(v) for k, v in st.query_params.items()}, ensure_ascii=False) + ";"
     h += "var TS_AUTH_SESSION=" + json.dumps(str(st.query_params.get("auth_session", ""))) + ";"
