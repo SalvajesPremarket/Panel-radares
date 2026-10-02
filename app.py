@@ -4907,6 +4907,41 @@ def _render_scanner():
     else:
         st.iframe(h, height=1200)
 
+    # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
+    # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
+    try:
+        _dg = dict(getattr(servicio, "diagnostico_filtros", {}) or {})
+        with st.expander("🔎 Diagnóstico del escaneo (embudo)", expanded=False):
+            if not _dg:
+                st.caption("Aún no hay un ciclo de escaneo completado.")
+            else:
+                _etiquetas = [
+                    ("radar_base", "1. Acciones en el radar base (precio/volumen del mercado)"),
+                    ("enviados_tecnico", "2. Enviadas a análisis técnico"),
+                    ("con_40_barras", "3. Con suficientes velas (40+) para calcular"),
+                    ("ema_calculable", "4. EMA calculable"),
+                    ("macd_calculable", "5. MACD calculable"),
+                    ("tras_float", "6. Después del filtro de flotación"),
+                    ("float_sin_dato", "   · descartadas por flotación sin dato"),
+                    ("float_excede", "   · descartadas por flotación mayor al máximo"),
+                    ("tras_gap_volumen", "7. Después de gap / volumen relativo"),
+                    ("ema_arriba", "8. Con EMA en la condición pedida"),
+                    ("macd_positivo", "9. Con MACD positivo"),
+                    ("ema_y_macd", "10. Cumplen EMA y MACD a la vez"),
+                    ("resultados", "RESULTADO FINAL (lo que ves en la tabla)"),
+                ]
+                _filas = [{"Paso": _t, "Cantidad": _dg.get(_k, "—")} for _k, _t in _etiquetas if _k in _dg]
+                st.table(_filas)
+                st.caption(
+                    f"Temporalidad: {_dg.get('timeframe', '—')} · Sesión: {_dg.get('sesion', '—')} · "
+                    f"Gap aplicado: {_dg.get('gap_min', '—')}% a {_dg.get('gap_max', '—')}%"
+                )
+                _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
+                if _err:
+                    st.warning(f"Último error del motor: {_err}")
+    except Exception as _e_dg:
+        print(f"⚠️ Panel de diagnóstico no disponible: {_e_dg}")
+
 
 # El temporizador se mantiene FUERA del iframe.
 # No navega el navegador ni modifica window.location desde el iframe.
