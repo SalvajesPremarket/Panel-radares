@@ -1177,62 +1177,46 @@ def pantalla_autenticacion():
             st.markdown("### Acceso del administrador")
             st.caption("Este acceso conserva el sistema de token del propietario.")
 
-            def _procesar_admin_login():
-                token_limpio = str(st.session_state.get("admin_token_login", "")).strip()
-                es_valido, estado = verificar_token(token_limpio)
-                if es_valido:
-                    # El callback solo prepara el resultado. La creación de
-                    # la sesión persistente y la navegación se hacen después
-                    # del formulario, en el flujo normal de Streamlit.
-                    st.session_state["admin_login_ok"] = {
-                        "token": token_limpio,
-                        "fecha_vencimiento": estado,
-                    }
-                    st.session_state.pop("admin_login_error", None)
-                else:
-                    st.session_state["admin_login_error"] = estado
-                    st.session_state.pop("admin_login_ok", None)
-
             with st.form("form_admin_token"):
                 st.text_input(
                     "Token de administrador",
                     type="password",
                     key="admin_token_login",
                 )
-                st.form_submit_button(
+                _admin_submit = st.form_submit_button(
                     "👑 VALIDAR ACCESO",
                     width="stretch",
-                    on_click=_procesar_admin_login,
                 )
 
-            _admin_login_ok = st.session_state.pop("admin_login_ok", None)
-            if _admin_login_ok:
-                # Aquí ya estamos en el rerun normal provocado por el submit.
-                # No dependemos de modificar query params dentro del callback.
-                cerrar_sesion()
-                _token_admin = str(_admin_login_ok.get("token", "")).strip()
-                _venc_admin = str(_admin_login_ok.get("fecha_vencimiento", "2099-01-01"))
-                st.session_state["token_verificado"] = _token_admin
-                st.session_state["fecha_vencimiento"] = _venc_admin
-                st.session_state["tipo_acceso"] = "admin"
-                st.session_state["mostrar_auth"] = False
-                _sid = _crear_sesion_persistente(
-                    "admin",
-                    {"token": _token_admin, "fecha_vencimiento": _venc_admin},
-                )
-                st.session_state["auth_session_id"] = _sid
-                st.session_state["auth_ok"] = True
-                st.query_params["auth_session"] = _sid
-                st.query_params.pop("auth", None)
-                st.rerun()
+            if _admin_submit:
+                # Procesamiento directo del submit, sin callback.
+                # Esto evita que un callback quede retenido en la pantalla de auth.
+                _token_admin = str(st.session_state.get("admin_token_login", "")).strip()
+                _es_valido_admin, _estado_admin = verificar_token(_token_admin)
 
-            _admin_error = st.session_state.pop("admin_login_error", "")
-            if _admin_error == "EXPIRADO":
-                st.error("🔒 Token expirado.")
-            elif _admin_error == "FORMATO":
-                st.error("❌ Error de configuración del token.")
-            elif _admin_error == "INVALIDO":
-                st.error("❌ Token no válido. Acceso denegado.")
+                if _es_valido_admin:
+                    cerrar_sesion()
+                    st.session_state["token_verificado"] = _token_admin
+                    st.session_state["fecha_vencimiento"] = _estado_admin
+                    st.session_state["tipo_acceso"] = "admin"
+                    st.session_state["mostrar_auth"] = False
+
+                    _sid = _crear_sesion_persistente(
+                        "admin",
+                        {"token": _token_admin, "fecha_vencimiento": _estado_admin},
+                    )
+                    st.session_state["auth_session_id"] = _sid
+                    st.session_state["auth_ok"] = True
+                    st.query_params["auth_session"] = _sid
+                    st.query_params.pop("auth", None)
+                    st.rerun()
+                else:
+                    if _estado_admin == "EXPIRADO":
+                        st.error("🔒 Token expirado.")
+                    elif _estado_admin == "FORMATO":
+                        st.error("❌ Error de configuración del token.")
+                    else:
+                        st.error("❌ Token no válido. Acceso denegado.")
 
     st.stop()
 
