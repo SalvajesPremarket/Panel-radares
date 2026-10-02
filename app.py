@@ -4411,8 +4411,9 @@ def _render_scanner():
     h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
     h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-    h += "function abrirAutenticacion(){return true}"
-    h += "function salirSesion(){return true}"
+    h += "function _cuentaBridge(param){try{var P=window.top;var q=new URLSearchParams(P.location.search||'');q.set(param,'1');q.set('_u',String(Date.now()));P.history.replaceState(null,'','/?'+q.toString());var bs=P.document.querySelectorAll('button');for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){bs[i].click();return false;}}}catch(e){}return false}"
+    h += "function abrirAutenticacion(){return _cuentaBridge('auth')}"
+    h += "function salirSesion(){return _cuentaBridge('logout')}"
     h += "function cambiarRefresh(v){if(!TS_AUTH){return}var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));try{window.top.location.replace('/?'+q.toString());return}catch(e){}try{window.parent.location.replace('/?'+q.toString());return}catch(e2){}_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
@@ -4429,10 +4430,10 @@ def _render_scanner():
     # podían quedar atrapados dentro del iframe y crear una segunda ventana
     # de Streamlit sobre la original.
     if PUBLIC_PREVIEW:
-        h += "<a class='auth-link' href='/?auth=1' target='_top' rel='noopener' style='display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>📝 REGISTRO / INICIAR SESIÓN</a>"
+        h += "<a class='auth-link' href='#' onclick='return abrirAutenticacion()' style='display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>📝 REGISTRO / INICIAR SESIÓN</a>"
     else:
-        h += "<a class='auth-link' href='/?auth=1' target='_top' rel='noopener' style='display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>CUENTA / REGISTRO</a>"
-        h += "<a class='auth-link' href='/?logout=1' target='_top' rel='noopener' style='display:inline-flex;align-items:center;height:27px;margin-left:5px;padding:0 9px;border:1px solid #7a3b3b;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>SALIR</a>"
+        h += "<a class='auth-link' href='#' onclick='return abrirAutenticacion()' style='display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>CUENTA / REGISTRO</a>"
+        h += "<a class='auth-link' href='#' onclick='return salirSesion()' style='display:inline-flex;align-items:center;height:27px;margin-left:5px;padding:0 9px;border:1px solid #7a3b3b;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>SALIR</a>"
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
     h += "</div>"  # cierra topbar
@@ -4914,6 +4915,28 @@ _ts_estado_unico = _sincronizar_estado_unico()
 # Este callback convierte la URL del navegador en la fuente de verdad de
 # _ts_estado_unico antes de que vuelva a ejecutarse el scanner.
 def _ts_confirmar_cambio_desde_iframe():
+    # Acciones de cuenta solicitadas desde el iframe.
+    # No usamos target=_top/window.location porque el iframe de Streamlit puede
+    # bloquear esa navegación. El iframe actualiza la URL del mismo documento
+    # padre y pulsa este puente nativo, que sí provoca el rerun de la aplicación.
+    try:
+        if str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes"):
+            cerrar_sesion()
+            st.session_state["mostrar_auth"] = False
+            for _k_logout in (
+                "_ts_iframe_clave", "_ts_iframe_html", "_ts_estado_unico",
+                "_ts_estado_unico_u", "_ts_refresh_canonico",
+                "_ts_refresh_fragment_started",
+            ):
+                st.session_state.pop(_k_logout, None)
+            st.query_params.clear()
+            st.rerun()
+        if str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes"):
+            st.session_state["mostrar_auth"] = True
+            st.query_params.pop("auth", None)
+            st.rerun()
+    except Exception:
+        pass
     try:
         estado = st.session_state.get("_ts_estado_unico")
         if not isinstance(estado, dict):
