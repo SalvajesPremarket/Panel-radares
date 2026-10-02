@@ -3260,6 +3260,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # todo el universo quedara descartado por float desconocido.
         radar_gap = []
         for c in base:
+            # El precio del usuario se aplica ANTES de recortar a los 300 de mayor volumen.
+            # Antes solo se aplicaba al final, asi que un rango estrecho dejaba pocos resultados
+            # aunque hubiera muchas acciones validas fuera de esos 300.
+            try:
+                if not (float(filtros_tf.get("precio_min", BASE_PRECIO_MIN)) <= float(c["precio"]) <= float(filtros_tf.get("precio_max", BASE_PRECIO_MAX))):
+                    continue
+            except Exception:
+                pass
             if _filtro_activo(filtros_tf, "gap_activo", _filtro_activo(filtros_tf, "f_gap_on", False)):
                 gap = c.get("gap_pct")
                 if gap is None or not (float(filtros_tf.get("gap_min", 3.0)) <= float(gap) <= float(filtros_tf.get("gap_max", 50.0))):
