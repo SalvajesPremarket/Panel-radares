@@ -26,6 +26,97 @@ st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 # Precio y gap viven DENTRO del cuadro gris (iframe). Los controles nativos de afuera quedan apagados.
 _USAR_FILTROS_NATIVOS = False
 
+# ------------------------------------------------------------------
+# Canal fiable cuadro gris -> Python.
+# Antes los cambios del cuadro gris viajaban por la URL del navegador (history /
+# location), que en muchos despliegues no llega al servidor y por eso todo volvia
+# al valor anterior en el refresh. Ahora el cuadro gris vive en un componente
+# bidireccional: cada cambio se devuelve a Python directamente (sin URL).
+# ------------------------------------------------------------------
+_TS_COMP_HTML = r'''<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+html,body{margin:0;padding:0;background:#15181d;overflow:hidden}
+#wrap{position:relative;width:100%;height:1200px;background:#15181d}
+iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background:#15181d}
+</style></head>
+<body><div id="wrap"></div>
+<script>
+(function(){
+  var wrap=document.getElementById('wrap');
+  var current=null,pending=null,lastHtml=null,height=0,deferSince=0,timer=null;
+  function post(type,data){var m={isStreamlitMessage:true,type:type};for(var k in data){m[k]=data[k];}window.parent.postMessage(m,'*');}
+  function setHeight(h){if(!h||h===height)return;height=h;wrap.style.height=h+'px';post('streamlit:setFrameHeight',{height:h});}
+  function busy(f){try{var d=f.contentDocument;var a=d&&d.activeElement;return !!(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));}catch(e){return false;}}
+  function isOurs(w){return !!w&&((current&&current.contentWindow===w)||(pending&&pending.contentWindow===w));}
+  function show(f){
+    var old=current;current=f;if(pending===f)pending=null;
+    f.style.visibility='visible';
+    if(old&&old!==f&&old.parentNode){old.parentNode.removeChild(old);}
+  }
+  function run(){
+    if(!lastHtml)return;
+    if(current&&current.__html===lastHtml){
+      if(pending){if(pending.parentNode)pending.parentNode.removeChild(pending);pending=null;}
+      return;
+    }
+    if(current&&busy(current)){
+      if(!deferSince)deferSince=Date.now();
+      if(Date.now()-deferSince<10000){timer=setTimeout(function(){timer=null;run();},600);return;}
+    }
+    deferSince=0;
+    if(pending){if(pending.parentNode)pending.parentNode.removeChild(pending);pending=null;}
+    var f=document.createElement('iframe');
+    f.__html=lastHtml;
+    if(!current){current=f;}
+    else{
+      f.style.visibility='hidden';pending=f;
+      f.onload=function(){setTimeout(function(){if(pending===f)show(f);},2500);};
+    }
+    wrap.appendChild(f);
+    f.srcdoc=lastHtml;
+  }
+  function schedule(){if(timer)return;timer=setTimeout(function(){timer=null;run();},0);}
+  window.addEventListener('message',function(ev){
+    var d=ev.data;if(!d)return;
+    if(d.type==='streamlit:render'){
+      var a=d.args||{};
+      if(a.alto)setHeight(parseInt(a.alto,10));
+      if(typeof a.html==='string'&&a.html!==lastHtml){lastHtml=a.html;schedule();}
+      return;
+    }
+    if(!isOurs(ev.source))return;
+    if(d.tsNav){
+      post('streamlit:setComponentValue',{value:{id:String(Date.now())+'-'+Math.random().toString(36).slice(2),q:String(d.q||'')},dataType:'json'});
+      return;
+    }
+    if(d.tsReady&&pending&&ev.source===pending.contentWindow){show(pending);}
+  });
+  post('streamlit:componentReady',{apiVersion:1});
+  setHeight(1200);
+})();
+</script></body></html>
+'''
+_TS_COMP_OK = False
+_ts_scanner_ui = None
+try:
+    import streamlit.components.v1 as _stc
+    _TS_COMP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ts_scanner_component")
+    os.makedirs(_TS_COMP_DIR, exist_ok=True)
+    _TS_COMP_FILE = os.path.join(_TS_COMP_DIR, "index.html")
+    _actual = ""
+    if os.path.exists(_TS_COMP_FILE):
+        with open(_TS_COMP_FILE, "r", encoding="utf-8") as _f_c:
+            _actual = _f_c.read()
+    if _actual != _TS_COMP_HTML:
+        with open(_TS_COMP_FILE, "w", encoding="utf-8") as _f_c:
+            _f_c.write(_TS_COMP_HTML)
+    _ts_scanner_ui = _stc.declare_component("ts_scanner_ui", path=_TS_COMP_DIR)
+    _TS_COMP_OK = True
+except Exception as _e_comp:
+    print(f"⚠️ Componente del scanner no disponible, se usa st.iframe: {_e_comp}")
+    _TS_COMP_OK = False
+
 # Sin "flash" en el refresh automático: Streamlit atenúa (opacity) los elementos
 # mientras se recalcula y el iframe de la tabla parpadea al recargarse. Se deja todo
 # opaco, sin transición, y el iframe con el mismo color de fondo que su contenido.
@@ -482,7 +573,7 @@ def supabase_auth_request(endpoint, payload):
                 "Content-Type": "application/json",
             },
             json=payload,
-            timeout=(5, 10),
+            timeout=20,
         )
 
         try:
@@ -1010,26 +1101,17 @@ def pantalla_autenticacion():
             )
 
         if entrar:
-            with st.spinner("🔐 Validando acceso…"):
-                data, error = iniciar_sesion_usuario(email, password)
+            data, error = iniciar_sesion_usuario(email, password)
             if error:
                 st.error(f"❌ {error}")
-            elif not isinstance(data, dict) or not data.get("access_token") or not data.get("user"):
-                st.error("❌ Supabase no devolvió una sesión de usuario válida. Intenta nuevamente.")
             else:
                 cerrar_sesion()  # evita que una sesión admin previa siga mandando sobre el usuario
                 _guardar_usuario_auth(data, tipo="usuario")
                 _u = data.get("user") or {}
                 crear_prueba_usuario(_u.get("id", ""), _u.get("email", email))
                 _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
-                # Mantener la autenticación directamente en Session State y
-                # además en el ticket persistente. Así el primer rerun después
-                # del login no puede volver a mostrar la pantalla de acceso.
-                st.session_state["auth_session_id"] = _sid
-                st.session_state["auth_ok"] = True
-                st.session_state["mostrar_auth"] = False
-                st.query_params["_new_login"] = "1"
                 st.query_params["auth_session"] = _sid
+                st.session_state["mostrar_auth"] = False
                 st.query_params.pop("auth", None)
                 st.rerun()
 
@@ -1164,11 +1246,8 @@ def pantalla_autenticacion():
                         _u = data.get("user") or {}
                         crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
                         _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
-                        st.session_state["auth_session_id"] = _sid
-                        st.session_state["auth_ok"] = True
-                        st.session_state["mostrar_auth"] = False
-                        st.query_params["_new_login"] = "1"
                         st.query_params["auth_session"] = _sid
+                        st.session_state["mostrar_auth"] = False
                         st.query_params.pop("auth", None)
                         st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
                         st.rerun()
@@ -1183,45 +1262,39 @@ def pantalla_autenticacion():
             st.caption("Este acceso conserva el sistema de token del propietario.")
 
             with st.form("form_admin_token"):
-                st.text_input(
+                token_ingresado = st.text_input(
                     "Token de administrador",
                     type="password",
                     key="admin_token_login",
                 )
-                _admin_submit = st.form_submit_button(
+                entrar_admin = st.form_submit_button(
                     "👑 VALIDAR ACCESO",
                     width="stretch",
                 )
 
-            if _admin_submit:
-                # Procesamiento directo del submit, sin callback.
-                # Esto evita que un callback quede retenido en la pantalla de auth.
-                _token_admin = str(st.session_state.get("admin_token_login", "")).strip()
-                _es_valido_admin, _estado_admin = verificar_token(_token_admin)
+            if entrar_admin:
+                token_limpio = token_ingresado.strip()
+                es_valido, estado = verificar_token(token_limpio)
 
-                if _es_valido_admin:
+                if es_valido:
                     cerrar_sesion()
-                    st.session_state["token_verificado"] = _token_admin
-                    st.session_state["fecha_vencimiento"] = _estado_admin
+                    st.session_state["token_verificado"] = token_limpio
+                    st.session_state["fecha_vencimiento"] = estado
                     st.session_state["tipo_acceso"] = "admin"
+                    # Salir de la pantalla de autenticación antes del rerun.
+                    # Si no se limpia este estado, el rerun vuelve a mostrar
+                    # el formulario y parece que "VALIDAR ACCESO" no funciona.
                     st.session_state["mostrar_auth"] = False
-
-                    _sid = _crear_sesion_persistente(
-                        "admin",
-                        {"token": _token_admin, "fecha_vencimiento": _estado_admin},
-                    )
-                    st.session_state["auth_session_id"] = _sid
-                    st.session_state["auth_ok"] = True
+                    _sid = _crear_sesion_persistente("admin", {"token": token_limpio, "fecha_vencimiento": estado})
                     st.query_params["auth_session"] = _sid
                     st.query_params.pop("auth", None)
                     st.rerun()
+                elif estado == "EXPIRADO":
+                    st.error("🔒 Token expirado.")
+                elif estado == "FORMATO":
+                    st.error("❌ Error de configuración del token.")
                 else:
-                    if _estado_admin == "EXPIRADO":
-                        st.error("🔒 Token expirado.")
-                    elif _estado_admin == "FORMATO":
-                        st.error("❌ Error de configuración del token.")
-                    else:
-                        st.error("❌ Token no válido. Acceso denegado.")
+                    st.error("❌ Token no válido. Acceso denegado.")
 
     st.stop()
 
@@ -1231,6 +1304,33 @@ def pantalla_autenticacion():
 # =========================================================
 # auth_session solo es respaldo de recarga completa; durante un rerun normal
 # la identidad permanece en st.session_state.
+def _ts_aplicar_evento_ui():
+    """Recibe lo que hizo el usuario en el cuadro gris (filtros, EMAs, idioma, refresh...)
+    y lo escribe en los parametros de la sesion ANTES de calcular nada."""
+    try:
+        ev = st.session_state.get("ts_scanner_ui")
+        if not isinstance(ev, dict):
+            return
+        eid = str(ev.get("id", ""))
+        if not eid or eid == st.session_state.get("_ts_evt_visto"):
+            return
+        st.session_state["_ts_evt_visto"] = eid
+        from urllib.parse import parse_qsl
+        pares = dict(parse_qsl(str(ev.get("q", "")), keep_blank_values=True))
+        pares.pop("_ts", None)
+        for _k, _v in pares.items():
+            if _k == "auth_session" and not _v:
+                continue
+            if str(st.query_params.get(_k, "")) != _v:
+                st.query_params[_k] = _v
+        # Una accion del usuario siempre gana a un auto-refresh que coincida en el tiempo.
+        st.session_state["_ts_rerun_auto"] = False
+    except Exception as _e_ev:
+        print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
+
+
+_ts_aplicar_evento_ui()
+
 PUBLIC_PREVIEW = (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
@@ -1246,14 +1346,6 @@ if "mostrar_auth" not in st.session_state:
 if LOGOUT_REQUESTED:
     cerrar_sesion()
     st.session_state["mostrar_auth"] = False
-    # Descartar el iframe/cache de la cuenta anterior para que el logout
-    # no recupere visualmente la pestaña que estaba abierta (p. ej. TECHNICAL).
-    for _k_logout in (
-        "_ts_iframe_clave", "_ts_iframe_html", "_ts_estado_unico",
-        "_ts_estado_unico_u", "_ts_refresh_canonico",
-        "_ts_refresh_fragment_started",
-    ):
-        st.session_state.pop(_k_logout, None)
     try:
         st.query_params.clear()
     except Exception:
@@ -1269,31 +1361,22 @@ if AUTH_REQUESTED:
     except Exception:
         pass
 
-# Primero restauramos una sesión persistente si todavía no hay una identidad
-# activa. Esto evita que un estado antiguo de "mostrar_auth" bloquee una sesión
-# que acaba de validarse.
-if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
-    _restaurar_sesion_persistente()
-
-_AUTH_ACTIVA = (
-    "token_verificado" in st.session_state
-    or "usuario_auth" in st.session_state
-)
-
-# La pantalla de autenticación también debe poder abrirse cuando ya existe
-# una sesión: el botón CUENTA / REGISTRO la solicita explícitamente. Antes
-# este orden daba prioridad a _AUTH_ACTIVA y volvía a ocultarla inmediatamente,
-# por lo que el botón parecía no responder.
+# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
+# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
+# Cuando el usuario pide explícitamente REGISTRO / LOGIN, la pantalla de
+# autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
+# Esto evita que la restauración automática bloquee el botón de acceso.
 if st.session_state.get("mostrar_auth"):
-    # El fragmento de refresh queda detenido mientras estamos en autenticación.
-    # Al volver al scanner debe empezar desde cero; de lo contrario, si ya
-    # estaba marcado como iniciado, su primera ejecución posterior al login
-    # llamaría st.rerun() inmediatamente y produciría un bucle de parpadeo.
-    st.session_state["_ts_refresh_fragment_started"] = False
     pantalla_autenticacion()
     st.stop()
 
-PUBLIC_PREVIEW = not _AUTH_ACTIVA
+# Restauración normal de sesión solamente cuando no se está mostrando Auth.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+    PUBLIC_PREVIEW = (
+        "token_verificado" not in st.session_state
+        and "usuario_auth" not in st.session_state
+    )
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -1442,11 +1525,8 @@ def _guardar_ultima_configuracion_servidor():
 
 # Al volver a entrar con la misma cuenta, recuperar la última configuración
 # antes de construir la interfaz. Así el refresh tampoco vuelve a 3 minutos.
-# IMPORTANTE: no hacemos st.rerun() aquí. Los valores restaurados quedan
-# disponibles para el resto de esta misma ejecución. Forzar un rerun durante
-# el login podía crear un ciclo de reruns y dejar la autenticación parpadeando
-# en lugar de entrar al scanner.
-_restaurar_ultima_configuracion_servidor()
+if _restaurar_ultima_configuracion_servidor():
+    st.rerun()
 
 
 # Solo los tokens configurados como ADMIN pueden ser administradores.
@@ -3973,48 +4053,30 @@ def _render_scanner():
     except Exception:
         pass
 
-    # Reconciliación también dentro del fragmento de refresh.
-    # st.fragment vuelve a ejecutar _render_scanner() sin repetir todo el
-    # programa, por lo que aquí debemos incorporar cualquier acción técnica
-    # confirmada por _u directamente al estado único antes de dibujar.
-    try:
-        _estado_sync = st.session_state.get("_ts_estado_unico")
-        if not isinstance(_estado_sync, dict):
-            _estado_sync = {}
-            st.session_state["_ts_estado_unico"] = _estado_sync
-        try:
-            _u_nuevo = int(float(st.query_params.get("_u", 0) or 0))
-        except Exception:
-            _u_nuevo = 0
-        _u_visto = int(st.session_state.get("_ts_estado_unico_u", 0) or 0)
-        if _u_nuevo > _u_visto:
-            for _k_sync in (
-                "ema20_estado", "ema50_estado", "ema200_estado",
-                "ema20_cond", "ema50_cond", "ema200_cond",
-                "ema20_dist", "ema50_dist", "ema200_dist",
-                "rsi_min", "rsi_max", "timeframe", "technical_timeframe",
-            ):
-                _v_sync = st.query_params.get(_k_sync, None)
-                if isinstance(_v_sync, list):
-                    _v_sync = _v_sync[0] if _v_sync else None
-                if _v_sync not in (None, ""):
-                    _estado_sync[_k_sync] = str(_v_sync)
-            st.session_state["_ts_estado_unico_u"] = _u_nuevo
-    except Exception:
-        pass
-
-    _estado = st.session_state.get("_ts_estado_unico", {})
+    # Valores de interfaz seguros. Se leen de query_params para que los cambios
+    # realizados desde la carátula puedan sobrevivir al rerun de Streamlit.
     def _qtxt(nombre, defecto):
-        try: return str(_estado.get(nombre, defecto))
-        except Exception: return str(defecto)
+        try:
+            valor = st.query_params.get(nombre, defecto)
+            if isinstance(valor, list):
+                valor = valor[0] if valor else defecto
+            return str(valor)
+        except Exception:
+            return str(defecto)
+
 
     def _qfloat(nombre, defecto):
-        try: return float(_qtxt(nombre, defecto))
-        except Exception: return float(defecto)
+        try:
+            return float(_qtxt(nombre, defecto))
+        except Exception:
+            return float(defecto)
+
 
     def _qint(nombre, defecto):
-        try: return int(float(_qtxt(nombre, defecto)))
-        except Exception: return int(defecto)
+        try:
+            return int(float(_qtxt(nombre, defecto)))
+        except Exception:
+            return int(defecto)
 
 
     precio_min_ui = _qfloat("f_price_min", 0.50)
@@ -4370,36 +4432,34 @@ def _render_scanner():
     h += "@media(max-width:900px){.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.brand{font-size:16px;}.status{font-size:10px;white-space:normal;text-align:right;}}"
     h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
     h += ".tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.technical-control select{min-width:0;width:100%;}.tab-panel{font-size:9px;padding:6px}}"
-    h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900;transition:transform .12s ease,box-shadow .12s ease}.technical-subtab.active{background:#3a4048}.technical-subtab.save-config-tab.clicked{transform:translateY(3px);box-shadow:inset 0 2px 0 rgba(0,0,0,.45)}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
+    h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900}.technical-subtab.active{background:#3a4048}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
+    h += ".refresh-bar{display:flex;align-items:center;gap:8px;background:#1d2127;border:1px solid #888;padding:5px 8px;margin-bottom:6px}.refresh-bar label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap}.refresh-bar span{color:#b8c0ca;font-size:10px}"
     h += "</style>"
-    h += "<script>"
-    h += "window.addEventListener('load',function(){try{var _nuevo=TS_AUTH&&new URLSearchParams(window.top.location.search||'').get('_new_login')==='1';if(_nuevo){window.scrollTo(0,0);return;}var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(TS_AUTH&&o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});";
+    h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
     h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
     h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
     h += "var TS_BASE_QUERY=" + json.dumps({str(k): str(v) for k, v in st.query_params.items()}, ensure_ascii=False) + ";"
     h += "var TS_AUTH_SESSION=" + json.dumps(str(st.query_params.get("auth_session", ""))) + ";"
+    h += "var TS_COMP=" + ("true" if _TS_COMP_OK else "false") + ";"
     h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
     h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
-    h += "function _qtop(){try{return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
+    h += "function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_BASE_QUERY||{});return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
-    h += "function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;o._uiControls={};document.querySelectorAll('input[id],select[id],textarea[id]').forEach(function(el){try{if(el.id&&el.id!=='config_search'&&el.id!=='config_name')o._uiControls[el.id]=(el.type==='checkbox'||el.type==='radio')?!!el.checked:String(el.value==null?'':el.value)}catch(_e){}});var txt=JSON.stringify(o);try{window.top.localStorage.setItem(TS_USER_KEY,txt)}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,txt)}catch(e2){}try{localStorage.setItem(TS_USER_KEY,txt)}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
+    h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
-    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}var u='/?'+q.toString();var P=window.top;/* Primero el puente nativo: actualiza la URL y provoca un rerun de la MISMA sesion (no se pierde el estado). */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();/* Si tras unos segundos este iframe sigue vivo, el rerun no ocurrio: respaldo con navegacion real. */setTimeout(function(){try{P.location.replace(u);}catch(_e){}},8000);return;}}catch(brErr){}try{P.location.replace(u);return;}catch(navErr){}try{window.top.location.replace(u);}catch(_e){}}catch(e){}}"
-    h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}var _tsTechSaveTimer=null;function _programarGuardadoTecnico(){try{if(_tsTechSaveTimer)clearTimeout(_tsTechSaveTimer);_tsTechSaveTimer=setTimeout(function(){try{var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,String(e.value))});_guardarUltimaConfiguracion(q);_goto(q)}catch(e){}},2500)}catch(e){}}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;/* Primero el puente nativo: actualiza la URL y provoca un rerun de la MISMA sesion (no se pierde el estado). */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();/* Si tras unos segundos este iframe sigue vivo, el rerun no ocurrio: respaldo con navegacion real. */setTimeout(function(){try{P.location.replace(u);}catch(_e){}},8000);return;}}catch(brErr){}try{P.location.replace(u);return;}catch(navErr){}try{window.top.location.replace(u);}catch(_e){}}catch(e){}}"
+    h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
     h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_guardarUltimaConfiguracion(q);_goto(q);}"
     h += "function _configStorageKey(){return 'tradeScannerConfigs_'+TS_USER_KEY;}function _leerConfiguracionesPersonal(){var a=[];var raw='';try{raw=window.top.localStorage.getItem(_configStorageKey())||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(_configStorageKey())||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(_configStorageKey())||''}catch(e3){}}if(!raw){try{raw=localStorage.getItem('tradeScannerConfigs')||''}catch(e4){}}try{a=JSON.parse(raw||'[]')}catch(e5){a=[]}return Array.isArray(a)?a:[];}function _guardarConfiguracionesPersonal(a){var txt=JSON.stringify(a.slice(0,50));try{window.top.localStorage.setItem(_configStorageKey(),txt)}catch(e1){}try{window.parent.localStorage.setItem(_configStorageKey(),txt)}catch(e2){}try{localStorage.setItem(_configStorageKey(),txt)}catch(e3){}try{localStorage.setItem('tradeScannerConfigs',txt)}catch(e4){}}function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var o={};q.forEach(function(v,k){o[k]=v});o.nombre=n;o._savedAt=Date.now();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==n.toLowerCase()});a.unshift(o);_guardarConfiguracionesPersonal(a);_guardarUltimaConfiguracion(q);document.getElementById('config_name').value='';renderConfiguraciones();_goto(q);}"
-    h += "function cargarConfiguracionPersonal(n){var a=_leerConfiguracionesPersonal();var o=a.find(function(x){return String(x.nombre||'')===String(n||'')});if(!o)return;var q=_qtop();Object.keys(o).forEach(function(k){if(k!=='nombre'&&k!=='auth_session'&&k!=='_savedAt')q.set(k,o[k])});_goto(q)}function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var a=_leerConfiguracionesPersonal();var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});_guardarConfiguracionesPersonal(restantes);renderConfiguraciones();}catch(e){alert('No se pudo eliminar la configuración: '+e.message);}}function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='save-config-panel'&&btn){btn.classList.remove('clicked');void btn.offsetWidth;btn.classList.add('clicked');setTimeout(function(){try{btn.classList.remove('clicked')}catch(e){}},180);setTimeout(function(){try{p.scrollIntoView({behavior:'smooth',block:'nearest'})}catch(e){}},25);}if(id==='load-config-panel')renderConfiguraciones();}"
+    h += "function cargarConfiguracionPersonal(n){var a=_leerConfiguracionesPersonal();var o=a.find(function(x){return String(x.nombre||'')===String(n||'')});if(!o)return;var q=_qtop();Object.keys(o).forEach(function(k){if(k!=='nombre'&&k!=='auth_session'&&k!=='_savedAt')q.set(k,o[k])});_goto(q)}function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var a=_leerConfiguracionesPersonal();var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});_guardarConfiguracionesPersonal(restantes);renderConfiguraciones();}catch(e){alert('No se pudo eliminar la configuración: '+e.message);}}function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
     h += "function renderConfiguraciones(){var b=document.getElementById('saved_configs_list');if(!b)return;var t=(document.getElementById('config_search').value||'').toLowerCase();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').toLowerCase().indexOf(t)>=0});b.innerHTML=a.length?a.map(function(x){var n=String((x&&x.nombre)||'').replace(/[<>]/g,'');var key=encodeURIComponent(String((x&&x.nombre)||''));return '<div class=\"saved-config\"><b>'+n+'</b><span>'+String(x.timeframe||'1m')+' · EMA20 '+String(x.ema20_estado||'Neutro')+' · EMA50 '+String(x.ema50_estado||'Neutro')+' · EMA200 '+String(x.ema200_estado||'Neutro')+'</span><button type=\"button\" class=\"btn-cargar-config\" data-config-name=\"'+key+'\">CARGAR</button><button type=\"button\" class=\"btn-eliminar-config\" data-config-name=\"'+key+'\">ELIMINAR</button></div>'}).join(''):'<span class=\"saved-empty\">No hay configuraciones guardadas.</span>'; }var _tsScrollTimer=null;window.addEventListener('scroll',function(){if(!TS_AUTH)return;if(_tsScrollTimer)return;_tsScrollTimer=setTimeout(function(){_tsScrollTimer=null;try{_guardarUltimaConfiguracion(_qtop());}catch(e){}},250);},{passive:true});"
-    h += "document.addEventListener('DOMContentLoaded',function(){setTimeout(function(){try{var _topq=new URLSearchParams(window.top.location.search||'');var _nuevo_login=TS_AUTH&&_topq.get('_new_login')==='1';var _logged_out=!TS_AUTH&&_topq.get('_logged_out')==='1';if(!_logged_out)_restaurarUltimaConfiguracion()}catch(e){};try{actualizarResumenUI()}catch(e){};try{renderConfiguraciones();var raw=localStorage.getItem(TS_USER_KEY)||'';if(!raw){try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(_e1){}}var o=JSON.parse(raw||'{}');if(_nuevo_login||_logged_out){var br=document.querySelector('.tab[data-tab-target=\"panel-radar\"]');if(br)showTab('panel-radar',br);try{window.scrollTo(0,0)}catch(_e0){}try{var q0=new URLSearchParams(window.top.location.search||'');q0.delete('_new_login');q0.delete('_logged_out');window.top.history.replaceState(null,'','/?'+q0.toString())}catch(_e2){}}else if(o&&o._activeTab){var b=document.querySelector('.tab[data-tab-target=\"'+o._activeTab+'\"]');if(b)showTab(o._activeTab,b)}if(!_nuevo_login&&o&&o._technicalSubtab){var sb=document.querySelector('.technical-subtab[data-subtab-target=\"'+o._technicalSubtab+'\"]');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(!_nuevo_login&&TS_AUTH&&o&&o._uiControls){Object.keys(o._uiControls).forEach(function(id){try{var el=document.getElementById(id);if(!el)return;var v=o._uiControls[id];if(el.type==='checkbox'||el.type==='radio')el.checked=!!v;else if(v!==undefined&&v!==null)el.value=String(v)}catch(_e){}})}if(!_nuevo_login&&o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0)}catch(e){}},120)}}catch(e){};try{var lg=(document.getElementById('cfg_lang')||{}).value||'';if(lg&&TS_LANGS[lg])aplicarIdioma(lg)}catch(e){}},100);});"
-    h += "document.addEventListener('input',function(ev){try{if(ev.target&&ev.target.id)actualizarResumenUI()}catch(e){}});"
-    h += "document.addEventListener('change',function(ev){try{if(ev.target&&ev.target.id)actualizarResumenUI()}catch(e){}});"
+    h += 'document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){try{_restaurarUltimaConfiguracion()}catch(e){};try{renderConfiguraciones();var raw=localStorage.getItem(TS_USER_KEY)||\'\';if(!raw){try{raw=window.top.localStorage.getItem(TS_USER_KEY)||\'\'}catch(_e1){}}var o=JSON.parse(raw||\'{}\');if(o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target="\'+o._activeTab+\'"]\');if(b)showTab(o._activeTab,b)}if(o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target="\'+o._technicalSubtab+\'"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};try{var lg=(document.getElementById(\'cfg_lang\')||{}).value||\'\';if(lg&&TS_LANGS[lg])aplicarIdioma(lg);}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'technical_timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\',\'f_gap_on\',\'f_float_on\',\'f_vol_on\',\'ema20_on\',\'refresh_sec_inside\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{if(id===\'refresh_sec_inside\')cambiarRefresh(el.value);else if([\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\'].indexOf(id)>=0)return;else pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',technical_timeframe:\'technical_timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',ema20_cond:\'ema20_cond\',ema50_cond:\'ema50_cond\',ema200_cond:\'ema200_cond\',ema20_dist:\'ema20_dist\',ema50_dist:\'ema50_dist\',ema200_dist:\'ema200_dist\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\',f_gap_on:\'f_gap_on\',f_float_on:\'f_float_on\',f_vol_on:\'f_vol_on\',ema20_on:\'ema20_on\',refresh_sec_inside:\'refresh_sec\'};var k=map[id];if(k){q.set(k,el.value);_guardarUltimaConfiguracion(q);}}catch(e){}});});},100)});'
     h += "document.addEventListener('click',function(ev){var tab=ev.target.closest?ev.target.closest('.tab[data-tab-target]'):null;if(tab){ev.preventDefault();showTab(tab.getAttribute('data-tab-target'),tab);return;}var sub=ev.target.closest?ev.target.closest('.technical-subtab[data-subtab-target]'):null;if(sub){ev.preventDefault();showTechnicalSubTab(sub.getAttribute('data-subtab-target'),sub);return;}var save=ev.target.closest?ev.target.closest('.btn-guardar-config'):null;if(save){ev.preventDefault();guardarConfiguracionPersonal();return;}var btn=ev.target.closest?ev.target.closest('.btn-eliminar-config'):null;if(btn){ev.preventDefault();ev.stopPropagation();borrarConfiguracionPersonal(decodeURIComponent(btn.getAttribute('data-config-name')||''));return;}var cargar=ev.target.closest?ev.target.closest('.btn-cargar-config'):null;if(cargar){ev.preventDefault();ev.stopPropagation();cargarConfiguracionPersonal(decodeURIComponent(cargar.getAttribute('data-config-name')||''));return;}});"
     h += "var TS_LANGS={ESP:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'CONFIGURACIÓN','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUMNAS','PRECIO ($)':'PRECIO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTACIÓN ≤','VOLUMEN ≥':'VOLUMEN ≥','MACD':'MACD','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'VENTANA','TEMPORALIDAD':'TEMPORALIDAD','MOTOR':'MOTOR','HORARIO (ET)':'HORARIO (ET)','HORARIO DEL SCANNER':'HORARIO DEL SCANNER','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'PUENTE DE LAYOUT','GUARDAR':'GUARDAR','ELIMINAR':'ELIMINAR','CARGAR':'CARGAR'},ENG:{'RADAR':'RADAR','TÉCNICOS':'TECHNICALS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'SETTINGS','RESULTADOS':'RESULTS','COLUMNAS':'COLUMNS','PRECIO ($)':'PRICE ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','MACD':'MACD','ORDENAR':'SORT','IDIOMA':'LANGUAGE','VENTANA':'WINDOW','TEMPORALIDAD':'TIMEFRAME','MOTOR':'ENGINE','HORARIO (ET)':'SCHEDULE (ET)','HORARIO DEL SCANNER':'SCANNER SCHEDULE','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'LAYOUT BRIDGE','GUARDAR':'SAVE','ELIMINAR':'DELETE','CARGAR':'LOAD'},POR:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TÉCNICO','CONFIGURACIÓN':'CONFIGURAÇÃO','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUNAS','PRECIO ($)':'PREÇO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'JANELA','TEMPORALIDAD':'PERÍODO','MOTOR':'MOTOR','GUARDAR':'SALVAR','ELIMINAR':'EXCLUIR','CARGAR':'CARREGAR'},FRA:{'RADAR':'RADAR','TÉCNICOS':'TECHNIQUES','TECHNICAL':'TECHNIQUE','CONFIGURACIÓN':'CONFIGURATION','RESULTADOS':'RÉSULTATS','COLUMNAS':'COLONNES','PRECIO ($)':'PRIX ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTATION ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'TRIER','IDIOMA':'LANGUE','VENTANA':'FENÊTRE','TEMPORALIDAD':'UNITÉ DE TEMPS','MOTOR':'MOTEUR','GUARDAR':'ENREGISTRER','ELIMINAR':'SUPPRIMER','CARGAR':'CHARGER'},DEU:{'RADAR':'RADAR','TÉCNICOS':'TECHNIK','TECHNICAL':'TECHNIK','CONFIGURACIÓN':'EINSTELLUNGEN','RESULTADOS':'ERGEBNISSE','COLUMNAS':'SPALTEN','PRECIO ($)':'PREIS ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUMEN','ORDENAR':'SORTIEREN','IDIOMA':'SPRACHE','VENTANA':'FENSTER','TEMPORALIDAD':'ZEITRAHMEN','MOTOR':'MOTOR','GUARDAR':'SPEICHERN','ELIMINAR':'LÖSCHEN','CARGAR':'LADEN'},ITA:{'RADAR':'RADAR','TÉCNICOS':'TECNICI','TECHNICAL':'TECNICO','CONFIGURACIÓN':'CONFIGURAZIONE','RESULTADOS':'RISULTATI','COLUMNAS':'COLONNE','PRECIO ($)':'PREZZO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME','ORDENAR':'ORDINA','IDIOMA':'LINGUA','VENTANA':'FINESTRA','TEMPORALIDAD':'TIMEFRAME','MOTOR':'MOTORE','GUARDAR':'SALVA','ELIMINAR':'ELIMINA','CARGAR':'CARICA'},CHN:{'RADAR':'雷达','TÉCNICOS':'技术','TECHNICAL':'技术分析','CONFIGURACIÓN':'设置','RESULTADOS':'结果','COLUMNAS':'列','PRECIO ($)':'价格 ($)','GAP (%)':'跳空 (%)','FLOTACIÓN ≤':'流通股 ≤','VOLUMEN ≥':'成交量 ≥','ORDENAR':'排序','IDIOMA':'语言','VENTANA':'窗口','TEMPORALIDAD':'时间周期','MOTOR':'引擎','GUARDAR':'保存','ELIMINAR':'删除','CARGAR':'加载'},JPN:{'RADAR':'レーダー','TÉCNICOS':'テクニカル','TECHNICAL':'テクニカル分析','CONFIGURACIÓN':'設定','RESULTADOS':'結果','COLUMNAS':'列','PRECIO ($)':'価格 ($)','GAP (%)':'ギャップ (%)','FLOTACIÓN ≤':'浮動株 ≤','VOLUMEN ≥':'出来高 ≥','ORDENAR':'並べ替え','IDIOMA':'言語','VENTANA':'ウィンドウ','TEMPORALIDAD':'時間足','MOTOR':'エンジン','GUARDAR':'保存','ELIMINAR':'削除','CARGAR':'読み込み'}};"
-    h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var t=(el.textContent||'').trim();var k=t;if(!d[k]){Object.keys(TS_LANGS).some(function(l){var m=TS_LANGS[l]||{};return Object.keys(m).some(function(key){if(String(m[key]).trim()===t){k=key;return true}return false})});}if(d[k])el.textContent=d[k]});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}";
+    h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var t=(el.textContent||'').trim();if(d[t])el.textContent=d[t]});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}";
     h += "function _sq(q,k,id){var e=document.getElementById(id);if(e&&e.value!==undefined&&e.value!==null)q.set(k,e.value)}"
-    h += "function actualizarResumenUI(){try{function v(id,d){var e=document.getElementById(id);return e&&e.value!==undefined&&e.value!==''?e.value:d}function num(id,d){var x=parseFloat(v(id,d));return isFinite(x)?x:parseFloat(d)||0}function txt(id,d){return String(v(id,d))}function put(id,val){var e=document.getElementById(id);if(e)e.textContent=String(val)}function big(x){x=Math.round(Number(x)||0);if(Math.abs(x)>=1000000000)return (x/1000000000).toFixed(1)+'B';if(Math.abs(x)>=1000000)return (x/1000000).toFixed(1)+'M';if(Math.abs(x)>=1000)return (x/1000).toFixed(1)+'K';return String(x)}put('sum-timeframe',txt('timeframe','1m').toUpperCase());put('sum-price-min',num('price_min',0.5).toFixed(2));put('sum-price-max',num('price_max',20).toFixed(2));put('sum-gap-min',num('gap_min',3).toFixed(1));put('sum-gap-max',num('gap_max',50).toFixed(1));put('sum-float',(num('float_max',20000000)/1000000).toFixed(1));put('sum-vol',big(num('txt_vol',15000)));put('sum-ema20',txt('sel_ema','Hacia arriba'));put('sum-macd',txt('sel_mac','Positivo'));put('sum-rsi-min',num('rsi_min',0).toFixed(0));put('sum-rsi-max',num('rsi_max',100).toFixed(0))}catch(e){}}"
     h += "function pushConfig(){var q=_qtop();"
     h += "_sq(q,'f_price_min','price_min');_sq(q,'f_price_max','price_max');"
     h += "_sq(q,'f_gap_min','gap_min');_sq(q,'f_gap_max','gap_max');"
@@ -4414,20 +4474,17 @@ def _render_scanner():
     h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
     h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-    h += "function abrirAutenticacion(){return false}"
-    h += "function salirSesion(){return false}"
-    h += "function cambiarRefresh(v){if(!TS_AUTH){return}var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));try{window.top.location.replace('/?'+q.toString());return}catch(e){}try{window.parent.location.replace('/?'+q.toString());return}catch(e2){}_navegarMismaApp(q)}"
+    h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
+    h += "function cambiarRefresh(v){var _n=Date.now();if(window._tsRf===String(v)&&_n-(window._tsRfT||0)<1500)return;window._tsRf=String(v);window._tsRfT=_n;var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
+    h += "window.addEventListener('load',function(){setTimeout(function(){try{window.parent.postMessage({tsReady:1},'*')}catch(e){}},400)});"
     h += "</script></head><body>"
     _head_html = h  # encabezado común (CSS + JS) para los dos marcos
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
-    # Los controles de cuenta se renderizan como widgets nativos de Streamlit
-    # fuera del iframe. El iframe ya no intenta navegar ni acceder al documento padre.
-    # Esto evita el bloqueo de seguridad que impedía que SALIR ejecutara logout.
-    h += "<span style='display:none'>ACCOUNT_CONTROLS_NATIVE</span>"
+    # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
     h += "</div>"  # cierra topbar
@@ -4487,7 +4544,7 @@ def _render_scanner():
     h += "<div class='panel-card'><b>PERFORMANCE</b><span>Semana · mes · trimestre · YTD · año.</span></div>"
     h += "<div class='panel-card'><b>GAP / VOLUMEN</b><span>Gap % · volumen actual · volumen promedio · relativo.</span></div>"
     h += "</div></div>"
-    h += "<div class='technical-subtabs'><button type='button' class='technical-subtab save-config-tab active' data-subtab-target='save-config-panel'>💾 GUARDAR CONFIGURACIÓN</button><button type='button' class='technical-subtab' data-subtab-target='load-config-panel'>📂 MIS CONFIGURACIONES</button></div>"
+    h += "<div class='technical-subtabs'><button type='button' class='technical-subtab active' data-subtab-target='save-config-panel'>💾 GUARDAR CONFIGURACIÓN</button><button type='button' class='technical-subtab' data-subtab-target='load-config-panel'>📂 MIS CONFIGURACIONES</button></div>"
     h += "<div id='save-config-panel' class='technical-subpanel active'><div class='panel-card technical-control'><b>💾 GUARDAR CONFIGURACIÓN PERSONAL</b><div class='range'><input id='config_name' type='text' placeholder='Nombre de configuración'><button type='button' class='btn-guardar-config'>GUARDAR</button></div><span>Los filtros y la posición de la pantalla se guardan automáticamente. Aquí puedes crear una copia con nombre.</span></div></div>"
     h += "<div id='load-config-panel' class='technical-subpanel'><div class='panel-card technical-control'><b>📂 MIS CONFIGURACIONES</b><input id='config_search' type='text' placeholder='Buscar configuración' oninput='renderConfiguraciones()'><div id='saved_configs_list'></div></div></div>"
     h += "<div id='panel-config' class='tab-panel'><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
@@ -4526,7 +4583,7 @@ def _render_scanner():
             v=_v('cfg_lang', lang_val)
             langs=(('ESP','Español'),('ENG','English'),('POR','Português'),('FRA','Français'),('DEU','Deutsch'),('ITA','Italiano'),('CHN','中文'),('JPN','日本語'))
             opts=''.join(f"<option value='{k}' {'selected' if v==k else ''}>{name}</option>" for k,name in langs)
-            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_lang' onchange='aplicarIdioma(this.value);pushConfig()'>{opts}</select></div>"
+            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_lang' onchange='pushConfig();aplicarIdioma(this.value)'>{opts}</select></div>"
         if label == "BROKER":
             v=_v('cfg_broker', broker_val)
             return f"<div class='filtro-item'><label>{label}</label><select id='cfg_broker' onchange='pushConfig()'><option value='Interactive Brokers' {'selected' if v=='Interactive Brokers' else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if v=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if v=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if v=='Otro' else ''}>Otro</option></select></div>"
@@ -4619,16 +4676,6 @@ def _render_scanner():
         h += "<div class='filtro-item'><label>CONTROLES</label><span style='font-size:10px;line-height:1.35;'>Los filtros, temporalidad, EMA, idioma y refresh se cambian directamente dentro de este cuadro gris.</span></div>"
     h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
-    if PUBLIC_PREVIEW:
-        # El visitante NO puede modificar la frecuencia. Es siempre 3 minutos.
-        h += "<div style='display:flex;align-items:center;justify-content:flex-end;gap:6px;background:#20252b;border:1px solid #777;padding:4px 6px;margin:0 0 6px;font-size:9px;font-weight:900;color:#e7eaee'><span>ACTUALIZACIÓN</span><span style='display:inline-flex;align-items:center;height:25px;padding:0 8px;border:1px solid #555;background:#15181d;color:#fff;font-size:9px;'>⏱ REFRESH 3 min · FIJO</span></div>"
-    else:
-        h += "<div style='display:flex;align-items:center;justify-content:flex-end;gap:6px;background:#20252b;border:1px solid #777;padding:4px 6px;margin:0 0 6px;font-size:9px;font-weight:900;color:#e7eaee'><span>ACTUALIZACIÓN</span><select id='refresh_sec_inside' onchange='cambiarRefresh(this.value)' style='width:125px;height:25px;font-size:9px'>"
-        for _rv in refresh_options:
-            _sel = " selected" if int(_rv) == int(refresh_sec) else ""
-            _lbl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
-            h += f"<option value='{_rv}'{_sel}>⏱ REFRESH {_lbl}</option>"
-        h += "</select></div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
     _schwab_connected = bool(_schwab_access_token())
     _schwab_url = _schwab_authorize_url()
@@ -4644,7 +4691,15 @@ def _render_scanner():
     _layout_status = str(st.session_state.get("layout_send_status", ""))
     if _layout_status:
         h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
-    h += f"<div class='subline'><span><b>Señales:</b> <span id='sum-signals'>{len(filas_reales)}</span></span><span><b>Velas:</b> <span id='sum-timeframe'>{timeframe_ui.upper()}</span></span><span><b>Precio:</b> $<span id='sum-price-min'>{precio_min_ui:.2f}</span>–$<span id='sum-price-max'>{precio_max_ui:.2f}</span></span><span><b>Gap:</b> <span id='sum-gap-min'>{gap_min_ui:.1f}</span>%–<span id='sum-gap-max'>{gap_max_ui:.1f}</span>%</span><span><b>Float:</b> ≤ <span id='sum-float'>{float_max_ui/1_000_000:.1f}</span>M</span><span><b>Vol:</b> ≥ <span id='sum-vol'>{_big(volumen_min_ui)}</span></span><span><b>EMA20:</b> <span id='sum-ema20'>{ _safe_text(ema_ui) }</span></span><span><b>MACD:</b> <span id='sum-macd'>{ _safe_text(macd_ui) }</span></span><span><b>RSI:</b> <span id='sum-rsi-min'>{rsi_min_ui:.0f}</span>–<span id='sum-rsi-max'>{rsi_max_ui:.0f}</span></span></div>"
+    if PUBLIC_PREVIEW:
+        h += "<div class='refresh-bar'><label>⏱ REFRESH</label><select disabled><option>⏱ 3 min (fijo)</option></select><span>Regístrate para elegir tu propio refresh.</span></div>"
+    else:
+        h += "<div class='refresh-bar'><label>⏱ REFRESH</label><select id='refresh_sec_inside' onchange='cambiarRefresh(this.value)'>"
+        for _rv in refresh_options:
+            _rl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
+            h += f"<option value='{_rv}' {'selected' if refresh_sec==_rv else ''}>⏱ {_rl}</option>"
+        h += "</select><span>Cada cuánto se actualizan los resultados.</span></div>"
+    h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Velas:</b> {timeframe_ui.upper()}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
     # El diagnóstico del embudo se conserva internamente en el motor y no se muestra
     # como un bloque fijo antes de RESULTADOS.
     # Un único marco HTML para TODO el scanner.
@@ -4668,24 +4723,7 @@ def _render_scanner():
     _hilo_vivo = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
     _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
     _universo_txt = str(len(getattr(servicio, "universo", []) or []))
-    _diag_ui = getattr(servicio, "diag_por_tf", {}).get(timeframe_ui, {}) or {}
-    if ES_ADMIN:
-        if _diag_ui:
-            _diag_txt = (
-                f" · Embudo: base {_diag_ui.get('radar_base', 0)}"
-                f" → técnico {_diag_ui.get('enviados_tecnico', 0)}"
-                f" → ≥40 {_diag_ui.get('con_40_barras', 0)}"
-                f" → EMA {_diag_ui.get('ema_arriba', 0)}"
-                f" → MACD+ {_diag_ui.get('macd_positivo', 0)}"
-                f" → E+M {_diag_ui.get('ema_y_macd', 0)}"
-                f" → float {_diag_ui.get('tras_float', 0)}"
-                f" → final {_diag_ui.get('resultados', 0)}"
-            )
-        else:
-            _diag_txt = f" · Embudo: esperando diagnóstico de {timeframe_ui.upper()}"
-    else:
-        _diag_txt = ""
-    h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}{_safe_text(_diag_txt)}</span></div>"
+    h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
 
     # Insertamos el bloque de resultados dentro del mismo main-container del panel.
     _panel_final = _h_a.rsplit("</div></body></html>", 1)[0]
@@ -4699,6 +4737,64 @@ def _render_scanner():
     # Un solo iframe. La altura permite mostrar controles y tabla sin crear un
     # segundo marco blanco debajo.
     h = _panel_final
+
+    # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
+    def _ts_abrir_auth():
+        st.session_state["mostrar_auth"] = True
+
+    def _ts_salir():
+        cerrar_sesion()
+        st.session_state.pop("_ts_query_elegida", None)
+        st.session_state.pop("_ts_u_visto", None)
+        st.session_state["mostrar_auth"] = False
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
+
+    def _ts_cambiar_refresh():
+        try:
+            valor = max(5, int(st.session_state["ts_refresh_sel"]))
+            st.session_state["_ts_refresh_canonico"] = valor
+            st.query_params["refresh_sec"] = str(valor)
+            _almacen = st.session_state.get("_ts_query_elegida")
+            if isinstance(_almacen, dict):
+                _almacen["refresh_sec"] = str(valor)
+            else:
+                st.session_state["_ts_query_elegida"] = {"refresh_sec": str(valor)}
+            # Guardado servidor inmediato: no depende del JavaScript del iframe.
+            _guardar_ultima_configuracion_servidor()
+        except Exception:
+            pass
+
+    st.markdown(
+        """
+        <style>
+        .st-key-ts_ctrl_bar [data-testid="stHorizontalBlock"]{flex-wrap:nowrap !important;justify-content:flex-end;align-items:center;gap:4px !important;}
+        .st-key-ts_ctrl_bar [data-testid="stColumn"],.st-key-ts_ctrl_bar [data-testid="column"]{width:auto !important;min-width:0 !important;flex:0 0 auto !important;}
+        .st-key-ts_ctrl_bar [data-testid="stSelectbox"]{width:150px;}
+        .st-key-ts_ctrl_bar [data-testid="stCaptionContainer"]{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .st-key-ts_ctrl_bar button{white-space:nowrap;}
+        /* Pantallas anchas: la barra se superpone dentro de la barra superior del scanner. */
+        @media (min-width: 900px){
+          .st-key-ts_ctrl_bar{height:0 !important;min-height:0 !important;overflow:visible !important;position:relative;z-index:60;}
+          .st-key-ts_ctrl_bar > *{position:relative;top:24px;}
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(key="ts_ctrl_bar"):
+        if PUBLIC_PREVIEW:
+            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
+        else:
+            _n1, _n3, _n4 = st.columns([1.3, 1, 1])
+            with _n1:
+                st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
+            with _n3:
+                st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
+            with _n4:
+                st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
@@ -4714,9 +4810,9 @@ def _render_scanner():
             st.session_state["_ts_prev_ts_f_price_max"] = pmax
             st.query_params["f_price_min"] = f"{pmin:g}"
             st.query_params["f_price_max"] = f"{pmax:g}"
-            a = st.session_state.get("_ts_estado_unico")
+            a = st.session_state.get("_ts_query_elegida")
             if not isinstance(a, dict):
-                a = {}; st.session_state["_ts_estado_unico"] = a
+                a = {}; st.session_state["_ts_query_elegida"] = a
             a["f_price_min"] = f"{pmin:g}"; a["f_price_max"] = f"{pmax:g}"
             _guardar_ultima_configuracion_servidor()
         except Exception:
@@ -4732,9 +4828,9 @@ def _render_scanner():
             st.session_state["_ts_prev_ts_f_gap_max"] = gmax
             st.query_params["f_gap_min"] = f"{gmin:g}"
             st.query_params["f_gap_max"] = f"{gmax:g}"
-            a = st.session_state.get("_ts_estado_unico")
+            a = st.session_state.get("_ts_query_elegida")
             if not isinstance(a, dict):
-                a = {}; st.session_state["_ts_estado_unico"] = a
+                a = {}; st.session_state["_ts_query_elegida"] = a
             a["f_gap_min"] = f"{gmin:g}"; a["f_gap_max"] = f"{gmax:g}"
             _guardar_ultima_configuracion_servidor()
         except Exception:
@@ -4776,6 +4872,16 @@ def _render_scanner():
                 st.number_input("GAP MIN", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_min_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
             with _a4:
                 st.number_input("GAP MAX", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_max_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
+    # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
+    # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
+    # padre con history.replaceState y pulsa este botón oculto, lo que provoca un
+    # rerun nativo de la MISMA sesión leyendo los nuevos query params.
+    st.markdown(
+        "<style>.st-key-ts_nav_bridge{display:none !important;}</style>",
+        unsafe_allow_html=True,
+    )
+    st.button("TSNAVBRIDGE", key="ts_nav_bridge")
+
     # Todo el scanner se renderiza en un único iframe.
     # st.iframe es el reemplazo actual de components.v1.html y conserva
     # HTML/JavaScript inline con acceso same-origin, que este puente necesita.
@@ -4796,7 +4902,10 @@ def _render_scanner():
             st.session_state["_ts_iframe_html"] = h
     except Exception:
         pass
-    st.iframe(h, height=1200)
+    if _TS_COMP_OK and _ts_scanner_ui is not None:
+        _ts_scanner_ui(html=h, alto=1200, key="ts_scanner_ui", default=None)
+    else:
+        st.iframe(h, height=1200)
 
 
 # El temporizador se mantiene FUERA del iframe.
@@ -4831,14 +4940,12 @@ def _tf_pendiente():
 
 def _refresh_segundos_global():
     # Visitante: 3 minutos fijos. Usuario autenticado: conserva el refresh
-    # elegido por el usuario. No hay una excepción temporal de 4 segundos:
-    # el intervalo seleccionado gobierna siempre el refresco de pantalla.
+    # elegido por el usuario aunque Streamlit haga un rerun completo.
     if PUBLIC_PREVIEW:
         return 180
+    if _tf_pendiente():
+        return 4
     try:
-        estado = st.session_state.get("_ts_estado_unico")
-        if isinstance(estado, dict) and estado.get("refresh_sec") not in (None, ""):
-            return max(5, int(float(str(estado["refresh_sec"]))))
         canonico = st.session_state.get("_ts_refresh_canonico")
         if canonico is not None:
             return max(5, int(float(str(canonico))))
@@ -4849,192 +4956,263 @@ def _refresh_segundos_global():
     except Exception:
         return 180
 
-_CLAVES_ESTADO_UNICO = tuple(_CONFIG_USUARIO_KEYS) + ("technical_timeframe", "refresh_sec")
-_TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
+_CLAVES_SYNC_QUERY = tuple(_CONFIG_USUARIO_KEYS) + ("technical_timeframe",)
+
 
 def _qp_valor(k):
     v = st.query_params.get(k, None)
-    if isinstance(v, list): v = v[0] if v else None
+    if isinstance(v, list):
+        v = v[0] if v else None
     return None if v is None else str(v)
 
-def _estado_unico_inicial():
-    estado = {}
-    for k in _CLAVES_ESTADO_UNICO:
-        v = _qp_valor(k)
-        if v not in (None, ""): estado[k] = v
-    estado.setdefault("timeframe", "1m")
-    estado.setdefault("technical_timeframe", estado["timeframe"])
-    estado.setdefault("refresh_sec", "180" if PUBLIC_PREVIEW else "10")
-    return estado
 
-def _sincronizar_estado_unico():
-    """Única sincronización: URL -> Session State solo cuando _u indica una acción del usuario."""
+_TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
+
+# Controles NATIVOS: (param URL, key del widget, tipo, opciones/rango, defecto)
+#   tipos: sel (opciones) · num (0-25) · flt / int (rango min,max) · txt (largo máx.)
+_EMA_NATIVOS = []
+for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
+    _EMA_NATIVOS += [
+        (f"ema{_n}_estado", f"ts_ema{_n}_estado", "sel", ("Por encima", "Por debajo", "Neutro"), "Neutro"),
+        (f"ema{_n}_cond", f"ts_ema{_n}_cond", "sel", OPCIONES_COND_EMA, _cd),
+        (f"ema{_n}_dist", f"ts_ema{_n}_dist", "num", None, 0.5),
+    ]
+_FILTROS_NATIVOS = [
+    ("ema20_on", "ts_ema20_on", "sel", ("OFF", "ON"), "OFF"),
+    ("c_active", "ts_c_active", "sel", ("True", "False"), lambda: "True" if getattr(servicio, "encendido", True) else "False"),
+    ("c_lang", "ts_c_lang", "sel", ("ESP", "ENG", "POR", "FRA", "DEU", "ITA", "CHN", "JPN"), "ESP"),
+    ("c_wnd", "ts_c_wnd", "sel", ("Incrustada", "Flotante"), "Incrustada"),
+    ("f_price_min", "ts_f_price_min", "flt", (0.0, 100000.0), 0.50),
+    ("f_price_max", "ts_f_price_max", "flt", (0.0, 100000.0), 20.0),
+    ("f_gap_min", "ts_f_gap_min", "flt", (-100.0, 10000.0), 3.0),
+    ("f_gap_max", "ts_f_gap_max", "flt", (-100.0, 10000.0), 50.0),
+    ("f_gap_on", "ts_f_gap_on", "sel", ("OFF", "ON"), "OFF"),
+    ("f_float_on", "ts_f_float_on", "sel", ("OFF", "ON"), "OFF"),
+    ("f_float_max", "ts_f_float_max", "int", (0, 10 ** 12), 20_000_000),
+    ("f_vol", "ts_f_vol", "int", (0, 10 ** 12), 15_000),
+    ("f_vol_on", "ts_f_vol_on", "sel", ("OFF", "ON"), "OFF"),
+    ("f_mac", "ts_f_mac", "sel", ("Positivo", "Negativo", "No exigir"), "Positivo"),
+    ("f_order", "ts_f_order", "sel", ("Actualizado", "Cambio %", "Volumen"), "Actualizado"),
+    ("c_broker", "ts_c_broker", "sel", ("Interactive Brokers", "Tradestation", "Charles Schwab", "Otro"),
+     lambda: st.session_state.get("bk_nombre", "Interactive Brokers")),
+    ("c_url", "ts_c_url", "txt", 300, lambda: st.session_state.get("bk_puente", "http://localhost:8080/layout")),
+]
+_NATIVOS_TODOS = _EMA_NATIVOS + _FILTROS_NATIVOS
+_CLAVES_NATIVAS = {"timeframe"} | {_e[0] for _e in _NATIVOS_TODOS}
+
+
+def _norm_nativo(tipo, opciones, v):
+    if v is None:
+        return None
+    if tipo == "sel":
+        return v if v in opciones else None
+    if tipo == "txt":
+        t = str(v).strip()
+        return t[: int(opciones or 300)] if t else None
     try:
-        estado = st.session_state.get("_ts_estado_unico")
-        if not isinstance(estado, dict):
-            estado = _estado_unico_inicial()
-            st.session_state["_ts_estado_unico"] = estado
-        try: u_nuevo = int(float(_qp_valor("_u") or 0))
-        except Exception: u_nuevo = 0
-        u_visto = int(st.session_state.get("_ts_estado_unico_u", 0) or 0)
-        if u_nuevo > u_visto:
-            for k in _CLAVES_ESTADO_UNICO:
-                v = _qp_valor(k)
-                if v not in (None, ""): estado[k] = v
-            st.session_state["_ts_estado_unico_u"] = u_nuevo
-        if not PUBLIC_PREVIEW:
-            rv = st.session_state.get("_ts_refresh_canonico")
-            if rv not in (None, ""): estado["refresh_sec"] = str(max(5, int(float(rv))))
-        if estado.get("timeframe") not in _TF_VALIDOS: estado["timeframe"] = "1m"
-        if estado.get("technical_timeframe") not in _TF_VALIDOS: estado["technical_timeframe"] = estado["timeframe"]
-        try:
-            _refresh_estado = int(float(estado.get("refresh_sec", 180)))
-            estado["refresh_sec"] = str(180 if PUBLIC_PREVIEW else max(5, _refresh_estado))
-        except Exception:
-            estado["refresh_sec"] = "180" if PUBLIC_PREVIEW else "10"
-        for k,v in estado.items():
-            if k in _CLAVES_ESTADO_UNICO and _qp_valor(k) != str(v): st.query_params[k] = str(v)
-        return estado
+        x = float(v)
     except Exception:
-        if not isinstance(st.session_state.get("_ts_estado_unico"), dict):
-            st.session_state["_ts_estado_unico"] = _estado_unico_inicial()
-        return st.session_state["_ts_estado_unico"]
-
-_ts_estado_unico = _sincronizar_estado_unico()
-
-# Puente NATIVO FUERA del fragmento.
-# El HTML del scanner vive dentro de st.fragment; un st.button dibujado dentro
-# del fragmento solo puede provocar otro rerun del fragmento. Por eso el puente
-# que confirma cambios hechos desde el iframe debe vivir en el programa principal.
-# Este callback convierte la URL del navegador en la fuente de verdad de
-# _ts_estado_unico antes de que vuelva a ejecutarse el scanner.
-def _ts_confirmar_cambio_desde_iframe():
-    # Acciones de cuenta solicitadas desde el iframe.
-    # No usamos target=_top/window.location porque el iframe de Streamlit puede
-    # bloquear esa navegación. El iframe actualiza la URL del mismo documento
-    # padre y pulsa este puente nativo, que sí provoca el rerun de la aplicación.
-    try:
-        if str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes"):
-            cerrar_sesion()
-            st.session_state["mostrar_auth"] = False
-            for _k_logout in (
-                "_ts_iframe_clave", "_ts_iframe_html", "_ts_estado_unico",
-                "_ts_estado_unico_u", "_ts_refresh_canonico",
-                "_ts_refresh_fragment_started",
-            ):
-                st.session_state.pop(_k_logout, None)
-            st.query_params.clear()
-            st.rerun()
-        if str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes"):
-            st.session_state["mostrar_auth"] = True
-            st.query_params.pop("auth", None)
-            st.rerun()
-    except Exception:
-        pass
-    try:
-        estado = st.session_state.get("_ts_estado_unico")
-        if not isinstance(estado, dict):
-            estado = {}
-            st.session_state["_ts_estado_unico"] = estado
-        for k in _CLAVES_ESTADO_UNICO:
-            v = _qp_valor(k)
-            if v not in (None, ""):
-                estado[k] = str(v)
-        try:
-            u_actual = int(float(_qp_valor("_u") or 0))
-        except Exception:
-            u_actual = 0
-        if u_actual:
-            st.session_state["_ts_estado_unico_u"] = u_actual
-        _guardar_ultima_configuracion_servidor()
-    except Exception as _bridge_error:
-        print(f"⚠️ Error confirmando estado del scanner: {_bridge_error}")
-
-st.markdown(
-    "<style>.st-key-ts_nav_bridge{display:none !important;}</style>",
-    unsafe_allow_html=True,
-)
-st.button(
-    "TSNAVBRIDGE",
-    key="ts_nav_bridge",
-    on_click=_ts_confirmar_cambio_desde_iframe,
-)
-
-# Controles de cuenta NATIVOS, fuera del iframe del scanner.
-# Se colocan visualmente sobre la esquina superior derecha de la carátula,
-# pero sus callbacks ejecutan directamente en el documento Streamlit principal.
-def _ts_auth_nativo():
-    st.session_state["mostrar_auth"] = True
-    st.rerun()
-
-def _ts_logout_nativo():
-    cerrar_sesion()
-    st.session_state["mostrar_auth"] = False
-    for _k_logout in (
-        "_ts_iframe_clave", "_ts_iframe_html", "_ts_estado_unico",
-        "_ts_estado_unico_u", "_ts_refresh_canonico",
-        "_ts_refresh_fragment_started",
-    ):
-        st.session_state.pop(_k_logout, None)
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-    st.rerun()
-
-st.markdown("""
-<style>
-.st-key-ts_account_native{
-    position:fixed !important;
-    top:56px !important;
-    right:18px !important;
-    z-index:100000 !important;
-    width:auto !important;
-    pointer-events:none !important;
-}
-.st-key-ts_account_native > div{
-    display:flex !important;
-    justify-content:flex-end !important;
-    gap:6px !important;
-    pointer-events:auto !important;
-}
-.st-key-ts_account_native button{
-    height:27px !important;
-    min-height:27px !important;
-    padding:0 9px !important;
-    border:1px solid #555 !important;
-    border-radius:0 !important;
-    background:#222 !important;
-    color:#fff !important;
-    font-size:10px !important;
-    font-weight:900 !important;
-    white-space:nowrap !important;
-}
-.st-key-ts_account_native button:hover{background:#333 !important;}
-.st-key-ts_account_native .stButton > button:last-child{border-color:#7a3b3b !important;}
-@media(max-width:640px){
-    .st-key-ts_account_native{top:72px !important;right:8px !important;}
-    .st-key-ts_account_native button{height:25px !important;min-height:25px !important;font-size:8px !important;padding:0 6px !important;}
-}
-</style>
-""", unsafe_allow_html=True)
-with st.container(key="ts_account_native"):
-    if PUBLIC_PREVIEW:
-        st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_account_login_native", on_click=_ts_auth_nativo)
+        return None
+    if tipo == "num":
+        mn, mx = 0.0, 25.0
     else:
-        st.button("CUENTA / REGISTRO", key="ts_account_open_native", on_click=_ts_auth_nativo)
-        st.button("SALIR", key="ts_account_logout_native", on_click=_ts_logout_nativo)
+        mn, mx = opciones
+    x = max(mn, min(mx, x))
+    if tipo == "int":
+        return int(x)
+    return round(x, 4 if tipo == "flt" else 2)
 
-if True:
+
+def _valor_defecto_nativo(tipo, opciones, defecto):
+    d = defecto() if callable(defecto) else defecto
+    val = _norm_nativo(tipo, opciones, d)
+    if val is None:
+        val = opciones[0] if tipo == "sel" else (0 if tipo == "int" else (0.0 if tipo in ("num", "flt") else ""))
+    return val
+
+
+def _sincronizar_nativos(accion_js):
+    """El widget nativo manda; la URL solo se acepta al cargar por primera vez o al
+    cargar una configuración guardada. Así el refresh nunca revierte lo elegido."""
+    almacen = st.session_state.get("_ts_query_elegida")
+    for qk, wk, tipo, ops, defecto in _NATIVOS_TODOS:
+        w = _norm_nativo(tipo, ops, st.session_state.get(wk))
+        previo = st.session_state.get("_ts_prev_" + wk)
+        u = _norm_nativo(tipo, ops, _qp_valor(qk))
+        if accion_js and u is not None:
+            # Cambio recién hecho por el usuario: la URL recién escrita manda.
+            val = u
+        elif w is not None and w != previo:
+            # Cambio directo del widget nativo: capturarlo y convertirlo en estado canónico.
+            val = w
+        elif isinstance(almacen, dict) and qk in almacen:
+            # AUTO-REFRESH: conservar el último valor confirmado por esta sesión.
+            # La URL puede contener una copia antigua; no debe ganar al estado canónico.
+            val = _norm_nativo(tipo, ops, almacen.get(qk))
+            if val is None:
+                val = u if u is not None else (previo if previo is not None else w)
+        elif previo is not None:
+            val = previo
+        elif u is not None:
+            val = u
+        elif w is not None:
+            val = w
+        else:
+            val = _valor_defecto_nativo(tipo, ops, defecto)
+        st.session_state["_ts_prev_" + wk] = val
+        if tipo in ("num", "flt"):
+            val = float(val)
+            txt = f"{val:g}"
+        elif tipo == "int":
+            val = int(val)
+            txt = str(val)
+        else:
+            txt = str(val)
+        if st.session_state.get(wk) != val:
+            st.session_state[wk] = val
+        if _qp_valor(qk) != txt:
+            st.query_params[qk] = txt
+        if isinstance(almacen, dict):
+            almacen[qk] = txt
+
+
+def _sincronizar_timeframe(tf_url, accion_js):
+    """La temporalidad la decide el selector nativo de Streamlit (key ts_tf_sel).
+
+    Un widget nativo vive en st.session_state y NO depende de la URL ni del puente
+    del iframe, por eso ya no rebota a 1m. La URL solo se usa al cargar por primera
+    vez o cuando el usuario carga una configuración guardada.
+    """
+    widget = st.session_state.get("ts_tf_sel")
+    previo = st.session_state.get("_ts_tf_elegido")
+    almacen = st.session_state.get("_ts_query_elegida")
+    if accion_js and tf_url in _TF_VALIDOS:
+        tf = tf_url
+    elif widget in _TF_VALIDOS and widget != previo:
+        tf = widget
+    elif isinstance(almacen, dict) and almacen.get("timeframe") in _TF_VALIDOS:
+        tf = almacen.get("timeframe")
+    elif previo in _TF_VALIDOS:
+        tf = previo
+    elif tf_url in _TF_VALIDOS:
+        tf = tf_url
+    elif widget in _TF_VALIDOS:
+        tf = widget
+    else:
+        tf = "1m"
+    st.session_state["_ts_tf_elegido"] = tf
+    if st.session_state.get("ts_tf_sel") != tf:
+        st.session_state["ts_tf_sel"] = tf
+    if _qp_valor("timeframe") != tf:
+        st.query_params["timeframe"] = tf
+    almacen = st.session_state.get("_ts_query_elegida")
+    if isinstance(almacen, dict):
+        almacen["timeframe"] = tf
+
+
+def _sincronizar_query_con_sesion():
+    """La temporalidad y los filtros que elige el usuario NO se pierden con el refresh.
+
+    Toda acción del usuario en la carátula (JS) añade a la URL una marca `_u`
+    creciente. `_u` nueva = acción del usuario (se guarda lo de la URL); cualquier
+    otro rerun (refresh, reconexión, URL vieja) = se re-impone lo último elegido.
+    La temporalidad se maneja aparte (_sincronizar_timeframe).
+    """
+    try:
+        auto = bool(st.session_state.pop("_ts_rerun_auto", False))
+        tf_url = _qp_valor("timeframe")
+        guardado = st.session_state.get("_ts_query_elegida")
+        if not isinstance(guardado, dict):
+            guardado = {}
+        try:
+            u_nuevo = int(float(_qp_valor("_u") or 0))
+        except Exception:
+            u_nuevo = 0
+        u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
+        accion_js = (not auto) and u_nuevo > u_visto
+
+        # Estado canónico por sesión:
+        # - una acción del usuario captura la URL nueva;
+        # - cualquier auto-refresh reutiliza ese estado, sin leer una URL antigua.
+        if accion_js:
+            nuevo = {}
+            for k in _CLAVES_SYNC_QUERY:
+                v = _qp_valor(k)
+                if v is not None and v != "":
+                    nuevo[k] = v
+            if nuevo:
+                st.session_state["_ts_query_elegida"] = nuevo
+        elif guardado:
+            # No dejamos que el auto-refresh sustituya los valores elegidos.
+            for k, v in guardado.items():
+                # refresh_sec tiene su propio arbitraje de prioridad más abajo.
+                # No lo reescribimos aquí, porque una selección nueva en la
+                # URL podría ser reemplazada por un valor antiguo de sesión.
+                if k in ("timeframe", "refresh_sec"):
+                    continue
+                if _qp_valor(k) != v:
+                    st.query_params[k] = v
+            if guardado.get("timeframe") and _qp_valor("timeframe") != guardado.get("timeframe"):
+                st.query_params["timeframe"] = guardado["timeframe"]
+        else:
+            # Primera carga sin estado previo: tomar la URL existente.
+            nuevo = {}
+            for k in _CLAVES_SYNC_QUERY:
+                v = _qp_valor(k)
+                if v is not None and v != "":
+                    nuevo[k] = v
+            if nuevo:
+                st.session_state["_ts_query_elegida"] = nuevo
+        # REFRESH: un refresh_sec explícito en la URL representa la selección
+        # actual. Debe pasar al estado canónico antes de cualquier auto-refresh.
+        try:
+            _rv_q = _qp_valor("refresh_sec")
+            _rv_guardado = guardado.get("refresh_sec") if isinstance(guardado, dict) else None
+            _rv_canon = st.session_state.get("_ts_refresh_canonico")
+            if not PUBLIC_PREVIEW:
+                if _rv_q not in (None, ""):
+                    _rv_num = max(5, int(float(_rv_q)))
+                    # Si la URL contiene un valor válido, es el estado que
+                    # acaba de llegar del selector y debe adoptarse como
+                    # canónico, incluso si la sesión conserva un valor viejo.
+                    st.session_state["_ts_refresh_canonico"] = _rv_num
+                    if isinstance(st.session_state.get("_ts_query_elegida"), dict):
+                        st.session_state["_ts_query_elegida"]["refresh_sec"] = str(_rv_num)
+                elif _rv_canon not in (None, ""):
+                    st.query_params["refresh_sec"] = str(max(5, int(float(_rv_canon))))
+                elif _rv_guardado not in (None, ""):
+                    _rv_num = max(5, int(float(_rv_guardado)))
+                    st.session_state["_ts_refresh_canonico"] = _rv_num
+                    st.query_params["refresh_sec"] = str(_rv_num)
+        except Exception:
+            pass
+        st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
+        _sincronizar_timeframe(tf_url, accion_js)
+        _sincronizar_nativos(accion_js)
+    except Exception:
+        pass
+
+
+_sincronizar_query_con_sesion()
+
+if True:  # el visitante también se refresca (cada 3 min); el usuario registrado elige su intervalo
     _st_fragment = getattr(st, "fragment", None)
     if _st_fragment is not None:
         @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
         def _refresco_nativo_scanner():
-            # El fragmento se vuelve a ejecutar solo; no hacemos st.rerun()
-            # del programa completo. Así el refresh periódico actualiza el
-            # scanner sin relanzar todo app.py y sin provocar throttle de CPU.
-            _render_scanner()
+            # La primera ejecución del fragmento ocurre inmediatamente al cargar
+            # la página. No debemos hacer rerun en ese instante porque produciría
+            # un ciclo de reruns. Las siguientes ejecuciones llegan por run_every.
+            if not st.session_state.get("_ts_refresh_fragment_started", False):
+                st.session_state["_ts_refresh_fragment_started"] = True
+                return
+            # run_every vuelve a ejecutar solamente este fragmento; st.rerun()
+            # (sin scope) solicita un rerun completo de la aplicación.
+            st.session_state["_ts_refresh_fragment_started"] = False
+            # Marca este rerun como AUTOMÁTICO: así _sincronizar_query_con_sesion()
+            # vuelve a imponer la temporalidad/filtros que el usuario eligió.
+            st.session_state["_ts_rerun_auto"] = True
+            st.rerun()
         _refresco_nativo_scanner()
-    else:
-        # Compatibilidad con versiones de Streamlit sin st.fragment.
-        _render_scanner()
+
+_render_scanner()
