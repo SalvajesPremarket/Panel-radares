@@ -4627,17 +4627,16 @@ def _render_scanner():
     # ── Controles NATIVOS solo de cuenta ──
     def _ts_abrir_auth(): st.session_state["mostrar_auth"] = True
     def _ts_salir():
-        # Salida robusta también en móvil: dejamos una marca nativa de logout
-        # para que el siguiente rerun vuelva a pasar por el bloque global
-        # LOGOUT_REQUESTED, en lugar de depender solo de la navegación del iframe.
+        # Logout directo y nativo. No dependemos de query_params ni de
+        # navegación del iframe: al terminar el callback la siguiente
+        # ejecución verá mostrar_auth=True y no encontrará una identidad activa.
         cerrar_sesion()
         for _k in ("_ts_estado_unico", "_ts_estado_unico_u", "_ts_refresh_canonico",
                    "auth_session_id", "auth_ok"):
             st.session_state.pop(_k, None)
-        st.session_state["mostrar_auth"] = False
+        st.session_state["mostrar_auth"] = True
         try:
             st.query_params.clear()
-            st.query_params["logout"] = "1"
         except Exception:
             pass
     with st.container(key="ts_ctrl_bar"):
