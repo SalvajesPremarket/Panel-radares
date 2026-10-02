@@ -1275,6 +1275,11 @@ _AUTH_ACTIVA = (
 # este orden daba prioridad a _AUTH_ACTIVA y volvía a ocultarla inmediatamente,
 # por lo que el botón parecía no responder.
 if st.session_state.get("mostrar_auth"):
+    # El fragmento de refresh queda detenido mientras estamos en autenticación.
+    # Al volver al scanner debe empezar desde cero; de lo contrario, si ya
+    # estaba marcado como iniciado, su primera ejecución posterior al login
+    # llamaría st.rerun() inmediatamente y produciría un bucle de parpadeo.
+    st.session_state["_ts_refresh_fragment_started"] = False
     pantalla_autenticacion()
     st.stop()
 
