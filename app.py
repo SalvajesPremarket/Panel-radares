@@ -1253,22 +1253,27 @@ if AUTH_REQUESTED:
     except Exception:
         pass
 
-# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
-# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
-# Cuando el usuario pide explícitamente REGISTRO / LOGIN, la pantalla de
-# autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
-# Esto evita que la restauración automática bloquee el botón de acceso.
-if st.session_state.get("mostrar_auth"):
+# Primero restauramos una sesión persistente si todavía no hay una identidad
+# activa. Esto evita que un estado antiguo de "mostrar_auth" bloquee una sesión
+# que acaba de validarse.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+
+_AUTH_ACTIVA = (
+    "token_verificado" in st.session_state
+    or "usuario_auth" in st.session_state
+)
+
+# Una sesión autenticada siempre tiene prioridad sobre una bandera antigua
+# de pantalla de acceso. Así, después de VALIDAR ACCESO, el siguiente rerun
+# entra directamente al scanner.
+if _AUTH_ACTIVA:
+    st.session_state["mostrar_auth"] = False
+elif st.session_state.get("mostrar_auth"):
     pantalla_autenticacion()
     st.stop()
 
-# Restauración normal de sesión solamente cuando no se está mostrando Auth.
-if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
-    _restaurar_sesion_persistente()
-    PUBLIC_PREVIEW = (
-        "token_verificado" not in st.session_state
-        and "usuario_auth" not in st.session_state
-    )
+PUBLIC_PREVIEW = not _AUTH_ACTIVA
 
 # =========================================================
 # IDENTIDAD ACTIVA
