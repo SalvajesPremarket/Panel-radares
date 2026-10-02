@@ -3963,6 +3963,36 @@ def _render_scanner():
     except Exception:
         pass
 
+    # Reconciliación también dentro del fragmento de refresh.
+    # st.fragment vuelve a ejecutar _render_scanner() sin repetir todo el
+    # programa, por lo que aquí debemos incorporar cualquier acción técnica
+    # confirmada por _u directamente al estado único antes de dibujar.
+    try:
+        _estado_sync = st.session_state.get("_ts_estado_unico")
+        if not isinstance(_estado_sync, dict):
+            _estado_sync = {}
+            st.session_state["_ts_estado_unico"] = _estado_sync
+        try:
+            _u_nuevo = int(float(st.query_params.get("_u", 0) or 0))
+        except Exception:
+            _u_nuevo = 0
+        _u_visto = int(st.session_state.get("_ts_estado_unico_u", 0) or 0)
+        if _u_nuevo > _u_visto:
+            for _k_sync in (
+                "ema20_estado", "ema50_estado", "ema200_estado",
+                "ema20_cond", "ema50_cond", "ema200_cond",
+                "ema20_dist", "ema50_dist", "ema200_dist",
+                "rsi_min", "rsi_max", "timeframe", "technical_timeframe",
+            ):
+                _v_sync = st.query_params.get(_k_sync, None)
+                if isinstance(_v_sync, list):
+                    _v_sync = _v_sync[0] if _v_sync else None
+                if _v_sync not in (None, ""):
+                    _estado_sync[_k_sync] = str(_v_sync)
+            st.session_state["_ts_estado_unico_u"] = _u_nuevo
+    except Exception:
+        pass
+
     _estado = st.session_state.get("_ts_estado_unico", {})
     def _qtxt(nombre, defecto):
         try: return str(_estado.get(nombre, defecto))
