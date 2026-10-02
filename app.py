@@ -4404,6 +4404,7 @@ def _render_scanner():
     h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
     h += "function abrirAutenticacion(){try{var q=_qtop();q.set('auth','1');q.delete('_ts');q.set('_u',String(Date.now()));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);var u='/?'+q.toString();try{window.top.location.assign(u);return;}catch(_nav1){}try{window.parent.location.assign(u);return;}catch(_nav2){}try{_navegarMismaApp(q);return;}catch(_bridge){}try{window.location.assign(u);}catch(_last){}}catch(e){try{window.top.location.assign('/?auth=1');}catch(_e){window.location.assign('/?auth=1');}}}"
+    h += "function salirSesion(){try{var q=_qtop();q.delete('auth');q.delete('auth_session');q.delete('_ts');q.set('logout','1');q.set('_u',String(Date.now()));var u='/?'+q.toString();try{window.top.location.assign(u);return;}catch(_a){}try{window.parent.location.assign(u);return;}catch(_b){}try{window.location.assign(u);}catch(_c){}}catch(e){try{window.top.location.assign('/?logout=1');}catch(_e){window.location.assign('/?logout=1');}}}"
     h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
@@ -4419,6 +4420,7 @@ def _render_scanner():
         h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()' style='height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;'>📝 REGISTRO / INICIAR SESIÓN</button>"
     else:
         h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()' style='height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;'>CUENTA / REGISTRO</button>"
+        h += "<button type='button' class='auth-link' onclick='salirSesion()' style='height:27px;margin-left:5px;padding:0 9px;border:1px solid #7a3b3b;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;'>SALIR</button>"
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
     h += "</div>"  # cierra topbar
@@ -4686,31 +4688,6 @@ def _render_scanner():
     # Un solo iframe. La altura permite mostrar controles y tabla sin crear un
     # segundo marco blanco debajo.
     h = _panel_final
-
-    # ── Controles NATIVOS solo de cuenta ──
-    def _ts_abrir_auth(): st.session_state["mostrar_auth"] = True
-    def _ts_salir():
-        # Logout directo y nativo. No dependemos de query_params ni de
-        # navegación del iframe: al terminar el callback la siguiente
-        # ejecución verá mostrar_auth=True y no encontrará una identidad activa.
-        cerrar_sesion()
-        for _k in ("_ts_estado_unico", "_ts_estado_unico_u", "_ts_refresh_canonico",
-                   "auth_session_id", "auth_ok"):
-            st.session_state.pop(_k, None)
-        st.session_state["mostrar_auth"] = True
-        try:
-            st.query_params.clear()
-        except Exception:
-            pass
-    with st.container(key="ts_ctrl_bar"):
-        if PUBLIC_PREVIEW:
-            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
-        else:
-            _n1,_n2,_n3=st.columns([1.2,1,1])
-            with _n1: st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
-            with _n2: st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
-            with _n3: st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
-
 
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
