@@ -2627,10 +2627,16 @@ class ServicioScanner:
             return False
         ahora = time.time()
         try:
-            ultima_bulk = float(self.cache_fund.get("__bulk_meta__", {}).get("ts", 0))
+            _meta_b = self.cache_fund.get("__bulk_meta__", {}) or {}
+            ultima_bulk = float(_meta_b.get("ts", 0))
+            _enc_prev = int(_meta_b.get("encontrados", 0) or 0)
         except Exception:
             ultima_bulk = 0.0
-        if ahora - ultima_bulk < FMP_BULK_FLOAT_TTL:
+            _enc_prev = 0
+        # Si la ultima carga no encontro NINGUN float (clave mala, limite 429, etc.) se
+        # reintenta en ~15 min en vez de esperar 12 horas con el scanner sin datos de float.
+        _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else 900
+        if ahora - ultima_bulk < _ventana_bulk:
             return False
         try:
             universo_set = set(self.universo or [])
@@ -3182,7 +3188,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Mientras termina, los candidatos nuevos usan el endpoint individual como respaldo.
         try:
             meta_bulk = self.cache_fund.get("__bulk_meta__", {}) if isinstance(self.cache_fund, dict) else {}
-            bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= FMP_BULK_FLOAT_TTL
+            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else 900
+            bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= _ventana_chk
         except Exception:
             bulk_stale = True
         if bulk_stale and not getattr(self, "_bulk_float_running", False):
