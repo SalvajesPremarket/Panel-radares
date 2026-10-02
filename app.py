@@ -1428,8 +1428,11 @@ def _guardar_ultima_configuracion_servidor():
 
 # Al volver a entrar con la misma cuenta, recuperar la última configuración
 # antes de construir la interfaz. Así el refresh tampoco vuelve a 3 minutos.
-if _restaurar_ultima_configuracion_servidor():
-    st.rerun()
+# IMPORTANTE: no hacemos st.rerun() aquí. Los valores restaurados quedan
+# disponibles para el resto de esta misma ejecución. Forzar un rerun durante
+# el login podía crear un ciclo de reruns y dejar la autenticación parpadeando
+# en lugar de entrar al scanner.
+_restaurar_ultima_configuracion_servidor()
 
 
 # Solo los tokens configurados como ADMIN pueden ser administradores.
