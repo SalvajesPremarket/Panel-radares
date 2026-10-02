@@ -1167,7 +1167,7 @@ def pantalla_autenticacion():
                         st.session_state["auth_session_id"] = _sid
                         st.session_state["auth_ok"] = True
                         st.session_state["mostrar_auth"] = False
-                st.query_params["_new_login"] = "1"
+                        st.query_params["_new_login"] = "1"
                         st.query_params["auth_session"] = _sid
                         st.query_params.pop("auth", None)
                         st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
