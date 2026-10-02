@@ -4627,13 +4627,19 @@ def _render_scanner():
     # ── Controles NATIVOS solo de cuenta ──
     def _ts_abrir_auth(): st.session_state["mostrar_auth"] = True
     def _ts_salir():
+        # Salida robusta también en móvil: dejamos una marca nativa de logout
+        # para que el siguiente rerun vuelva a pasar por el bloque global
+        # LOGOUT_REQUESTED, en lugar de depender solo de la navegación del iframe.
         cerrar_sesion()
-        st.session_state.pop("_ts_estado_unico", None)
-        st.session_state.pop("_ts_estado_unico_u", None)
-        st.session_state.pop("_ts_refresh_canonico", None)
+        for _k in ("_ts_estado_unico", "_ts_estado_unico_u", "_ts_refresh_canonico",
+                   "auth_session_id", "auth_ok"):
+            st.session_state.pop(_k, None)
         st.session_state["mostrar_auth"] = False
-        try: st.query_params.clear()
-        except Exception: pass
+        try:
+            st.query_params.clear()
+            st.query_params["logout"] = "1"
+        except Exception:
+            pass
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
             st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
