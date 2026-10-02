@@ -1197,8 +1197,7 @@ def pantalla_autenticacion():
                 _token_admin = str(st.session_state.get("admin_token_login", "")).strip()
                 _es_valido_admin, _estado_admin = verificar_token(_token_admin)
 
-                if _es_valido_admin:
-                    cerrar_sesion()
+                if _es_valido_admin:                    cerrar_sesion()
                     st.session_state["token_verificado"] = _token_admin
                     st.session_state["fecha_vencimiento"] = _estado_admin
                     st.session_state["tipo_acceso"] = "admin"
@@ -2397,7 +2396,6 @@ class ServicioScanner:
         with self._lock_reinicio:
             hilo_anterior = self._hilo
             self._detener_hilo.set()
-
             # Espera brevemente a que el hilo anterior termine su ciclo actual.
             if hilo_anterior is not None and hilo_anterior.is_alive() and hilo_anterior is not threading.current_thread():
                 hilo_anterior.join(timeout=max(2.0, INTERVALO_ESCANEO_SEGUNDOS + 1.0))
@@ -3597,8 +3595,7 @@ st.markdown("""
         background:transparent !important;
         box-shadow:none !important;
         border:none !important;
-        outline:none !important;
-    }
+        outline:none !important;    }
     div[data-baseweb="select"] * { color:#f1f1f1 !important; box-shadow:none !important; }
 
     /* CORRECCIÓN DEFINITIVA: eliminar el marco/fondo blanco que Streamlit/BaseWeb
@@ -4874,10 +4871,11 @@ if True:
     if _st_fragment is not None:
         @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
         def _refresco_nativo_scanner():
-            if not st.session_state.get("_ts_refresh_fragment_started", False):
-                st.session_state["_ts_refresh_fragment_started"] = True
-                return
-            st.rerun()
+            # El fragmento se vuelve a ejecutar solo; no hacemos st.rerun()
+            # del programa completo. Así el refresh periódico actualiza el
+            # scanner sin relanzar todo app.py y sin provocar throttle de CPU.
+            _render_scanner()
         _refresco_nativo_scanner()
-
-_render_scanner()
+    else:
+        # Compatibilidad con versiones de Streamlit sin st.fragment.
+        _render_scanner()
