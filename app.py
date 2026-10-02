@@ -4619,7 +4619,21 @@ def _render_scanner():
     _hilo_vivo = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
     _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
     _universo_txt = str(len(getattr(servicio, "universo", []) or []))
-    h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
+    _diag_ui = getattr(servicio, "diag_por_tf", {}).get(timeframe_ui, {}) or {}
+    if ES_ADMIN and _diag_ui:
+        _diag_txt = (
+            f" · Embudo: base {_diag_ui.get('radar_base', 0)}"
+            f" → técnico {_diag_ui.get('enviados_tecnico', 0)}"
+            f" → ≥40 {_diag_ui.get('con_40_barras', 0)}"
+            f" → EMA {_diag_ui.get('ema_arriba', 0)}"
+            f" → MACD+ {_diag_ui.get('macd_positivo', 0)}"
+            f" → E+M {_diag_ui.get('ema_y_macd', 0)}"
+            f" → float {_diag_ui.get('tras_float', 0)}"
+            f" → final {_diag_ui.get('resultados', 0)}"
+        )
+    else:
+        _diag_txt = ""
+    h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}{_safe_text(_diag_txt)}</span></div>"
 
     # Insertamos el bloque de resultados dentro del mismo main-container del panel.
     _panel_final = _h_a.rsplit("</div></body></html>", 1)[0]
