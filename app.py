@@ -1270,12 +1270,11 @@ _AUTH_ACTIVA = (
     or "usuario_auth" in st.session_state
 )
 
-# Una sesión autenticada siempre tiene prioridad sobre una bandera antigua
-# de pantalla de acceso. Así, después de VALIDAR ACCESO, el siguiente rerun
-# entra directamente al scanner.
-if _AUTH_ACTIVA:
-    st.session_state["mostrar_auth"] = False
-elif st.session_state.get("mostrar_auth"):
+# La pantalla de autenticación también debe poder abrirse cuando ya existe
+# una sesión: el botón CUENTA / REGISTRO la solicita explícitamente. Antes
+# este orden daba prioridad a _AUTH_ACTIVA y volvía a ocultarla inmediatamente,
+# por lo que el botón parecía no responder.
+if st.session_state.get("mostrar_auth"):
     pantalla_autenticacion()
     st.stop()
 
