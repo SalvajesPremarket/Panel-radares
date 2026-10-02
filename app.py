@@ -4411,9 +4411,8 @@ def _render_scanner():
     h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
     h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-    h += "function _cuentaBridge(param){try{var P=window.top;var q=new URLSearchParams(P.location.search||'');q.set(param,'1');q.set('_u',String(Date.now()));P.history.replaceState(null,'','/?'+q.toString());var bs=P.document.querySelectorAll('button');for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){bs[i].click();return false;}}}catch(e){}return false}"
-    h += "function abrirAutenticacion(){return _cuentaBridge('auth')}"
-    h += "function salirSesion(){return _cuentaBridge('logout')}"
+    h += "function abrirAutenticacion(){return false}"
+    h += "function salirSesion(){return false}"
     h += "function cambiarRefresh(v){if(!TS_AUTH){return}var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));try{window.top.location.replace('/?'+q.toString());return}catch(e){}try{window.parent.location.replace('/?'+q.toString());return}catch(e2){}_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
@@ -4422,18 +4421,10 @@ def _render_scanner():
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
-    # La cuenta vive DENTRO de la misma carátula. El click navega directamente
-    # al estado nativo de autenticación; no depende de un botón Streamlit que
-    # quede debajo/detrás del iframe.
-    # IMPORTANTE: estos enlaces usan navegación HTML target=_top.
-    # No usamos window.location desde el iframe: los fallbacks anteriores
-    # podían quedar atrapados dentro del iframe y crear una segunda ventana
-    # de Streamlit sobre la original.
-    if PUBLIC_PREVIEW:
-        h += "<a class='auth-link' href='#' onclick='return abrirAutenticacion()' style='display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>📝 REGISTRO / INICIAR SESIÓN</a>"
-    else:
-        h += "<a class='auth-link' href='#' onclick='return abrirAutenticacion()' style='display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>CUENTA / REGISTRO</a>"
-        h += "<a class='auth-link' href='#' onclick='return salirSesion()' style='display:inline-flex;align-items:center;height:27px;margin-left:5px;padding:0 9px;border:1px solid #7a3b3b;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;text-decoration:none;'>SALIR</a>"
+    # Los controles de cuenta se renderizan como widgets nativos de Streamlit
+    # fuera del iframe. El iframe ya no intenta navegar ni acceder al documento padre.
+    # Esto evita el bloqueo de seguridad que impedía que SALIR ejecutara logout.
+    h += "<span style='display:none'>ACCOUNT_CONTROLS_NATIVE</span>"
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
     h += "</div>"  # cierra topbar
@@ -4965,6 +4956,71 @@ st.button(
     key="ts_nav_bridge",
     on_click=_ts_confirmar_cambio_desde_iframe,
 )
+
+# Controles de cuenta NATIVOS, fuera del iframe del scanner.
+# Se colocan visualmente sobre la esquina superior derecha de la carátula,
+# pero sus callbacks ejecutan directamente en el documento Streamlit principal.
+def _ts_auth_nativo():
+    st.session_state["mostrar_auth"] = True
+    st.rerun()
+
+def _ts_logout_nativo():
+    cerrar_sesion()
+    st.session_state["mostrar_auth"] = False
+    for _k_logout in (
+        "_ts_iframe_clave", "_ts_iframe_html", "_ts_estado_unico",
+        "_ts_estado_unico_u", "_ts_refresh_canonico",
+        "_ts_refresh_fragment_started",
+    ):
+        st.session_state.pop(_k_logout, None)
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    st.rerun()
+
+st.markdown("""
+<style>
+.st-key-ts_account_native{
+    position:fixed !important;
+    top:56px !important;
+    right:18px !important;
+    z-index:100000 !important;
+    width:auto !important;
+    pointer-events:none !important;
+}
+.st-key-ts_account_native > div{
+    display:flex !important;
+    justify-content:flex-end !important;
+    gap:6px !important;
+    pointer-events:auto !important;
+}
+.st-key-ts_account_native button{
+    height:27px !important;
+    min-height:27px !important;
+    padding:0 9px !important;
+    border:1px solid #555 !important;
+    border-radius:0 !important;
+    background:#222 !important;
+    color:#fff !important;
+    font-size:10px !important;
+    font-weight:900 !important;
+    white-space:nowrap !important;
+}
+.st-key-ts_account_native button:hover{background:#333 !important;}
+.st-key-ts_account_native .stButton > button:last-child{border-color:#7a3b3b !important;}
+@media(max-width:640px){
+    .st-key-ts_account_native{top:72px !important;right:8px !important;}
+    .st-key-ts_account_native button{height:25px !important;min-height:25px !important;font-size:8px !important;padding:0 6px !important;}
+}
+</style>
+""", unsafe_allow_html=True)
+with st.container(key="ts_account_native"):
+    if PUBLIC_PREVIEW:
+        st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_account_login_native", on_click=_ts_auth_nativo)
+    else:
+        st.button("CUENTA / REGISTRO", key="ts_account_open_native", on_click=_ts_auth_nativo)
+        st.button("SALIR", key="ts_account_logout_native", on_click=_ts_logout_nativo)
 
 if True:
     _st_fragment = getattr(st, "fragment", None)
