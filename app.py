@@ -4403,7 +4403,7 @@ def _render_scanner():
     h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
     h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
-    h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
+    h += "function abrirAutenticacion(){try{var q=_qtop();q.set('auth','1');q.delete('_ts');q.set('_u',String(Date.now()));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);var u='/?'+q.toString();try{window.top.location.assign(u);return;}catch(_nav1){}try{window.parent.location.assign(u);return;}catch(_nav2){}try{_navegarMismaApp(q);return;}catch(_bridge){}try{window.location.assign(u);}catch(_last){}}catch(e){try{window.top.location.assign('/?auth=1');}catch(_e){window.location.assign('/?auth=1');}}}"
     h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
@@ -4412,7 +4412,13 @@ def _render_scanner():
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
-    # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
+    # La cuenta vive DENTRO de la misma carátula. El click navega directamente
+    # al estado nativo de autenticación; no depende de un botón Streamlit que
+    # quede debajo/detrás del iframe.
+    if PUBLIC_PREVIEW:
+        h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()' style='height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;'>📝 REGISTRO / INICIAR SESIÓN</button>"
+    else:
+        h += "<button type='button' class='auth-link' onclick='abrirAutenticacion()' style='height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;font-size:10px;font-weight:900;cursor:pointer;'>CUENTA / REGISTRO</button>"
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
     h += "</div>"  # cierra topbar
