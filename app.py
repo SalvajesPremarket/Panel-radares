@@ -4468,7 +4468,7 @@ def _render_scanner():
             v=_v('cfg_lang', lang_val)
             langs=(('ESP','Español'),('ENG','English'),('POR','Português'),('FRA','Français'),('DEU','Deutsch'),('ITA','Italiano'),('CHN','中文'),('JPN','日本語'))
             opts=''.join(f"<option value='{k}' {'selected' if v==k else ''}>{name}</option>" for k,name in langs)
-            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_lang' onchange='pushConfig();aplicarIdioma(this.value)'>{opts}</select></div>"
+            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_lang' onchange='aplicarIdioma(this.value);pushConfig()'>{opts}</select></div>"
         if label == "BROKER":
             v=_v('cfg_broker', broker_val)
             return f"<div class='filtro-item'><label>{label}</label><select id='cfg_broker' onchange='pushConfig()'><option value='Interactive Brokers' {'selected' if v=='Interactive Brokers' else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if v=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if v=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if v=='Otro' else ''}>Otro</option></select></div>"
