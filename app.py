@@ -3935,30 +3935,18 @@ def _render_scanner():
     except Exception:
         pass
 
-    # Valores de interfaz seguros. Se leen de query_params para que los cambios
-    # realizados desde la carátula puedan sobrevivir al rerun de Streamlit.
+    _estado = st.session_state.get("_ts_estado_unico", {})
     def _qtxt(nombre, defecto):
-        try:
-            valor = st.query_params.get(nombre, defecto)
-            if isinstance(valor, list):
-                valor = valor[0] if valor else defecto
-            return str(valor)
-        except Exception:
-            return str(defecto)
-
+        try: return str(_estado.get(nombre, defecto))
+        except Exception: return str(defecto)
 
     def _qfloat(nombre, defecto):
-        try:
-            return float(_qtxt(nombre, defecto))
-        except Exception:
-            return float(defecto)
-
+        try: return float(_qtxt(nombre, defecto))
+        except Exception: return float(defecto)
 
     def _qint(nombre, defecto):
-        try:
-            return int(float(_qtxt(nombre, defecto)))
-        except Exception:
-            return int(defecto)
+        try: return int(float(_qtxt(nombre, defecto)))
+        except Exception: return int(defecto)
 
 
     precio_min_ui = _qfloat("f_price_min", 0.50)
@@ -4318,7 +4306,7 @@ def _render_scanner():
     h += "</style>"
     h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
-    h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
+    h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"\n    h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));_guardarUltimaConfiguracion(q);_goto(q);}"
     h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
     h += "var TS_BASE_QUERY=" + json.dumps({str(k): str(v) for k, v in st.query_params.items()}, ensure_ascii=False) + ";"
     h += "var TS_AUTH_SESSION=" + json.dumps(str(st.query_params.get("auth_session", ""))) + ";"
@@ -4555,6 +4543,12 @@ def _render_scanner():
         h += "<div class='filtro-item'><label>CONTROLES</label><span style='font-size:10px;line-height:1.35;'>Los filtros, temporalidad, EMA, idioma y refresh se cambian directamente dentro de este cuadro gris.</span></div>"
     h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
+    h += "<div style='display:flex;align-items:center;justify-content:flex-end;gap:6px;background:#20252b;border:1px solid #777;padding:4px 6px;margin:0 0 6px;font-size:9px;font-weight:900;color:#e7eaee'><span>ACTUALIZACIÓN</span><select id='refresh_sec_inside' onchange='cambiarRefresh(this.value)' style='width:125px;height:25px;font-size:9px'>"
+    for _rv in refresh_options:
+        _sel = " selected" if int(_rv) == int(refresh_sec) else ""
+        _lbl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
+        h += f"<option value='{_rv}'{_sel}>⏱ REFRESH {_lbl}</option>"
+    h += "</select></div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
     _schwab_connected = bool(_schwab_access_token())
     _schwab_url = _schwab_authorize_url()
@@ -4609,92 +4603,25 @@ def _render_scanner():
     # segundo marco blanco debajo.
     h = _panel_final
 
-    # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
-    def _ts_abrir_auth():
-        st.session_state["mostrar_auth"] = True
-
+    # ── Controles NATIVOS solo de cuenta ──
+    def _ts_abrir_auth(): st.session_state["mostrar_auth"] = True
     def _ts_salir():
         cerrar_sesion()
-        st.session_state.pop("_ts_query_elegida", None)
-        st.session_state.pop("_ts_u_visto", None)
+        st.session_state.pop("_ts_estado_unico", None)
+        st.session_state.pop("_ts_estado_unico_u", None)
+        st.session_state.pop("_ts_refresh_canonico", None)
         st.session_state["mostrar_auth"] = False
-        try:
-            st.query_params.clear()
-        except Exception:
-            pass
-
-    def _ts_cambiar_refresh():
-        try:
-            valor = max(5, int(st.session_state["ts_refresh_sel"]))
-            st.session_state["_ts_refresh_canonico"] = valor
-            st.query_params["refresh_sec"] = str(valor)
-            _almacen = st.session_state.get("_ts_query_elegida")
-            if isinstance(_almacen, dict):
-                _almacen["refresh_sec"] = str(valor)
-            else:
-                st.session_state["_ts_query_elegida"] = {"refresh_sec": str(valor)}
-            # Guardado servidor inmediato: no depende del JavaScript del iframe.
-            _guardar_ultima_configuracion_servidor()
-        except Exception:
-            pass
-
-    st.markdown(
-        """
-        <style>
-        .st-key-ts_ctrl_bar [data-testid="stHorizontalBlock"]{flex-wrap:nowrap !important;justify-content:flex-end;align-items:center;gap:4px !important;}
-        .st-key-ts_ctrl_bar [data-testid="stColumn"],.st-key-ts_ctrl_bar [data-testid="column"]{width:auto !important;min-width:0 !important;flex:0 0 auto !important;}
-        .st-key-ts_ctrl_bar [data-testid="stSelectbox"]{width:150px;}
-        .st-key-ts_ctrl_bar [data-testid="stCaptionContainer"]{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-        .st-key-ts_ctrl_bar button{white-space:nowrap;}
-        /* Pantallas anchas: la barra se superpone dentro de la barra superior del scanner. */
-        @media (min-width: 900px){
-          .st-key-ts_ctrl_bar{height:0 !important;min-height:0 !important;overflow:visible !important;position:relative;z-index:60;}
-          .st-key-ts_ctrl_bar > *{position:relative;top:24px;}
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        try: st.query_params.clear()
+        except Exception: pass
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
-            _n1, _n2 = st.columns([1, 1])
-            with _n1:
-                st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
-            with _n2:
-                st.selectbox(
-                    "REFRESH",
-                    ["⏱ REFRESH 3 min"],
-                    disabled=True,
-                    key="ts_refresh_fijo",
-                    label_visibility="collapsed",
-                    help="Refresh fijo en 3 min. Regístrate para elegir tu propio refresh.",
-                )
+            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
         else:
-            _n1, _n2, _n3, _n4 = st.columns([1.15, 1.05, 1, 1])
-            with _n1:
-                st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
-            with _n2:
-                # El selector nativo tiene estado propio (ts_refresh_sel). Si conserva
-                # un valor antiguo (por ejemplo 180) puede imponerse sobre refresh_sec
-                # después de un rerun aunque el estado canónico ya sea 10.
-                # Sincronizarlo ANTES de crear el widget evita ese rebote.
-                _refresh_idx = refresh_options.index(refresh_sec) if refresh_sec in refresh_options else 0
-                if st.session_state.get("ts_refresh_sel") != refresh_sec:
-                    st.session_state["ts_refresh_sel"] = refresh_sec
-                st.selectbox(
-                    "REFRESH",
-                    refresh_options,
-                    index=_refresh_idx,
-                    key="ts_refresh_sel",
-                    format_func=lambda x: f"⏱ REFRESH {x}s" if x < 60 else f"⏱ REFRESH {x//60} min" if x % 60 == 0 else f"⏱ REFRESH {x}s",
-                    label_visibility="collapsed",
-                    on_change=_ts_cambiar_refresh,
-                    help="Intervalo de actualización del scanner.",
-                )
-            with _n3:
-                st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
-            with _n4:
-                st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
+            _n1,_n2,_n3=st.columns([1.2,1,1])
+            with _n1: st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
+            with _n2: st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
+            with _n3: st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
+
 
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
@@ -4710,9 +4637,9 @@ def _render_scanner():
             st.session_state["_ts_prev_ts_f_price_max"] = pmax
             st.query_params["f_price_min"] = f"{pmin:g}"
             st.query_params["f_price_max"] = f"{pmax:g}"
-            a = st.session_state.get("_ts_query_elegida")
+            a = st.session_state.get("_ts_estado_unico")
             if not isinstance(a, dict):
-                a = {}; st.session_state["_ts_query_elegida"] = a
+                a = {}; st.session_state["_ts_estado_unico"] = a
             a["f_price_min"] = f"{pmin:g}"; a["f_price_max"] = f"{pmax:g}"
             _guardar_ultima_configuracion_servidor()
         except Exception:
@@ -4728,9 +4655,9 @@ def _render_scanner():
             st.session_state["_ts_prev_ts_f_gap_max"] = gmax
             st.query_params["f_gap_min"] = f"{gmin:g}"
             st.query_params["f_gap_max"] = f"{gmax:g}"
-            a = st.session_state.get("_ts_query_elegida")
+            a = st.session_state.get("_ts_estado_unico")
             if not isinstance(a, dict):
-                a = {}; st.session_state["_ts_query_elegida"] = a
+                a = {}; st.session_state["_ts_estado_unico"] = a
             a["f_gap_min"] = f"{gmin:g}"; a["f_gap_max"] = f"{gmax:g}"
             _guardar_ultima_configuracion_servidor()
         except Exception:
@@ -4853,262 +4780,64 @@ def _refresh_segundos_global():
     except Exception:
         return 180
 
-_CLAVES_SYNC_QUERY = tuple(_CONFIG_USUARIO_KEYS) + ("technical_timeframe",)
-
+_CLAVES_ESTADO_UNICO = tuple(_CONFIG_USUARIO_KEYS) + ("technical_timeframe", "refresh_sec")
+_TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
 
 def _qp_valor(k):
     v = st.query_params.get(k, None)
-    if isinstance(v, list):
-        v = v[0] if v else None
+    if isinstance(v, list): v = v[0] if v else None
     return None if v is None else str(v)
 
+def _estado_unico_inicial():
+    estado = {}
+    for k in _CLAVES_ESTADO_UNICO:
+        v = _qp_valor(k)
+        if v not in (None, ""): estado[k] = v
+    estado.setdefault("timeframe", "1m")
+    estado.setdefault("technical_timeframe", estado["timeframe"])
+    estado.setdefault("refresh_sec", "180" if PUBLIC_PREVIEW else "10")
+    return estado
 
-_TF_VALIDOS = ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo")
-
-# Controles NATIVOS: (param URL, key del widget, tipo, opciones/rango, defecto)
-#   tipos: sel (opciones) · num (0-25) · flt / int (rango min,max) · txt (largo máx.)
-_EMA_NATIVOS = []
-for _n, _cd in ((20, "Naciendo"), (50, "Ninguna"), (200, "Ninguna")):
-    _EMA_NATIVOS += [
-        (f"ema{_n}_estado", f"ts_ema{_n}_estado", "sel", ("Por encima", "Por debajo", "Neutro"), "Neutro"),
-        (f"ema{_n}_cond", f"ts_ema{_n}_cond", "sel", OPCIONES_COND_EMA, _cd),
-        (f"ema{_n}_dist", f"ts_ema{_n}_dist", "num", None, 0.5),
-    ]
-_FILTROS_NATIVOS = [
-    ("ema20_on", "ts_ema20_on", "sel", ("OFF", "ON"), "OFF"),
-    ("c_active", "ts_c_active", "sel", ("True", "False"), lambda: "True" if getattr(servicio, "encendido", True) else "False"),
-    ("c_lang", "ts_c_lang", "sel", ("ESP", "ENG", "POR", "FRA", "DEU", "ITA", "CHN", "JPN"), "ESP"),
-    ("c_wnd", "ts_c_wnd", "sel", ("Incrustada", "Flotante"), "Incrustada"),
-    ("f_price_min", "ts_f_price_min", "flt", (0.0, 100000.0), 0.50),
-    ("f_price_max", "ts_f_price_max", "flt", (0.0, 100000.0), 20.0),
-    ("f_gap_min", "ts_f_gap_min", "flt", (-100.0, 10000.0), 3.0),
-    ("f_gap_max", "ts_f_gap_max", "flt", (-100.0, 10000.0), 50.0),
-    ("f_gap_on", "ts_f_gap_on", "sel", ("OFF", "ON"), "OFF"),
-    ("f_float_on", "ts_f_float_on", "sel", ("OFF", "ON"), "OFF"),
-    ("f_float_max", "ts_f_float_max", "int", (0, 10 ** 12), 20_000_000),
-    ("f_vol", "ts_f_vol", "int", (0, 10 ** 12), 15_000),
-    ("f_vol_on", "ts_f_vol_on", "sel", ("OFF", "ON"), "OFF"),
-    ("f_mac", "ts_f_mac", "sel", ("Positivo", "Negativo", "No exigir"), "Positivo"),
-    ("f_order", "ts_f_order", "sel", ("Actualizado", "Cambio %", "Volumen"), "Actualizado"),
-    ("c_broker", "ts_c_broker", "sel", ("Interactive Brokers", "Tradestation", "Charles Schwab", "Otro"),
-     lambda: st.session_state.get("bk_nombre", "Interactive Brokers")),
-    ("c_url", "ts_c_url", "txt", 300, lambda: st.session_state.get("bk_puente", "http://localhost:8080/layout")),
-]
-_NATIVOS_TODOS = _EMA_NATIVOS + _FILTROS_NATIVOS
-_CLAVES_NATIVAS = {"timeframe"} | {_e[0] for _e in _NATIVOS_TODOS}
-
-
-def _norm_nativo(tipo, opciones, v):
-    if v is None:
-        return None
-    if tipo == "sel":
-        return v if v in opciones else None
-    if tipo == "txt":
-        t = str(v).strip()
-        return t[: int(opciones or 300)] if t else None
+def _sincronizar_estado_unico():
+    """Única sincronización: URL -> Session State solo cuando _u indica una acción del usuario."""
     try:
-        x = float(v)
-    except Exception:
-        return None
-    if tipo == "num":
-        mn, mx = 0.0, 25.0
-    else:
-        mn, mx = opciones
-    x = max(mn, min(mx, x))
-    if tipo == "int":
-        return int(x)
-    return round(x, 4 if tipo == "flt" else 2)
-
-
-def _valor_defecto_nativo(tipo, opciones, defecto):
-    d = defecto() if callable(defecto) else defecto
-    val = _norm_nativo(tipo, opciones, d)
-    if val is None:
-        val = opciones[0] if tipo == "sel" else (0 if tipo == "int" else (0.0 if tipo in ("num", "flt") else ""))
-    return val
-
-
-def _sincronizar_nativos(accion_js):
-    """El widget nativo manda; la URL solo se acepta al cargar por primera vez o al
-    cargar una configuración guardada. Así el refresh nunca revierte lo elegido."""
-    almacen = st.session_state.get("_ts_query_elegida")
-    for qk, wk, tipo, ops, defecto in _NATIVOS_TODOS:
-        w = _norm_nativo(tipo, ops, st.session_state.get(wk))
-        previo = st.session_state.get("_ts_prev_" + wk)
-        u = _norm_nativo(tipo, ops, _qp_valor(qk))
-        if accion_js and u is not None:
-            # Cambio recién hecho por el usuario: la URL recién escrita manda.
-            val = u
-        elif w is not None and w != previo:
-            # Cambio directo del widget nativo: capturarlo y convertirlo en estado canónico.
-            val = w
-        elif isinstance(almacen, dict) and qk in almacen:
-            # AUTO-REFRESH: conservar el último valor confirmado por esta sesión.
-            # La URL puede contener una copia antigua; no debe ganar al estado canónico.
-            val = _norm_nativo(tipo, ops, almacen.get(qk))
-            if val is None:
-                val = u if u is not None else (previo if previo is not None else w)
-        elif previo is not None:
-            val = previo
-        elif u is not None:
-            val = u
-        elif w is not None:
-            val = w
-        else:
-            val = _valor_defecto_nativo(tipo, ops, defecto)
-        st.session_state["_ts_prev_" + wk] = val
-        if tipo in ("num", "flt"):
-            val = float(val)
-            txt = f"{val:g}"
-        elif tipo == "int":
-            val = int(val)
-            txt = str(val)
-        else:
-            txt = str(val)
-        if st.session_state.get(wk) != val:
-            st.session_state[wk] = val
-        if _qp_valor(qk) != txt:
-            st.query_params[qk] = txt
-        if isinstance(almacen, dict):
-            almacen[qk] = txt
-
-
-def _sincronizar_timeframe(tf_url, accion_js):
-    """La temporalidad la decide el selector nativo de Streamlit (key ts_tf_sel).
-
-    Un widget nativo vive en st.session_state y NO depende de la URL ni del puente
-    del iframe, por eso ya no rebota a 1m. La URL solo se usa al cargar por primera
-    vez o cuando el usuario carga una configuración guardada.
-    """
-    widget = st.session_state.get("ts_tf_sel")
-    previo = st.session_state.get("_ts_tf_elegido")
-    almacen = st.session_state.get("_ts_query_elegida")
-    if accion_js and tf_url in _TF_VALIDOS:
-        tf = tf_url
-    elif widget in _TF_VALIDOS and widget != previo:
-        tf = widget
-    elif isinstance(almacen, dict) and almacen.get("timeframe") in _TF_VALIDOS:
-        tf = almacen.get("timeframe")
-    elif previo in _TF_VALIDOS:
-        tf = previo
-    elif tf_url in _TF_VALIDOS:
-        tf = tf_url
-    elif widget in _TF_VALIDOS:
-        tf = widget
-    else:
-        tf = "1m"
-    st.session_state["_ts_tf_elegido"] = tf
-    if st.session_state.get("ts_tf_sel") != tf:
-        st.session_state["ts_tf_sel"] = tf
-    if _qp_valor("timeframe") != tf:
-        st.query_params["timeframe"] = tf
-    almacen = st.session_state.get("_ts_query_elegida")
-    if isinstance(almacen, dict):
-        almacen["timeframe"] = tf
-
-
-def _sincronizar_query_con_sesion():
-    """La temporalidad y los filtros que elige el usuario NO se pierden con el refresh.
-
-    Toda acción del usuario en la carátula (JS) añade a la URL una marca `_u`
-    creciente. `_u` nueva = acción del usuario (se guarda lo de la URL); cualquier
-    otro rerun (refresh, reconexión, URL vieja) = se re-impone lo último elegido.
-    La temporalidad se maneja aparte (_sincronizar_timeframe).
-    """
-    try:
-        auto = bool(st.session_state.pop("_ts_rerun_auto", False))
-        tf_url = _qp_valor("timeframe")
-        guardado = st.session_state.get("_ts_query_elegida")
-        if not isinstance(guardado, dict):
-            guardado = {}
-        try:
-            u_nuevo = int(float(_qp_valor("_u") or 0))
-        except Exception:
-            u_nuevo = 0
-        u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
-        accion_js = (not auto) and u_nuevo > u_visto
-
-        # Estado canónico por sesión:
-        # - una acción del usuario captura la URL nueva;
-        # - cualquier auto-refresh reutiliza ese estado, sin leer una URL antigua.
-        if accion_js:
-            nuevo = {}
-            for k in _CLAVES_SYNC_QUERY:
+        estado = st.session_state.get("_ts_estado_unico")
+        if not isinstance(estado, dict):
+            estado = _estado_unico_inicial()
+            st.session_state["_ts_estado_unico"] = estado
+        try: u_nuevo = int(float(_qp_valor("_u") or 0))
+        except Exception: u_nuevo = 0
+        u_visto = int(st.session_state.get("_ts_estado_unico_u", 0) or 0)
+        if u_nuevo > u_visto:
+            for k in _CLAVES_ESTADO_UNICO:
                 v = _qp_valor(k)
-                if v is not None and v != "":
-                    nuevo[k] = v
-            if nuevo:
-                st.session_state["_ts_query_elegida"] = nuevo
-        elif guardado:
-            # No dejamos que el auto-refresh sustituya los valores elegidos.
-            for k, v in guardado.items():
-                # refresh_sec tiene su propio arbitraje de prioridad más abajo.
-                # No lo reescribimos aquí, porque una selección nueva en la
-                # URL podría ser reemplazada por un valor antiguo de sesión.
-                if k in ("timeframe", "refresh_sec"):
-                    continue
-                if _qp_valor(k) != v:
-                    st.query_params[k] = v
-            if guardado.get("timeframe") and _qp_valor("timeframe") != guardado.get("timeframe"):
-                st.query_params["timeframe"] = guardado["timeframe"]
-        else:
-            # Primera carga sin estado previo: tomar la URL existente.
-            nuevo = {}
-            for k in _CLAVES_SYNC_QUERY:
-                v = _qp_valor(k)
-                if v is not None and v != "":
-                    nuevo[k] = v
-            if nuevo:
-                st.session_state["_ts_query_elegida"] = nuevo
-        # REFRESH: un refresh_sec explícito en la URL representa la selección
-        # actual. Debe pasar al estado canónico antes de cualquier auto-refresh.
-        try:
-            _rv_q = _qp_valor("refresh_sec")
-            _rv_guardado = guardado.get("refresh_sec") if isinstance(guardado, dict) else None
-            _rv_canon = st.session_state.get("_ts_refresh_canonico")
-            if not PUBLIC_PREVIEW:
-                if _rv_q not in (None, ""):
-                    _rv_num = max(5, int(float(_rv_q)))
-                    # Si la URL contiene un valor válido, es el estado que
-                    # acaba de llegar del selector y debe adoptarse como
-                    # canónico, incluso si la sesión conserva un valor viejo.
-                    st.session_state["_ts_refresh_canonico"] = _rv_num
-                    if isinstance(st.session_state.get("_ts_query_elegida"), dict):
-                        st.session_state["_ts_query_elegida"]["refresh_sec"] = str(_rv_num)
-                elif _rv_canon not in (None, ""):
-                    st.query_params["refresh_sec"] = str(max(5, int(float(_rv_canon))))
-                elif _rv_guardado not in (None, ""):
-                    _rv_num = max(5, int(float(_rv_guardado)))
-                    st.session_state["_ts_refresh_canonico"] = _rv_num
-                    st.query_params["refresh_sec"] = str(_rv_num)
-        except Exception:
-            pass
-        st.session_state["_ts_u_visto"] = max(u_visto, u_nuevo)
-        _sincronizar_timeframe(tf_url, accion_js)
-        _sincronizar_nativos(accion_js)
+                if v not in (None, ""): estado[k] = v
+            st.session_state["_ts_estado_unico_u"] = u_nuevo
+        if not PUBLIC_PREVIEW:
+            rv = st.session_state.get("_ts_refresh_canonico")
+            if rv not in (None, ""): estado["refresh_sec"] = str(max(5, int(float(rv))))
+        if estado.get("timeframe") not in _TF_VALIDOS: estado["timeframe"] = "1m"
+        if estado.get("technical_timeframe") not in _TF_VALIDOS: estado["technical_timeframe"] = estado["timeframe"]
+        try: estado["refresh_sec"] = str(max(5, int(float(estado.get("refresh_sec", 180)))))
+        except Exception: estado["refresh_sec"] = "180"
+        for k,v in estado.items():
+            if k in _CLAVES_ESTADO_UNICO and _qp_valor(k) != str(v): st.query_params[k] = str(v)
+        return estado
     except Exception:
-        pass
+        if not isinstance(st.session_state.get("_ts_estado_unico"), dict):
+            st.session_state["_ts_estado_unico"] = _estado_unico_inicial()
+        return st.session_state["_ts_estado_unico"]
 
+_ts_estado_unico = _sincronizar_estado_unico()
 
-_sincronizar_query_con_sesion()
-
-if True:  # el visitante también se refresca (cada 3 min); el usuario registrado elige su intervalo
+if True:
     _st_fragment = getattr(st, "fragment", None)
     if _st_fragment is not None:
         @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
         def _refresco_nativo_scanner():
-            # La primera ejecución del fragmento ocurre inmediatamente al cargar
-            # la página. No debemos hacer rerun en ese instante porque produciría
-            # un ciclo de reruns. Las siguientes ejecuciones llegan por run_every.
             if not st.session_state.get("_ts_refresh_fragment_started", False):
                 st.session_state["_ts_refresh_fragment_started"] = True
                 return
-            # run_every vuelve a ejecutar solamente este fragmento; st.rerun()
-            # (sin scope) solicita un rerun completo de la aplicación.
-            st.session_state["_ts_refresh_fragment_started"] = False
-            # Marca este rerun como AUTOMÁTICO: así _sincronizar_query_con_sesion()
-            # vuelve a imponer la temporalidad/filtros que el usuario eligió.
-            st.session_state["_ts_rerun_auto"] = True
             st.rerun()
         _refresco_nativo_scanner()
 
