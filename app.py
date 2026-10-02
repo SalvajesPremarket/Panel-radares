@@ -1181,22 +1181,17 @@ def pantalla_autenticacion():
                 token_limpio = str(st.session_state.get("admin_token_login", "")).strip()
                 es_valido, estado = verificar_token(token_limpio)
                 if es_valido:
-                    cerrar_sesion()
-                    st.session_state["token_verificado"] = token_limpio
-                    st.session_state["fecha_vencimiento"] = estado
-                    st.session_state["tipo_acceso"] = "admin"
-                    st.session_state["mostrar_auth"] = False
-                    _sid = _crear_sesion_persistente(
-                        "admin",
-                        {"token": token_limpio, "fecha_vencimiento": estado},
-                    )
-                    st.session_state["auth_session_id"] = _sid
-                    st.session_state["auth_ok"] = True
-                    st.session_state["mostrar_auth"] = False
-                    st.query_params["auth_session"] = _sid
-                    st.query_params.pop("auth", None)
+                    # El callback solo prepara el resultado. La creación de
+                    # la sesión persistente y la navegación se hacen después
+                    # del formulario, en el flujo normal de Streamlit.
+                    st.session_state["admin_login_ok"] = {
+                        "token": token_limpio,
+                        "fecha_vencimiento": estado,
+                    }
+                    st.session_state.pop("admin_login_error", None)
                 else:
                     st.session_state["admin_login_error"] = estado
+                    st.session_state.pop("admin_login_ok", None)
 
             with st.form("form_admin_token"):
                 st.text_input(
@@ -1209,6 +1204,27 @@ def pantalla_autenticacion():
                     width="stretch",
                     on_click=_procesar_admin_login,
                 )
+
+            _admin_login_ok = st.session_state.pop("admin_login_ok", None)
+            if _admin_login_ok:
+                # Aquí ya estamos en el rerun normal provocado por el submit.
+                # No dependemos de modificar query params dentro del callback.
+                cerrar_sesion()
+                _token_admin = str(_admin_login_ok.get("token", "")).strip()
+                _venc_admin = str(_admin_login_ok.get("fecha_vencimiento", "2099-01-01"))
+                st.session_state["token_verificado"] = _token_admin
+                st.session_state["fecha_vencimiento"] = _venc_admin
+                st.session_state["tipo_acceso"] = "admin"
+                st.session_state["mostrar_auth"] = False
+                _sid = _crear_sesion_persistente(
+                    "admin",
+                    {"token": _token_admin, "fecha_vencimiento": _venc_admin},
+                )
+                st.session_state["auth_session_id"] = _sid
+                st.session_state["auth_ok"] = True
+                st.query_params["auth_session"] = _sid
+                st.query_params.pop("auth", None)
+                st.rerun()
 
             _admin_error = st.session_state.pop("admin_login_error", "")
             if _admin_error == "EXPIRADO":
