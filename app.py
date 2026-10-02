@@ -1019,8 +1019,13 @@ def pantalla_autenticacion():
                 _u = data.get("user") or {}
                 crear_prueba_usuario(_u.get("id", ""), _u.get("email", email))
                 _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
-                st.query_params["auth_session"] = _sid
+                # Mantener la autenticación directamente en Session State y
+                # además en el ticket persistente. Así el primer rerun después
+                # del login no puede volver a mostrar la pantalla de acceso.
+                st.session_state["auth_session_id"] = _sid
+                st.session_state["auth_ok"] = True
                 st.session_state["mostrar_auth"] = False
+                st.query_params["auth_session"] = _sid
                 st.query_params.pop("auth", None)
                 st.rerun()
 
@@ -1155,8 +1160,10 @@ def pantalla_autenticacion():
                         _u = data.get("user") or {}
                         crear_prueba_usuario(_u.get("id", ""), _u.get("email", nuevo_email))
                         _sid = _crear_sesion_persistente("usuario", st.session_state["usuario_auth"])
-                        st.query_params["auth_session"] = _sid
+                        st.session_state["auth_session_id"] = _sid
+                        st.session_state["auth_ok"] = True
                         st.session_state["mostrar_auth"] = False
+                        st.query_params["auth_session"] = _sid
                         st.query_params.pop("auth", None)
                         st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
                         st.rerun()
@@ -1195,6 +1202,9 @@ def pantalla_autenticacion():
                     # el formulario y parece que "VALIDAR ACCESO" no funciona.
                     st.session_state["mostrar_auth"] = False
                     _sid = _crear_sesion_persistente("admin", {"token": token_limpio, "fecha_vencimiento": estado})
+                    st.session_state["auth_session_id"] = _sid
+                    st.session_state["auth_ok"] = True
+                    st.session_state["mostrar_auth"] = False
                     st.query_params["auth_session"] = _sid
                     st.query_params.pop("auth", None)
                     st.rerun()
