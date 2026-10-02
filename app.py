@@ -4782,16 +4782,6 @@ def _render_scanner():
                 st.number_input("GAP MIN", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_min_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
             with _a4:
                 st.number_input("GAP MAX", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_max_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
-    # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
-    # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
-    # padre con history.replaceState y pulsa este botón oculto, lo que provoca un
-    # rerun nativo de la MISMA sesión leyendo los nuevos query params.
-    st.markdown(
-        "<style>.st-key-ts_nav_bridge{display:none !important;}</style>",
-        unsafe_allow_html=True,
-    )
-    st.button("TSNAVBRIDGE", key="ts_nav_bridge")
-
     # Todo el scanner se renderiza en un único iframe.
     # st.iframe es el reemplazo actual de components.v1.html y conserva
     # HTML/JavaScript inline con acceso same-origin, que este puente necesita.
@@ -4915,6 +4905,42 @@ def _sincronizar_estado_unico():
         return st.session_state["_ts_estado_unico"]
 
 _ts_estado_unico = _sincronizar_estado_unico()
+
+# Puente NATIVO FUERA del fragmento.
+# El HTML del scanner vive dentro de st.fragment; un st.button dibujado dentro
+# del fragmento solo puede provocar otro rerun del fragmento. Por eso el puente
+# que confirma cambios hechos desde el iframe debe vivir en el programa principal.
+# Este callback convierte la URL del navegador en la fuente de verdad de
+# _ts_estado_unico antes de que vuelva a ejecutarse el scanner.
+def _ts_confirmar_cambio_desde_iframe():
+    try:
+        estado = st.session_state.get("_ts_estado_unico")
+        if not isinstance(estado, dict):
+            estado = {}
+            st.session_state["_ts_estado_unico"] = estado
+        for k in _CLAVES_ESTADO_UNICO:
+            v = _qp_valor(k)
+            if v not in (None, ""):
+                estado[k] = str(v)
+        try:
+            u_actual = int(float(_qp_valor("_u") or 0))
+        except Exception:
+            u_actual = 0
+        if u_actual:
+            st.session_state["_ts_estado_unico_u"] = u_actual
+        _guardar_ultima_configuracion_servidor()
+    except Exception as _bridge_error:
+        print(f"⚠️ Error confirmando estado del scanner: {_bridge_error}")
+
+st.markdown(
+    "<style>.st-key-ts_nav_bridge{display:none !important;}</style>",
+    unsafe_allow_html=True,
+)
+st.button(
+    "TSNAVBRIDGE",
+    key="ts_nav_bridge",
+    on_click=_ts_confirmar_cambio_desde_iframe,
+)
 
 if True:
     _st_fragment = getattr(st, "fragment", None)
