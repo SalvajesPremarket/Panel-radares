@@ -482,7 +482,7 @@ def supabase_auth_request(endpoint, payload):
                 "Content-Type": "application/json",
             },
             json=payload,
-            timeout=20,
+            timeout=(5, 10),
         )
 
         try:
@@ -1010,9 +1010,12 @@ def pantalla_autenticacion():
             )
 
         if entrar:
-            data, error = iniciar_sesion_usuario(email, password)
+            with st.spinner("🔐 Validando acceso…"):
+                data, error = iniciar_sesion_usuario(email, password)
             if error:
                 st.error(f"❌ {error}")
+            elif not isinstance(data, dict) or not data.get("access_token") or not data.get("user"):
+                st.error("❌ Supabase no devolvió una sesión de usuario válida. Intenta nuevamente.")
             else:
                 cerrar_sesion()  # evita que una sesión admin previa siga mandando sobre el usuario
                 _guardar_usuario_auth(data, tipo="usuario")
