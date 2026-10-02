@@ -4405,7 +4405,7 @@ def _render_scanner():
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
     h += "function abrirAutenticacion(){try{var q=_qtop();q.set('auth','1');q.delete('_ts');q.set('_u',String(Date.now()));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);var u='/?'+q.toString();try{window.top.location.assign(u);return;}catch(_nav1){}try{window.parent.location.assign(u);return;}catch(_nav2){}try{_navegarMismaApp(q);return;}catch(_bridge){}try{window.location.assign(u);}catch(_last){}}catch(e){try{window.top.location.assign('/?auth=1');}catch(_e){window.location.assign('/?auth=1');}}}"
     h += "function salirSesion(){try{var q=_qtop();q.delete('auth');q.delete('auth_session');q.delete('_ts');q.set('logout','1');q.set('_u',String(Date.now()));var u='/?'+q.toString();try{window.top.location.assign(u);return;}catch(_a){}try{window.parent.location.assign(u);return;}catch(_b){}try{window.location.assign(u);}catch(_c){}}catch(e){try{window.top.location.assign('/?logout=1');}catch(_e){window.location.assign('/?logout=1');}}}"
-    h += "function cambiarRefresh(v){var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
+    h += "function cambiarRefresh(v){if(!TS_AUTH){return}var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));try{window.top.location.replace('/?'+q.toString());return}catch(e){}try{window.parent.location.replace('/?'+q.toString());return}catch(e2){}_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
     h += "</script></head><body>"
@@ -4612,12 +4612,16 @@ def _render_scanner():
         h += "<div class='filtro-item'><label>CONTROLES</label><span style='font-size:10px;line-height:1.35;'>Los filtros, temporalidad, EMA, idioma y refresh se cambian directamente dentro de este cuadro gris.</span></div>"
     h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
-    h += "<div style='display:flex;align-items:center;justify-content:flex-end;gap:6px;background:#20252b;border:1px solid #777;padding:4px 6px;margin:0 0 6px;font-size:9px;font-weight:900;color:#e7eaee'><span>ACTUALIZACIÓN</span><select id='refresh_sec_inside' onchange='cambiarRefresh(this.value)' style='width:125px;height:25px;font-size:9px'>"
-    for _rv in refresh_options:
-        _sel = " selected" if int(_rv) == int(refresh_sec) else ""
-        _lbl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
-        h += f"<option value='{_rv}'{_sel}>⏱ REFRESH {_lbl}</option>"
-    h += "</select></div>"
+    if PUBLIC_PREVIEW:
+        # El visitante NO puede modificar la frecuencia. Es siempre 3 minutos.
+        h += "<div style='display:flex;align-items:center;justify-content:flex-end;gap:6px;background:#20252b;border:1px solid #777;padding:4px 6px;margin:0 0 6px;font-size:9px;font-weight:900;color:#e7eaee'><span>ACTUALIZACIÓN</span><span style='display:inline-flex;align-items:center;height:25px;padding:0 8px;border:1px solid #555;background:#15181d;color:#fff;font-size:9px;'>⏱ REFRESH 3 min · FIJO</span></div>"
+    else:
+        h += "<div style='display:flex;align-items:center;justify-content:flex-end;gap:6px;background:#20252b;border:1px solid #777;padding:4px 6px;margin:0 0 6px;font-size:9px;font-weight:900;color:#e7eaee'><span>ACTUALIZACIÓN</span><select id='refresh_sec_inside' onchange='cambiarRefresh(this.value)' style='width:125px;height:25px;font-size:9px'>"
+        for _rv in refresh_options:
+            _sel = " selected" if int(_rv) == int(refresh_sec) else ""
+            _lbl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
+            h += f"<option value='{_rv}'{_sel}>⏱ REFRESH {_lbl}</option>"
+        h += "</select></div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
     _schwab_connected = bool(_schwab_access_token())
     _schwab_url = _schwab_authorize_url()
@@ -4820,11 +4824,10 @@ def _tf_pendiente():
 
 def _refresh_segundos_global():
     # Visitante: 3 minutos fijos. Usuario autenticado: conserva el refresh
-    # elegido por el usuario aunque Streamlit haga un rerun completo.
+    # elegido por el usuario. No hay una excepción temporal de 4 segundos:
+    # el intervalo seleccionado gobierna siempre el refresco de pantalla.
     if PUBLIC_PREVIEW:
         return 180
-    if _tf_pendiente():
-        return 4
     try:
         estado = st.session_state.get("_ts_estado_unico")
         if isinstance(estado, dict) and estado.get("refresh_sec") not in (None, ""):
@@ -4877,8 +4880,11 @@ def _sincronizar_estado_unico():
             if rv not in (None, ""): estado["refresh_sec"] = str(max(5, int(float(rv))))
         if estado.get("timeframe") not in _TF_VALIDOS: estado["timeframe"] = "1m"
         if estado.get("technical_timeframe") not in _TF_VALIDOS: estado["technical_timeframe"] = estado["timeframe"]
-        try: estado["refresh_sec"] = str(max(5, int(float(estado.get("refresh_sec", 180)))))
-        except Exception: estado["refresh_sec"] = "180"
+        try:
+            _refresh_estado = int(float(estado.get("refresh_sec", 180)))
+            estado["refresh_sec"] = str(180 if PUBLIC_PREVIEW else max(5, _refresh_estado))
+        except Exception:
+            estado["refresh_sec"] = "180" if PUBLIC_PREVIEW else "10"
         for k,v in estado.items():
             if k in _CLAVES_ESTADO_UNICO and _qp_valor(k) != str(v): st.query_params[k] = str(v)
         return estado
