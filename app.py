@@ -4767,8 +4767,8 @@ def _render_scanner():
         h += _css_ocultar
     h += "#news-panel{display:none;position:fixed;top:0;right:0;width:350px;height:100%;overflow-y:auto;background:#1d2127;border-left:2px solid #f59e0b;z-index:999;padding:8px;box-sizing:border-box;color:#e5e9ee}.news-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#fbbf24;font-size:13px}.news-close{background:#333;color:#fff;border:1px solid #777;cursor:pointer}.news-item{background:#171a1f;border:1px solid #555;padding:7px;margin-bottom:7px}.news-title{font-weight:bold;color:#fff;font-size:12px;margin-bottom:3px}.news-meta{color:#9aa3ad;font-size:10px;margin-bottom:4px}.news-sum{color:#d0d7e0;font-size:11px;margin-bottom:5px}.news-item a{color:#60a5fa;font-size:11px}.news-btn{background:transparent;border:0;cursor:pointer;font-size:14px;padding:0 2px}.float-btn{background:#2d3748;color:#fff;border:1px solid #888;cursor:pointer;font-size:10px;padding:4px 8px;margin-left:auto}"
     h += ".refresh-bar{display:flex;align-items:center;gap:8px;background:#1d2127;border:1px solid #888;padding:5px 8px;margin-bottom:6px}.refresh-bar label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap}.refresh-bar span{color:#b8c0ca;font-size:10px}"
-    /* ===== FINVIZ-STYLE DESKTOP SHELL =====
-       Solo presentación: no modifica filtros, motor, persistencia ni eventos. */
+    # ===== FINVIZ-STYLE DESKTOP SHELL =====
+    # Solo presentación: no modifica filtros, motor, persistencia ni eventos.
     h += "<style>";
     h += "html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#1f232b;color:#dfe3e8;}";
     h += "body{font-size:11px;padding-top:0;font-family:Arial,Verdana,sans-serif;}";
