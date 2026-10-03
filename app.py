@@ -4520,21 +4520,43 @@ def _render_scanner():
     _guardar_ultima_configuracion_servidor()
 
 
-    if PUBLIC_PREVIEW:
-        # La carátula pública muestra el diseño y las 10 líneas, pero no expone
-        # resultados reales del motor antes del registro/inicio de sesión.
+    # Estado personal: ON/OFF y horario del usuario no modifican el singleton global.
+    if ES_ADMIN:
+        _usuario_motor_activo = True
+        _usuario_hora_ini = int(getattr(servicio, "hora_inicio_auto_min", 4*60))
+        _usuario_hora_fin = int(getattr(servicio, "hora_fin_auto_min", 20*60))
+    elif USUARIO_AUTENTICADO:
+        _usuario_motor_activo = _qtxt("c_active", "True") == "True"
+        def _hora_min_ui(_v, _d):
+            try:
+                _hh, _mm = str(_v).strip().split(":")
+                return max(0, min(1439, int(_hh)*60 + int(_mm)))
+            except Exception:
+                return _d
+        _usuario_hora_ini = _hora_min_ui(_qtxt("c_start", "04:00"), 4*60)
+        _usuario_hora_fin = _hora_min_ui(_qtxt("c_end", "20:00"), 20*60)
+    else:
+        _usuario_motor_activo = True
+        _usuario_hora_ini, _usuario_hora_fin = 4*60, 20*60
+    _ahora_et_ui = datetime.now(ET)
+    _min_actual_ui = _ahora_et_ui.hour*60 + _ahora_et_ui.minute
+    if _usuario_hora_ini == _usuario_hora_fin:
+        _usuario_en_horario = False
+    elif _usuario_hora_ini < _usuario_hora_fin:
+        _usuario_en_horario = _usuario_hora_ini <= _min_actual_ui < _usuario_hora_fin
+    else:
+        _usuario_en_horario = _min_actual_ui >= _usuario_hora_ini or _min_actual_ui < _usuario_hora_fin
+    if PUBLIC_PREVIEW or not _usuario_motor_activo or not _usuario_en_horario:
         filas_reales = []
     else:
         try:
-            # El motor ya entrega candidatos que pasaron el embudo real del scanner.
-            # Reaplicar aquí filtros técnicos históricos era una segunda puerta que
-            # podía vaciar la tabla aunque el motor hubiera detectado una señal.
-            # Solo se conserva el filtro final común para los valores editables.
-            _res_tf = getattr(servicio, "resultados_por_tf", None)
-            if swing_activo_ui and swing_multitimeframe_ui and isinstance(_res_tf, dict):
+            _pool_tf = getattr(servicio, "pool_por_tf", {}) or {}
+            _res_tf = getattr(servicio, "resultados_por_tf", {}) or {}
+            _source_tf = _res_tf if ES_ADMIN else _pool_tf
+            if swing_activo_ui and swing_multitimeframe_ui:
                 _agrupados={}
                 for _tf_mix in swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]:
-                    for _rr in filtrar_resultados(list(_res_tf.get(_tf_mix, [])),dict(params_ui,timeframe=_tf_mix)):
+                    for _rr in filtrar_resultados(list(_source_tf.get(_tf_mix, [])), dict(params_ui,timeframe=_tf_mix)):
                         _key_mix=str(_rr.get("ticker",""))
                         if _key_mix not in _agrupados:
                             _agrupados[_key_mix]=dict(_rr); _agrupados[_key_mix]["_swing_timeframes"]=[]
@@ -4542,21 +4564,14 @@ def _render_scanner():
                             _agrupados[_key_mix]["_swing_timeframes"].append(_tf_mix)
                 filas_reales=list(_agrupados.values())
             else:
-                _lista_tf = list(_res_tf.get(timeframe_ui, [])) if isinstance(_res_tf, dict) else list(servicio.resultados)
-                filas_reales = filtrar_resultados(_lista_tf, params_ui)
-            # La tabla visible siempre usa exactamente las 10 señales más recientes.
-            # El orden "Actualizado" es fijo para que la primera fila sea la más nueva.
-            filas_reales = sorted(
-                list(filas_reales),
-                key=lambda x: x.get("actualizado") or datetime.min.replace(tzinfo=ET),
-                reverse=True,
-            )[:10]
+                _lista_tf=list(_source_tf.get(timeframe_ui, []))
+                if not _lista_tf and ES_ADMIN:
+                    _lista_tf=list(getattr(servicio, "resultados", []) or [])
+                filas_reales=filtrar_resultados(_lista_tf, params_ui)
+            filas_reales=sorted(list(filas_reales),key=lambda x:x.get("actualizado") or datetime.min.replace(tzinfo=ET),reverse=True)[:10]
         except Exception as _ex_ui:
-            filas_reales = list(getattr(servicio, "resultados", []) or [])
-            try:
-                servicio.ultimo_error = f"Filtro de pantalla: {_ex_ui}"
-            except Exception:
-                pass
+            filas_reales=[]
+            print(f"⚠️ Filtro de pantalla: {_ex_ui}")
 
 
     def _num(v, default=0.0):
@@ -4691,23 +4706,20 @@ def _render_scanner():
 
     rows_html = "".join(_row_visualizacion(r, i + 1) for i, r in enumerate(filas_visualizacion))
 
-    try:
-        hora_ini = int(servicio.hora_inicio_auto_min)
-        hora_fin = int(servicio.hora_fin_auto_min)
-    except Exception:
-        hora_ini, hora_fin = 240, 960
-
+    hora_ini, hora_fin = _usuario_hora_ini, _usuario_hora_fin
     _hora_txt = f"{hora_ini//60:02d}:{hora_ini%60:02d} - {hora_fin//60:02d}:{hora_fin%60:02d} ET"
-    _estado_txt = "ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA")
-
+    _estado_txt = (
+        ("ON" if _usuario_motor_activo and _usuario_en_horario else "OFF")
+        if not ES_ADMIN
+        else ("ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA"))
+    )
     start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
     end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
-
-    active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
+    active_val = _qtxt("c_active", "True" if ES_ADMIN and getattr(servicio, "encendido", True) else "False")
     try:
-        # El motor es COMPARTIDO: un visitante sin sesion no debe poder apagarlo para todos.
-        if not PUBLIC_PREVIEW:
+        if ES_ADMIN:
             servicio.encendido = (active_val == "True")
+            servicio.configurar_horario(_usuario_hora_ini, _usuario_hora_fin)
     except Exception:
         pass
     lang_val = _qtxt("c_lang", "ESP")
