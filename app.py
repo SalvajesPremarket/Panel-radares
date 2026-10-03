@@ -4346,7 +4346,30 @@ st.markdown("""
 # ==============================================================================
 
 _JS_COLUMNAS = r'''
-var COLS=[['layout','⚙️ Layout'],['ticker','Ticker'],['sector','Sector'],['precio','Precio ($)'],['cambio','Cambio %'],['volumen','Volumen'],['gap','Gap %'],['flot','Flotación (M)'],['ema20','EMA20'],['ema50','EMA50'],['ema200','EMA200'],['macd','MACD']];
+var TS_LAYOUT_DEFAULT_COLORS={L1:'#e53935',L2:'#1e88e5',L3:'#43a047',L4:'#f9a825',L5:'#8e44ad',L6:'#fb8c00',L7:'#f5f5f5',L8:'#212121',L9:'#00acc1',L10:'#ec407a'};
+function _layoutKey(){try{return String(TS_USER_KEY).replace('tradeScannerLastState','tradeScannerLayouts')}catch(e){return 'tradeScannerLayouts'}}
+function _layoutColorsLoad(){
+  var raw='';try{raw=window.top.localStorage.getItem(_layoutKey())||''}catch(e){}
+  if(!raw){try{raw=localStorage.getItem(_layoutKey())||''}catch(e){}}
+  var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e){o={}}
+  Object.keys(TS_LAYOUT_DEFAULT_COLORS).forEach(function(id){if(!o[id])o[id]=TS_LAYOUT_DEFAULT_COLORS[id]});
+  return o;
+}
+function _layoutColorsSave(o){var txt=JSON.stringify(o);try{window.top.localStorage.setItem(_layoutKey(),txt)}catch(e1){}try{localStorage.setItem(_layoutKey(),txt)}catch(e2){}}
+function _layoutColor(layout){var o=_layoutColorsLoad();return o[String(layout)]||TS_LAYOUT_DEFAULT_COLORS[String(layout)]||'#777777'}
+function guardarColorLayout(layout,color){
+  var id=String(layout||'');if(!/^L([1-9]|10)$/.test(id))return;
+  var col=String(color||'').trim();if(!/^#[0-9a-fA-F]{6}$/.test(col))return;
+  var o=_layoutColorsLoad();o[id]=col;_layoutColorsSave(o);
+  document.querySelectorAll('[data-layout-color="'+id+'"]').forEach(function(el){el.style.accentColor=col;el.value=col});
+  document.querySelectorAll('[data-layout-chain="'+id+'"]').forEach(function(el){el.style.color=col;el.style.borderColor=col});
+}
+function aplicarColoresLayouts(){
+  var o=_layoutColorsLoad();
+  document.querySelectorAll('[data-layout-color]').forEach(function(el){var id=el.getAttribute('data-layout-color');var col=o[id]||TS_LAYOUT_DEFAULT_COLORS[id];if(col){el.value=col;el.style.accentColor=col;}});
+  document.querySelectorAll('[data-layout-chain]').forEach(function(el){var id=el.getAttribute('data-layout-chain');var col=o[id]||TS_LAYOUT_DEFAULT_COLORS[id];if(col){el.style.color=col;el.style.borderColor=col;}});
+}
+var COLS=[['layout','🔗 Layout'],['ticker','Ticker'],['sector','Sector'],['precio','Precio ($)'],['cambio','Cambio %'],['volumen','Volumen'],['gap','Gap %'],['flot','Flotación (M)'],['ema20','EMA20'],['ema50','EMA50'],['ema200','EMA200'],['macd','MACD']];
 function _colKey(){try{return String(TS_USER_KEY).replace('tradeScannerLastState','tradeScannerCols')}catch(e){return 'tradeScannerCols'}}
 function _colLoad(){
   var ids=COLS.map(function(c){return c[0]});var raw='';
@@ -4400,7 +4423,7 @@ document.addEventListener('change',function(ev){
   if(t.checked){if(k>=0)s.hidden.splice(k,1)}else{if(k<0)s.hidden.push(id)}
   _colSave(s);aplicarColumnas();
 });
-document.addEventListener('DOMContentLoaded',function(){renderColumnas();aplicarColumnas();});
+document.addEventListener('DOMContentLoaded',function(){renderColumnas();aplicarColumnas();aplicarColoresLayouts();});
 window.addEventListener('storage',function(e){if(e&&e.key===_colKey()){aplicarColumnas();renderColumnas();}});
 function _ajustarMarco(){
   try{
@@ -4678,7 +4701,7 @@ def _render_scanner():
     _show_ema20=(_qtxt("ema20_on","OFF")=="ON" or ema20_estado_ui!="Neutro" or swing_activo_ui)
     _show_ema50=(ema50_estado_ui!="Neutro" or (swing_activo_ui and swing_objetivo_ui in ("EMA50","EMA50 o EMA200")))
     _show_ema200=(ema200_estado_ui!="Neutro" or (swing_activo_ui and swing_objetivo_ui in ("EMA200","EMA50 o EMA200")))
-    def _row_html(row):
+    def _row_html(row, indice=None):
         ticker = _safe_text(row.get("ticker", ""))
         sector = _safe_text(row.get("sector", "N/A"))
         precio = _num(row.get("precio"))
@@ -4706,6 +4729,7 @@ def _render_scanner():
         mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
         mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
         news = f" <button type='button' class='news-btn' title='Ver noticias' onclick='verNoticias(&quot;{ticker}&quot;)'>🔥</button>" if noticia else ""
+        _layout_id = f"L{max(1, min(10, int(indice or 1)))}"
         _swing_tfs = row.get("_swing_timeframes") or []
         if isinstance(_swing_tfs, str):
             _swing_tfs = [_swing_tfs]
@@ -4713,15 +4737,11 @@ def _render_scanner():
         _ticker_extra=f" <span class='tf-badge'>{_tf_badge}</span>" if _tf_badge else ""
         return (
             f"<tr class='{fila}'>"
-            f"<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
-            f"<option value=''>⚙️ Layout</option>"
-            f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
-            f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
-            f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
-            f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
-            f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-            f"</select></td>"
-            f"<td data-col='ticker'><b>{ticker}</b>{_ticker_extra}{news}</td>"
+            f"<td class='layout-col' data-col='layout'><div class='chain-cell'>"
+            f"<button type='button' class='layout-chain' data-layout-chain='{_layout_id}' title='{_layout_id} · enviar {ticker}' onclick='enviarLayoutLocal(&quot;{ticker}&quot;,&quot;{_layout_id}&quot;,_layoutColor(&quot;{_layout_id}&quot;))'>🔗</button>"
+            f"<input type='color' class='layout-color-picker' data-layout-color='{_layout_id}' title='Color de {_layout_id}' onchange='guardarColorLayout(&quot;{_layout_id}&quot;,this.value)'>"
+            f"</div></td>"
+            f"<td data-col='ticker'><button type='button' class='ticker-layout-link' title='Enviar {ticker} a {_layout_id}' onclick='enviarLayoutLocal(&quot;{ticker}&quot;,&quot;{_layout_id}&quot;,_layoutColor(&quot;{_layout_id}&quot;))'><b>{ticker}</b></button>{_ticker_extra}{news}</td>"
             f"<td data-col='sector'>{sector}</td>"
             f"<td class='num-col' data-col='precio'>{_money(precio)}</td>"
             f"<td class='num-col' data-col='cambio'>{_pct(cambio)}</td>"
@@ -4747,15 +4767,11 @@ def _render_scanner():
         if item is None:
             return (
                 "<tr class='fila-vacia'>"
-                "<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
-                "<option value=''>⚙️ Layout</option>"
-                "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
-                "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
-                "<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
-                "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
-                "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
-                "</select></td>"
-                "<td data-col='ticker'><b>—</b></td><td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
+                f"<td class='layout-col' data-col='layout'><div class='chain-cell'>"
+                f"<button type='button' class='layout-chain' data-layout-chain='L{indice}' title='L{indice} · línea {indice}'>🔗</button>"
+                f"<input type='color' class='layout-color-picker' data-layout-color='L{indice}' title='Color de L{indice}' onchange='guardarColorLayout(&quot;L{indice}&quot;,this.value)'>"
+                f"</div></td>"
+                f"<td data-col='ticker'><b>—</b></td>"<td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
                 "<td class='num-col' data-col='cambio'>—</td><td class='num-col' data-col='volumen'>—</td><td class='num-col' data-col='gap'>—</td>"
                 "<td class='num-col' data-col='flot'>—</td>"
                 + ("<td data-col='ema20'>—</td>" if _show_ema20 else "")
@@ -4763,7 +4779,7 @@ def _render_scanner():
                 + ("<td data-col='ema200'>—</td>" if _show_ema200 else "")
                 + "<td class='macd-neutro' data-col='macd'>—</td></tr>"
             )
-        return _row_html(item)
+        return _row_html(item, indice)
 
 
     rows_html = "".join(_row_visualizacion(r, i + 1) for i, r in enumerate(filas_visualizacion))
@@ -4906,7 +4922,7 @@ def _render_scanner():
     h += "th{height:27px;padding:4px 5px;background:#303640;color:#e7ebef;border:1px solid #505864;font-size:9px;font-weight:700;white-space:nowrap;}";
     h += "td{height:25px;padding:3px 5px;border:1px solid #363d47;font-size:10px;line-height:18px;white-space:nowrap;}";
     h += "tbody tr:nth-child(even){background:#292e36;}tbody tr:nth-child(odd){background:#242a31;}";
-    h += ".layout-col{width:78px;}.engranaje-select{width:70px;height:20px;font-size:8px;}";
+    h += ".layout-col{width:86px;text-align:center}.chain-cell{display:flex;align-items:center;justify-content:center;gap:3px}.layout-chain{width:28px;height:22px;padding:0;border:1px solid #666;background:#20252b;color:#fff;border-radius:4px;font-size:15px;line-height:20px;cursor:pointer}.layout-chain:hover{filter:brightness(1.2)}.layout-color-picker{width:22px;height:22px;padding:1px;border:1px solid #555;background:#20252b;cursor:pointer}.ticker-layout-link{border:0;background:transparent;color:inherit;padding:0;font:inherit;cursor:pointer}.ticker-layout-link:hover{text-decoration:underline}.engranaje-select{width:70px;height:20px;font-size:8px;}";
     h += ".schwab-item{grid-column:span 2;align-items:center;}.schwab-item label{flex:0 0 auto;}.schwab-item>span{flex:1 1 auto;min-width:0;text-align:left;}.schwab-item button{white-space:nowrap;}";
     h += ".footer-note{margin-top:3px;font-size:8px;color:#7f8995;}";
     h += "@media(max-width:1100px){.main-container{width:calc(100% - 24px);}.filtros-grid{grid-template-columns:repeat(4,minmax(0,1fr));}.tab{min-width:82px;padding-left:7px;padding-right:7px;}}";
@@ -4954,8 +4970,8 @@ def _render_scanner():
     h += "function _bridgeUrlUi(){var e=document.getElementById('bridge_url_conn')||document.getElementById('cfg_url');var u=e&&e.value?String(e.value).trim():'';return u.replace(/\\/$/,'')}";
     h += "function _bridgeFetch(url,opts){opts=opts||{};try{opts.targetAddressSpace='loopback'}catch(e){}return fetch(url,opts)}";
     h += "function probarPuente(){var u=_bridgeUrlUi();var s=document.getElementById('bridge_status');if(!u){if(s)s.innerHTML='🔴 Escribe la dirección del puente';return;}if(s)s.innerHTML='🟡 Probando...';var health=u.replace(/\\/layout\\/?$/i,'/health');_bridgeFetch(health,{method:'GET',mode:'cors'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(d){if(s)s.innerHTML='🟢 PUENTE CONECTADO · '+(d.service||'Listo');try{var q=_qtop();q.set('c_url',u);_guardarUltimaConfiguracion(q)}catch(e){}}).catch(function(e){if(s)s.innerHTML='🔴 No se pudo conectar al puente';});}";
-    h += "function enviarLayoutLocal(t,layout){var u=_bridgeUrlUi();if(!u)return;var s=document.getElementById('bridge_status');_bridgeFetch(u,{method:'POST',mode:'cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({broker:document.getElementById('cfg_broker')?document.getElementById('cfg_broker').value:'Charles Schwab',ticker:String(t),layout:String(layout),layout_color:String(layout),timestamp:Date.now()/1000})}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json().catch(function(){return {ok:true}})}).then(function(){if(s)s.innerHTML='🟢 ÚLTIMO ENVÍO: '+String(t)+' → '+String(layout)}).catch(function(){if(s)s.innerHTML='🔴 Puente no disponible · verifica que esté abierto en tu PC';});}";
-    h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;enviarLayoutLocal(t,v);try{var q=_qtop();q.set('c_url',_bridgeUrlUi());q.delete('layout_send_ticker');q.delete('layout_send_color');q.delete('layout_from_browser');_guardarUltimaConfiguracion(q)}catch(err){}}";
+    h += "function enviarLayoutLocal(t,layout,color){var u=_bridgeUrlUi();if(!u||!t)return;var s=document.getElementById('bridge_status');var col=color||_layoutColor(layout);_bridgeFetch(u,{method:'POST',mode:'cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({broker:document.getElementById('cfg_broker')?document.getElementById('cfg_broker').value:'Charles Schwab',ticker:String(t),layout:String(layout),layout_color:String(layout),color:String(col),timestamp:Date.now()/1000})}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json().catch(function(){return {ok:true}})}).then(function(){if(s)s.innerHTML='🟢 '+String(t)+' → '+String(layout)+' · '+String(col)}).catch(function(){if(s)s.innerHTML='🔴 Puente no disponible · verifica que esté abierto en tu PC';});}";
+    h += "function cambiarLayout(t,e){var v=e&&e.value;if(!v)return;enviarLayoutLocal(t,v,_layoutColor(v));try{var q=_qtop();q.set('c_url',_bridgeUrlUi());q.delete('layout_send_ticker');q.delete('layout_send_color');q.delete('layout_from_browser');_guardarUltimaConfiguracion(q)}catch(err){}}";
     h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
     h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
     h += "function cambiarRefresh(v){var _n=Date.now();if(window._tsRf===String(v)&&_n-(window._tsRfT||0)<1500)return;window._tsRf=String(v);window._tsRfT=_n;var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
