@@ -298,6 +298,15 @@ VALORES_POR_DEFECTO = {
     "ema20_estado": "Neutro", "ema50_estado": "Neutro", "ema200_estado": "Neutro",
     "ema20_cond": "Naciendo", "ema50_cond": "Ninguna", "ema200_cond": "Ninguna",
     "ema20_dist": 0.5, "ema50_dist": 0.5, "ema200_dist": 0.5,
+    # Detector de swing: zona inferior -> cruce EMA20 -> primer toque EMA50/EMA200.
+    "swing_activo": False,
+    "swing_origen": "Bollinger inferior + debajo de EMA20",
+    "swing_objetivo": "EMA50 o EMA200",
+    "swing_ventana": 10,
+    "swing_tolerancia": 1.0,
+    "swing_origen_tolerancia": 1.0,
+    "swing_multitimeframe": False,
+    "swing_tfs": "1d,1w,1mo",
     # Filtros opcionales: el usuario decide cuáles activar.
     "gap_activo": False,
     "flotacion_activa": False,
@@ -1430,6 +1439,8 @@ _CONFIG_USUARIO_KEYS = (
     "f_gap_on", "f_float_on", "f_vol_on", "ema20_on",
     "ema20_cond", "ema50_cond", "ema200_cond",
     "ema20_dist", "ema50_dist", "ema200_dist",
+    "swing_activo", "swing_origen", "swing_objetivo", "swing_ventana",
+    "swing_tolerancia", "swing_origen_tolerancia", "swing_multitimeframe", "swing_tfs",
 )
 
 def _clave_configuracion_activa():
@@ -1906,6 +1917,57 @@ def evaluar_tecnico(velas):
 OPCIONES_COND_EMA = ("Ninguna", "Naciendo", "Distancia", "Naciendo o distancia", "Pullback a la baja", "Pullback a la alta")
 
 
+def evaluar_swing(velas):
+    """Detecta zona inferior -> cruce EMA20 -> continuación -> primer toque."""
+    out = {"swing_cross_ago": 999, "swing_origin_bb_dist_pct": 999.0,
+           "swing_origin_below_ema20": False, "swing_continua_alcista": False,
+           "swing_ema50_touch_dist_current": 999.0, "swing_ema50_touch_dist_previous_min": 999.0,
+           "swing_ema200_touch_dist_current": 999.0, "swing_ema200_touch_dist_previous_min": 999.0}
+    try:
+        if velas is None or len(velas) < 200:
+            return out
+        v=velas.sort_index()
+        if not all(c in v.columns for c in ("open","high","low","close")):
+            return out
+        close=v["close"].astype(float).reset_index(drop=True)
+        e20=close.ewm(span=20,adjust=False).mean()
+        e50=close.ewm(span=50,adjust=False).mean()
+        e200=close.ewm(span=200,adjust=False).mean()
+        mid=close.rolling(20).mean(); std=close.rolling(20).std(); lower=mid-2*std
+        last=len(close)-1; cross=None
+        for i in range(max(1,last-30),last+1):
+            if close.iloc[i-1] < e20.iloc[i-1] and close.iloc[i] >= e20.iloc[i]:
+                cross=i
+        if cross is None:
+            return out
+        out["swing_cross_ago"]=last-cross
+        bb_dist=999.0; below=False
+        for j in range(max(0,cross-12),cross+1):
+            if float(close.iloc[j]) < float(e20.iloc[j]): below=True
+            b=lower.iloc[j]
+            if not pd.isna(b) and float(b)>0:
+                lo=float(v.iloc[j]["low"]); d=0.0 if lo<=float(b) else max(0.0,(lo-float(b))/float(b)*100.0)
+                bb_dist=min(bb_dist,d)
+        out["swing_origin_bb_dist_pct"]=bb_dist
+        out["swing_origin_below_ema20"]=below
+        post=close.iloc[cross:last+1]
+        out["swing_continua_alcista"]=bool(len(post)>=2 and close.iloc[last]>e20.iloc[last] and float(post.max())>float(close.iloc[cross]))
+        def rdist(j,ema):
+            e=float(ema.iloc[j])
+            if e<=0:return 999.0
+            lo=float(v.iloc[j]["low"]); hi=float(v.iloc[j]["high"])
+            if lo<=e<=hi:return 0.0
+            return min(abs(lo-e),abs(hi-e))/e*100.0
+        for n,ema in ((50,e50),(200,e200)):
+            cur=rdist(last,ema); prev=999.0
+            for j in range(cross+1,last): prev=min(prev,rdist(j,ema))
+            out["swing_ema%d_touch_dist_current"%n]=cur
+            out["swing_ema%d_touch_dist_previous_min"%n]=prev
+    except Exception as e:
+        print("⚠️ Error evaluando Swing EMA20/50/200:",e)
+    return out
+
+
 def evaluar_ema_condiciones(velas):
     """Datos extra por EMA (20/50/200) para las pestañas de filtros.
 
@@ -1980,6 +2042,33 @@ def cumple_condiciones_ema(c, p):
     Por defecto EMA20 = "Naciendo" (la regla original del scanner) y
     EMA50/EMA200 = "Ninguna". Si un dato no se puede calcular, la condición falla.
     """
+    swing_activo = _filtro_activo(p, "swing_activo", False)
+    if swing_activo:
+        for _n in (20, 50, 200):
+            _pedido = p.get("ema%d_estado" % _n, "Neutro")
+            if _pedido in ("Por encima", "Por debajo") and c.get("ema%d_estado" % _n, "Neutro") != _pedido:
+                return False
+        try: _ventana=max(1,min(30,int(float(p.get("swing_ventana",10)))))
+        except Exception: _ventana=10
+        try: _tol=max(0.0,min(10.0,float(p.get("swing_tolerancia",1.0))))
+        except Exception: _tol=1.0
+        try: _otol=max(0.0,min(10.0,float(p.get("swing_origen_tolerancia",1.0))))
+        except Exception: _otol=1.0
+        if int(c.get("swing_cross_ago",999)) > _ventana:return False
+        _origen=str(p.get("swing_origen","Bollinger inferior + debajo de EMA20"))
+        _bb=float(c.get("swing_origin_bb_dist_pct",999.0)) <= _otol
+        _below=bool(c.get("swing_origin_below_ema20",False))
+        if _origen=="Bollinger inferior" and not _bb:return False
+        if _origen=="Debajo de EMA20" and not _below:return False
+        if _origen=="Bollinger inferior + debajo de EMA20" and not (_bb and _below):return False
+        if not bool(c.get("swing_continua_alcista",False)):return False
+        _obj=str(p.get("swing_objetivo","EMA50 o EMA200"))
+        _ok50=_obj in ("EMA50","EMA50 o EMA200") and float(c.get("swing_ema50_touch_dist_current",999.0))<=_tol and float(c.get("swing_ema50_touch_dist_previous_min",999.0))>_tol
+        _ok200=_obj in ("EMA200","EMA50 o EMA200") and float(c.get("swing_ema200_touch_dist_current",999.0))<=_tol and float(c.get("swing_ema200_touch_dist_previous_min",999.0))>_tol
+        if not (_ok50 or _ok200):return False
+        c["swing_objetivo_detectado"]="EMA50" if _ok50 and not _ok200 else ("EMA200" if _ok200 and not _ok50 else "EMA50 + EMA200")
+        return True
+
     for n in (20, 50, 200):
         pedido = p.get(f"ema{n}_estado", "Neutro")
         cond = p.get(f"ema{n}_cond", "Naciendo" if n == 20 else "Ninguna")
@@ -2971,6 +3060,7 @@ class ServicioScanner:
         extras_ema = self._cache_ema_extra(tf_actual)
         for t in pendientes:
             extras_ema[t] = evaluar_ema_condiciones(series.get(t))
+            extras_ema[t].update(evaluar_swing(series.get(t)))
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
              ema_actual, bb_upper, bb_dist_pct, rsi_val, ema50_act, ema200_act) = evaluar_tecnico(series.get(t))
@@ -4272,6 +4362,16 @@ def _render_scanner():
         ema_dist_ui[_n] = max(0.0, min(25.0, _qfloat(f"ema{_n}_dist", 0.5)))
     macd_ui = _qtxt("f_mac", "Positivo")
     orden_ui = _qtxt("f_order", "Actualizado")
+    swing_activo_ui = _qtxt("swing_activo", "OFF") == "ON"
+    swing_origen_ui = _qtxt("swing_origen", "Bollinger inferior + debajo de EMA20")
+    swing_objetivo_ui = _qtxt("swing_objetivo", "EMA50 o EMA200")
+    swing_ventana_ui = max(1, min(30, _qint("swing_ventana", 10)))
+    swing_tol_ui = max(0.0, min(10.0, _qfloat("swing_tolerancia", 1.0)))
+    swing_origen_tol_ui = max(0.0, min(10.0, _qfloat("swing_origen_tolerancia", 1.0)))
+    swing_multitimeframe_ui = _qtxt("swing_multitimeframe", "OFF") == "ON"
+    _swing_tfs_raw = _qtxt("swing_tfs", "1d,1w,1mo")
+    swing_tfs_ui = [x for x in [v.strip().lower() for v in _swing_tfs_raw.split(",")] if x in ("1d","1w","1mo")]
+    if not swing_tfs_ui: swing_tfs_ui = ["1d","1w","1mo"]
     sesion_ui = "TODO EL MERCADO"
     timeframe_ui = _qtxt("timeframe", "1m")
     ema_dist_max_ui = _qfloat("ema_dist_max", 0.0)
@@ -4331,6 +4431,14 @@ def _render_scanner():
         "ema20_dist": ema_dist_ui[20],
         "ema50_dist": ema_dist_ui[50],
         "ema200_dist": ema_dist_ui[200],
+        "swing_activo": swing_activo_ui,
+        "swing_origen": swing_origen_ui,
+        "swing_objetivo": swing_objetivo_ui,
+        "swing_ventana": swing_ventana_ui,
+        "swing_tolerancia": swing_tol_ui,
+        "swing_origen_tolerancia": swing_origen_tol_ui,
+        "swing_multitimeframe": swing_multitimeframe_ui,
+        "swing_tfs": ",".join(swing_tfs_ui),
         "gap_activo": _qtxt("f_gap_on", "OFF") == "ON",
         "flotacion_activa": _qtxt("f_float_on", "OFF") == "ON",
         "volumen_activo": _qtxt("f_vol_on", "OFF") == "ON",
@@ -4351,10 +4459,17 @@ def _render_scanner():
       # La temporalidad viaja CON sus filtros: el motor escanea esa temporalidad
       # con precio/gap/float/volumen/EMA/MACD de esta pantalla.
       try:
-        servicio.configurar_modo_operacion(
-            "TODO EL MERCADO", timeframe_ui, ema_dist_max_ui,
-            principal=bool(ES_ADMIN), filtros=params_ui,
-        )
+        if swing_activo_ui and swing_multitimeframe_ui:
+            _tf_swing=swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]
+            for _i_tf,_tf_s in enumerate(_tf_swing):
+                servicio.configurar_modo_operacion("TODO EL MERCADO",_tf_s,ema_dist_max_ui,principal=(_i_tf==0),filtros=params_ui)
+            if _tf_swing:
+                timeframe_ui=_tf_swing[0]; params_ui["timeframe"]=timeframe_ui
+        else:
+            servicio.configurar_modo_operacion(
+                "TODO EL MERCADO", timeframe_ui, ema_dist_max_ui,
+                principal=bool(ES_ADMIN), filtros=params_ui,
+            )
       except Exception:
         pass
 
@@ -4372,11 +4487,19 @@ def _render_scanner():
             # podía vaciar la tabla aunque el motor hubiera detectado una señal.
             # Solo se conserva el filtro final común para los valores editables.
             _res_tf = getattr(servicio, "resultados_por_tf", None)
-            if isinstance(_res_tf, dict):
-                _lista_tf = list(_res_tf.get(timeframe_ui, []))
+            if swing_activo_ui and swing_multitimeframe_ui and isinstance(_res_tf, dict):
+                _agrupados={}
+                for _tf_mix in swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]:
+                    for _rr in filtrar_resultados(list(_res_tf.get(_tf_mix, [])),dict(params_ui,timeframe=_tf_mix)):
+                        _key_mix=str(_rr.get("ticker",""))
+                        if _key_mix not in _agrupados:
+                            _agrupados[_key_mix]=dict(_rr); _agrupados[_key_mix]["_swing_timeframes"]=[]
+                        if _tf_mix not in _agrupados[_key_mix]["_swing_timeframes"]:
+                            _agrupados[_key_mix]["_swing_timeframes"].append(_tf_mix)
+                filas_reales=list(_agrupados.values())
             else:
-                _lista_tf = list(servicio.resultados)
-            filas_reales = filtrar_resultados(_lista_tf, params_ui)
+                _lista_tf = list(_res_tf.get(timeframe_ui, [])) if isinstance(_res_tf, dict) else list(servicio.resultados)
+                filas_reales = filtrar_resultados(_lista_tf, params_ui)
             # La tabla visible siempre usa exactamente las 10 señales más recientes.
             # El orden "Actualizado" es fijo para que la primera fila sea la más nueva.
             filas_reales = sorted(
@@ -4431,6 +4554,9 @@ def _render_scanner():
         return f"{n:.0f}"
 
 
+    _show_ema20=(_qtxt("ema20_on","OFF")=="ON" or ema20_estado_ui!="Neutro" or swing_activo_ui)
+    _show_ema50=(ema50_estado_ui!="Neutro" or (swing_activo_ui and swing_objetivo_ui in ("EMA50","EMA50 o EMA200")))
+    _show_ema200=(ema200_estado_ui!="Neutro" or (swing_activo_ui and swing_objetivo_ui in ("EMA200","EMA50 o EMA200")))
     def _row_html(row):
         ticker = _safe_text(row.get("ticker", ""))
         sector = _safe_text(row.get("sector", "N/A"))
@@ -4459,6 +4585,8 @@ def _render_scanner():
         mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
         mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
         news = f" <button type='button' class='news-btn' title='Ver noticias' onclick='verNoticias(&quot;{ticker}&quot;)'>🔥</button>" if noticia else ""
+        _tf_badge=_safe_text(" · ".join(row.get("_swing_timeframes",[])))
+        _ticker_extra=f" <span class='tf-badge'>{_tf_badge}</span>" if _tf_badge else ""
         return (
             f"<tr class='{fila}'>"
             f"<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
@@ -4469,16 +4597,16 @@ def _render_scanner():
             f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
             f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
             f"</select></td>"
-            f"<td data-col='ticker'><b>{ticker}</b>{news}</td>"
+            f"<td data-col='ticker'><b>{ticker}</b>{_ticker_extra}{news}</td>"
             f"<td data-col='sector'>{sector}</td>"
             f"<td class='num-col' data-col='precio'>{_money(precio)}</td>"
             f"<td class='num-col' data-col='cambio'>{_pct(cambio)}</td>"
             f"<td class='num-col' data-col='volumen'>{_big(volumen)}</td>"
             f"<td class='num-col' data-col='gap'>{_pct(row.get('gap_pct'))}</td>"
             f"<td class='num-col' data-col='flot'>{flotacion:.2f}M</td>"
-            f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>"
-            f"<td data-col='ema50'>{_safe_text(ema50_txt)}</td>"
-            f"<td data-col='ema200'>{_safe_text(ema200_txt)}</td>"
+            (f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>" if _show_ema20 else "") +
+            (f"<td data-col='ema50'>{_safe_text(ema50_txt)}</td>" if _show_ema50 else "") +
+            (f"<td data-col='ema200'>{_safe_text(ema200_txt)}</td>" if _show_ema200 else "") +
             f"<td class='{mac_cls}' data-col='macd'>{mac_txt}</td></tr>"
         )
 
@@ -4505,7 +4633,11 @@ def _render_scanner():
                 "</select></td>"
                 "<td data-col='ticker'><b>—</b></td><td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
                 "<td class='num-col' data-col='cambio'>—</td><td class='num-col' data-col='volumen'>—</td><td class='num-col' data-col='gap'>—</td>"
-                "<td class='num-col' data-col='flot'>—</td><td data-col='ema20'>—</td><td data-col='ema50'>—</td><td data-col='ema200'>—</td><td class='macd-neutro' data-col='macd'>—</td></tr>"
+                "<td class='num-col' data-col='flot'>—</td>"
+                + ("<td data-col='ema20'>—</td>" if _show_ema20 else "")
+                + ("<td data-col='ema50'>—</td>" if _show_ema50 else "")
+                + ("<td data-col='ema200'>—</td>" if _show_ema200 else "")
+                + "<td class='macd-neutro' data-col='macd'>—</td></tr>"
             )
         return _row_html(item)
 
@@ -4636,7 +4768,7 @@ def _render_scanner():
     h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;/* Primero el puente nativo: actualiza la URL y provoca un rerun de la MISMA sesion (no se pierde el estado). */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();/* Si tras unos segundos este iframe sigue vivo, el rerun no ocurrio: respaldo con navegacion real. */setTimeout(function(){try{P.location.replace(u);}catch(_e){}},8000);return;}}catch(brErr){}try{P.location.replace(u);return;}catch(navErr){}try{window.top.location.replace(u);}catch(_e){}}catch(e){}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
-    h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_guardarUltimaConfiguracion(q);_goto(q);}"
+    h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe','swing_tfs','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_guardarUltimaConfiguracion(q);_goto(q);}"
     h += "function _configStorageKey(){return 'tradeScannerConfigs_'+TS_USER_KEY;}function _leerConfiguracionesPersonal(){var a=[];var raw='';try{raw=window.top.localStorage.getItem(_configStorageKey())||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(_configStorageKey())||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(_configStorageKey())||''}catch(e3){}}if(!raw){try{raw=localStorage.getItem('tradeScannerConfigs')||''}catch(e4){}}try{a=JSON.parse(raw||'[]')}catch(e5){a=[]}return Array.isArray(a)?a:[];}function _guardarConfiguracionesPersonal(a){var txt=JSON.stringify(a.slice(0,50));try{window.top.localStorage.setItem(_configStorageKey(),txt)}catch(e1){}try{window.parent.localStorage.setItem(_configStorageKey(),txt)}catch(e2){}try{localStorage.setItem(_configStorageKey(),txt)}catch(e3){}try{localStorage.setItem('tradeScannerConfigs',txt)}catch(e4){}}function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var o={};q.forEach(function(v,k){o[k]=v});o.nombre=n;o._savedAt=Date.now();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==n.toLowerCase()});a.unshift(o);_guardarConfiguracionesPersonal(a);_guardarUltimaConfiguracion(q);document.getElementById('config_name').value='';renderConfiguraciones();_goto(q);}"
     h += "function cargarConfiguracionPersonal(n){var a=_leerConfiguracionesPersonal();var o=a.find(function(x){return String(x.nombre||'')===String(n||'')});if(!o)return;var q=_qtop();Object.keys(o).forEach(function(k){if(k!=='nombre'&&k!=='auth_session'&&k!=='_savedAt')q.set(k,o[k])});_goto(q)}function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var a=_leerConfiguracionesPersonal();var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});_guardarConfiguracionesPersonal(restantes);renderConfiguraciones();}catch(e){alert('No se pudo eliminar la configuración: '+e.message);}}function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
     h += "function renderConfiguraciones(){var b=document.getElementById('saved_configs_list');if(!b)return;var t=(document.getElementById('config_search').value||'').toLowerCase();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').toLowerCase().indexOf(t)>=0});b.innerHTML=a.length?a.map(function(x){var n=String((x&&x.nombre)||'').replace(/[<>]/g,'');var key=encodeURIComponent(String((x&&x.nombre)||''));return '<div class=\"saved-config\"><b>'+n+'</b><span>'+String(x.timeframe||'1m')+' · EMA20 '+String(x.ema20_estado||'Neutro')+' · EMA50 '+String(x.ema50_estado||'Neutro')+' · EMA200 '+String(x.ema200_estado||'Neutro')+'</span><button type=\"button\" class=\"btn-cargar-config\" data-config-name=\"'+key+'\">CARGAR</button><button type=\"button\" class=\"btn-eliminar-config\" data-config-name=\"'+key+'\">ELIMINAR</button></div>'}).join(''):'<span class=\"saved-empty\">No hay configuraciones guardadas.</span>'; }var _tsScrollTimer=null;window.addEventListener('scroll',function(){if(!TS_AUTH)return;if(_tsScrollTimer)return;_tsScrollTimer=setTimeout(function(){_tsScrollTimer=null;try{_guardarUltimaConfiguracion(_qtop());}catch(e){}},250);},{passive:true});"
@@ -4653,7 +4785,7 @@ def _render_scanner():
     h += "_sq(q,'f_order','sel_order');_sq(q,'c_active','cfg_active');"
     h += "['f_gap_on','f_float_on','f_vol_on','ema20_on'].forEach(function(id){var e=document.getElementById(id);if(e)q.set(id,e.value)});"
     h += "q.set('c_start','04:00');q.set('c_end','20:00');"
-    h += "_sq(q,'c_lang','cfg_lang');_sq(q,'c_wnd','cfg_wnd');q.set('market_session','TODO EL MERCADO');_sq(q,'timeframe','timeframe');q.set('technical_timeframe',document.getElementById('technical_timeframe')?document.getElementById('technical_timeframe').value:document.getElementById('timeframe').value);_sq(q,'ema_dist_max','ema_dist_max');_sq(q,'rsi_min','rsi_min');_sq(q,'rsi_max','rsi_max');['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});"
+    h += "_sq(q,'c_lang','cfg_lang');_sq(q,'c_wnd','cfg_wnd');q.set('market_session','TODO EL MERCADO');_sq(q,'timeframe','timeframe');q.set('technical_timeframe',document.getElementById('technical_timeframe')?document.getElementById('technical_timeframe').value:document.getElementById('timeframe').value);_sq(q,'ema_dist_max','ema_dist_max');_sq(q,'rsi_min','rsi_min');_sq(q,'rsi_max','rsi_max');['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));"
     h += "_sq(q,'c_broker','cfg_broker');_sq(q,'c_url','cfg_url');"
     h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(e){_navegarMismaApp(q);}}"
     h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
@@ -4714,6 +4846,16 @@ def _render_scanner():
     for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
         h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
     h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20/50/200, MACD y RSI.</span></div>"
+    h += "<div class='panel-card technical-control' style='grid-column:1/-1;'><b>SWING EMA20 → EMA50 / EMA200</b>"
+    h += f"<select id='swing_activo' onchange='aplicarTecnicas()'><option value='OFF' {'selected' if not swing_activo_ui else ''}>OFF · detector apagado</option><option value='ON' {'selected' if swing_activo_ui else ''}>ON · detectar swing</option></select>"
+    h += f"<select id='swing_origen' onchange='aplicarTecnicas()'><option value='Bollinger inferior + debajo de EMA20' {'selected' if swing_origen_ui=='Bollinger inferior + debajo de EMA20' else ''}>Bollinger inferior + debajo de EMA20</option><option value='Bollinger inferior' {'selected' if swing_origen_ui=='Bollinger inferior' else ''}>Bollinger inferior</option><option value='Debajo de EMA20' {'selected' if swing_origen_ui=='Debajo de EMA20' else ''}>Debajo de EMA20</option></select>"
+    h += f"<select id='swing_objetivo' onchange='aplicarTecnicas()'><option value='EMA50 o EMA200' {'selected' if swing_objetivo_ui=='EMA50 o EMA200' else ''}>Primer toque EMA50 o EMA200</option><option value='EMA50' {'selected' if swing_objetivo_ui=='EMA50' else ''}>Primer toque EMA50</option><option value='EMA200' {'selected' if swing_objetivo_ui=='EMA200' else ''}>Primer toque EMA200</option></select>"
+    h += f"<div class='range'><span>Máx. velas desde cruce</span><input type='number' min='1' max='30' step='1' id='swing_ventana' value='{swing_ventana_ui}' onchange='aplicarTecnicas()'><span>Toque %</span><input type='number' min='0' max='10' step='0.1' id='swing_tolerancia' value='{swing_tol_ui:g}' onchange='aplicarTecnicas()'><span>Origen %</span><input type='number' min='0' max='10' step='0.1' id='swing_origen_tolerancia' value='{swing_origen_tol_ui:g}' onchange='aplicarTecnicas()'></div>"
+    h += f"<select id='swing_multitimeframe' onchange='aplicarTecnicas()'><option value='OFF' {'selected' if not swing_multitimeframe_ui else ''}>Una temporalidad</option><option value='ON' {'selected' if swing_multitimeframe_ui else ''}>Multitemporal</option></select>"
+    h += "<div class='range'><span>Temporalidades:</span>"
+    for _mtf,_mtxt in (("1d","1D"),("1w","1W"),("1mo","1M")):
+        h += f"<label style='display:inline-flex;align-items:center;gap:3px;'><input type='checkbox' class='swing-tf-check' value='{_mtf}' {'checked' if _mtf in swing_tfs_ui else ''} onchange='aplicarTecnicas()'>{_mtxt}</label>"
+    h += "</div><span>Zona inferior → cruce EMA20 desde abajo → continuación → primer toque EMA50/EMA200. En multitemporal se agrupan los tickers.</span></div>"
     _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
                  ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
     for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
@@ -4722,8 +4864,7 @@ def _render_scanner():
         h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
         h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
         _opts_cond = list(_lbl_cond)
-        if _n in (50, 200):
-            _opts_cond += [("Pullback a la baja", "VELA CON PULLBACK A LA BAJA"), ("Pullback a la alta", "VELA CON PULLBACK A LA ALTA")]
+        # Pullback EMA50/EMA200 reemplazado por el detector Swing.
         for _v, _t in _opts_cond:
             h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
         h += "</select>"
@@ -4750,7 +4891,7 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
     h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
     h += "</div></div>"
-    h += "<style>.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
+    h += "<style>.tf-badge{font-size:9px;font-weight:900;color:#d4af37;margin-left:3px}.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
     h += "<div id='panel-columnas' class='tab-panel'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
     h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
     def _ctl_res(label, texto, campos):
@@ -4907,7 +5048,11 @@ def _render_scanner():
     # No se muestra como texto fijo antes de RESULTADOS.
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
     h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-    h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th><th data-col='ema20'>EMA20 ({timeframe_ui})</th><th data-col='ema50'>EMA50 ({timeframe_ui})</th><th data-col='ema200'>EMA200 ({timeframe_ui})</th><th data-col='macd'>MACD ({timeframe_ui})</th>"
+    h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th>"
+    if _show_ema20: h += f"<th data-col='ema20'>EMA20 ({timeframe_ui})</th>"
+    if _show_ema50: h += f"<th data-col='ema50'>EMA50 ({timeframe_ui})</th>"
+    if _show_ema200: h += f"<th data-col='ema200'>EMA200 ({timeframe_ui})</th>"
+    h += f"<th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
     h += "<script>try{aplicarColumnas()}catch(e){}</script>"
     try:
