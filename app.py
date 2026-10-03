@@ -2635,7 +2635,7 @@ class ServicioScanner:
             _enc_prev = 0
         # Si la ultima carga no encontro NINGUN float (clave mala, limite 429, etc.) se
         # reintenta en ~15 min en vez de esperar 12 horas con el scanner sin datos de float.
-        _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else 900
+        _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else 7200
         if ahora - ultima_bulk < _ventana_bulk:
             return False
         try:
@@ -2769,6 +2769,77 @@ class ServicioScanner:
             print(f"⚠️ FMP float {ticker}: {e}")
             return None
 
+    def _float_yahoo(self, ticker):
+        """Respaldo 1: floatShares de Yahoo Finance (yfinance). No es oficial: puede fallar o limitar."""
+        if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
+            return None
+        try:
+            import yfinance as yf
+        except Exception:
+            self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
+            self._yahoo_pausado_hasta = time.time() + 3600
+            return None
+        try:
+            espera = getattr(self, "_yahoo_ultima", 0.0) + 0.4 - time.time()
+            if espera > 0:
+                time.sleep(espera)
+            self._yahoo_ultima = time.time()
+            info = yf.Ticker(ticker).info or {}
+            valor = info.get("floatShares")
+            valor = float(valor) if valor not in (None, "", 0) else None
+            if valor is not None and valor <= 0:
+                valor = None
+            self._yahoo_fallos = 0
+            self._yahoo_estado = "ok"
+            return valor
+        except Exception as e:
+            txt = str(e)
+            self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
+            self._yahoo_estado = f"error: {txt[:80]}"
+            if "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
+                self._yahoo_pausado_hasta = time.time() + 1800
+                self._yahoo_fallos = 0
+            return None
+
+    def _circulacion_finnhub(self, ticker):
+        """Respaldo 2: acciones en circulacion (Finnhub). La flotacion nunca es mayor que este numero,
+        por eso solo se usa para APROBAR con seguridad el filtro de flotacion, nunca para descartar."""
+        clave = getattr(self, "finnhub_api_key", None)
+        if not clave:
+            return None
+        if getattr(self, "_finnhub_pausado_hasta", 0) > time.time():
+            return None
+        try:
+            espera = getattr(self, "_finnhub_ultima", 0.0) + 1.1 - time.time()
+            if espera > 0:
+                time.sleep(espera)
+            self._finnhub_ultima = time.time()
+            r = requests.get(
+                "https://finnhub.io/api/v1/stock/profile2",
+                params={"symbol": ticker, "token": clave},
+                timeout=8,
+            )
+            if r.status_code == 429:
+                self._finnhub_pausado_hasta = time.time() + 120
+                self._finnhub_estado = "HTTP 429 (pausa 2 min)"
+                return None
+            if r.status_code in (401, 403):
+                self._finnhub_pausado_hasta = time.time() + 3600
+                self._finnhub_estado = f"clave rechazada (HTTP {r.status_code})"
+                return None
+            if r.status_code != 200:
+                self._finnhub_estado = f"HTTP {r.status_code}"
+                return None
+            datos = r.json() or {}
+            v = datos.get("shareOutstanding")  # Finnhub lo entrega en millones
+            self._finnhub_estado = "ok"
+            if v in (None, "", 0):
+                return None
+            return float(v) * 1_000_000
+        except Exception as e:
+            self._finnhub_estado = f"error: {str(e)[:80]}"
+            return None
+
     def _asegurar_fundamentales(self, tickers):
         ahora = time.time()
         faltan = []
@@ -2789,26 +2860,43 @@ class ServicioScanner:
             return
 
         def pedir(t):
-            # FMP es la única fuente de FLOAT.
-            float_fmp = self._float_fmp(t)
-            float_final = float_fmp
+            # Cadena de respaldo: FMP -> Yahoo (yfinance) -> Finnhub (solo acciones en circulacion).
+            float_final = None
+            fuente = "FMP"
+            circulacion = None
+            v = self._float_fmp(t)
+            if v is not None:
+                float_final, fuente = v, "FMP"
+            else:
+                v = self._float_yahoo(t)
+                if v is not None:
+                    float_final, fuente = v, "Yahoo"
+                else:
+                    circulacion = self._circulacion_finnhub(t)
             try:
                 if float_final is not None:
                     float_final = float(float_final)
             except (TypeError, ValueError):
                 float_final = None
 
-            if float_fmp is not None:
-                estado, fuente = "ok", "FMP"
+            if float_final is not None:
+                estado = "ok"
+                if str(getattr(self, "ultimo_error", "") or "").startswith("FMP"):
+                    self.ultimo_error = None
+            elif circulacion is not None:
+                estado, fuente = "max_circulacion", "Finnhub (circulación)"
             else:
-                estado, fuente = "no_data", "FMP"
+                estado, fuente = "no_data", "FMP/Yahoo/Finnhub"
 
-            return t, {
+            entrada = {
                 "float": float_final,
                 "float_source": fuente,
                 "float_status": estado,
                 "ts": time.time(),
             }
+            if circulacion is not None:
+                entrada["outstanding"] = float(circulacion)
+            return t, entrada
 
         with ThreadPoolExecutor(max_workers=WORKERS_FUNDAMENTALES) as ex:
             for t, entrada in ex.map(pedir, faltan):
@@ -3188,7 +3276,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Mientras termina, los candidatos nuevos usan el endpoint individual como respaldo.
         try:
             meta_bulk = self.cache_fund.get("__bulk_meta__", {}) if isinstance(self.cache_fund, dict) else {}
-            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else 900
+            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else 7200
             bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= _ventana_chk
         except Exception:
             bulk_stale = True
@@ -3347,6 +3435,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             entrada = self.cache_fund.get(c["ticker"], {})
             float_shares = entrada.get("float")
             if float_shares is None:
+                _circ = entrada.get("outstanding")
+                if float_activa and _circ is not None and float(_circ) <= limite_float:
+                    # La flotacion nunca supera las acciones en circulacion: si estas ya cumplen, la flotacion tambien.
+                    c["float_shares"] = float(_circ)
+                    c["float_status"] = "max_circulacion"
+                    c["float_source"] = "Finnhub (acciones en circulación)"
+                    enriquecidos.append(c)
+                    continue
                 float_sin_dato_count += 1
                 if float_activa:
                     continue
@@ -3577,6 +3673,10 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
+try:
+    servicio.finnhub_api_key = st.secrets.get("FINNHUB_API_KEY", None)
+except Exception:
+    servicio.finnhub_api_key = None
 
 # Ventana operativa única e invariable del scanner. Los filtros son editables;
 # el horario no se divide por sesión.
@@ -4951,6 +5051,39 @@ def _render_scanner():
                     f"Temporalidad: {_dg.get('timeframe', '—')} · Sesión: {_dg.get('sesion', '—')} · "
                     f"Gap aplicado: {_dg.get('gap_min', '—')}% a {_dg.get('gap_max', '—')}%"
                 )
+                try:
+                    _cf = list(getattr(servicio, "cache_fund", {}).items())
+                    _meta_f = dict(getattr(servicio, "cache_fund", {}).get("__bulk_meta__", {}) or {})
+                    _con_float = sum(1 for _k, _v in _cf if not str(_k).startswith("__") and isinstance(_v, dict) and _v.get("float") is not None)
+                    _hace = (time.time() - float(_meta_f.get("ts", 0))) / 60 if _meta_f.get("ts") else None
+                    _pausa = float(getattr(servicio, "fmp_pausado_hasta", 0) or 0) - time.time()
+                    st.caption(
+                        f"FMP (flotación): clave configurada: {'sí' if getattr(servicio, 'fmp_api_key', None) else 'NO'} · "
+                        f"tickers con flotación en caché: {_con_float} · "
+                        f"última carga masiva: {'nunca' if _hace is None else f'hace {_hace:.0f} min'} "
+                        f"(páginas: {_meta_f.get('paginas', '—')}, encontrados: {_meta_f.get('encontrados', '—')}) · "
+                        f"pausa por límite: {'sí, ' + str(int(_pausa)) + ' s' if _pausa > 0 else 'no'}"
+                    )
+                    _fuentes = {}
+                    _solo_circ = 0
+                    for _k, _v in _cf:
+                        if str(_k).startswith("__") or not isinstance(_v, dict):
+                            continue
+                        if _v.get("float") is not None:
+                            _s = str(_v.get("float_source", "FMP"))
+                            _fuentes[_s] = _fuentes.get(_s, 0) + 1
+                        elif _v.get("outstanding") is not None:
+                            _solo_circ += 1
+                    st.caption(
+                        "Flotación por fuente: "
+                        + (" · ".join(f"{k}: {n}" for k, n in sorted(_fuentes.items())) or "ninguna aún")
+                        + f" · solo acciones en circulación (Finnhub): {_solo_circ}"
+                        + f" · Yahoo: {getattr(servicio, '_yahoo_estado', 'sin usar')}"
+                        + f" · Finnhub: {'clave sí' if getattr(servicio, 'finnhub_api_key', None) else 'SIN clave'}"
+                        + (f" ({getattr(servicio, '_finnhub_estado', '')})" if getattr(servicio, '_finnhub_estado', '') else "")
+                    )
+                except Exception as _e_fmp:
+                    st.caption(f"FMP: estado no disponible ({_e_fmp})")
                 _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
                 if _err:
                     st.warning(f"Último error del motor: {_err}")
