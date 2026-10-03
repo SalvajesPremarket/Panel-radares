@@ -47,7 +47,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   var current=null,pending=null,lastHtml=null,height=0,deferSince=0,timer=null;
   function post(type,data){var m={isStreamlitMessage:true,type:type};for(var k in data){m[k]=data[k];}window.parent.postMessage(m,'*');}
   function setHeight(h){if(!h||h===height)return;height=h;wrap.style.height=h+'px';post('streamlit:setFrameHeight',{height:h});}
-  function busy(f){try{var d=f.contentDocument;var a=d&&d.activeElement;return !!(a&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));}catch(e){return false;}}
+  function busy(f){try{return !!(f.contentWindow&&f.contentWindow._tsDirty);}catch(e){return false;}}
   function isOurs(w){return !!w&&((current&&current.contentWindow===w)||(pending&&pending.contentWindow===w));}
   function show(f){
     var old=current;current=f;if(pending===f)pending=null;
@@ -1903,7 +1903,7 @@ def evaluar_tecnico(velas):
                 None, None, None, None, None, None, None, None, None)
 
 
-OPCIONES_COND_EMA = ("Ninguna", "Naciendo", "Distancia", "Naciendo o distancia")
+OPCIONES_COND_EMA = ("Ninguna", "Naciendo", "Distancia", "Naciendo o distancia", "Pullback a la baja", "Pullback a la alta")
 
 
 def evaluar_ema_condiciones(velas):
@@ -1944,6 +1944,13 @@ def evaluar_ema_condiciones(velas):
             salida[f"ema{n}_dist_pct"] = abs(precio - ema_act) / ema_act * 100.0
             salida[f"ema{n}_nace_arriba"] = bool(open_act > ema_prev and low_act > low_prev)
             salida[f"ema{n}_nace_abajo"] = bool(open_act < ema_prev and high_act < high_prev)
+            # Pullback a la baja: vela BAJISTA que retrocede hacia la EMA desde arriba y todavia cierra sobre ella.
+            # Se guarda cuanto separa el MINIMO de la vela de la EMA (negativo = la mecha la perfora).
+            if precio > ema_act and precio < open_act:
+                salida[f"ema{n}_pb_baja_dist"] = (low_act - ema_act) / ema_act * 100.0
+            # Pullback a la alta: vela ALCISTA que retrocede hacia la EMA desde abajo y todavia cierra bajo ella.
+            if precio < ema_act and precio > open_act:
+                salida[f"ema{n}_pb_alta_dist"] = (ema_act - high_act) / ema_act * 100.0
     except Exception as e:
         print(f"⚠️ Error evaluando condiciones EMA: {e}")
     return salida
@@ -1974,12 +1981,24 @@ def cumple_condiciones_ema(c, p):
     EMA50/EMA200 = "Ninguna". Si un dato no se puede calcular, la condición falla.
     """
     for n in (20, 50, 200):
-        if n == 20 and not _filtro_activo(p, "ema20_activa", _filtro_activo(p, "ema20_on", False)):
-            continue
         pedido = p.get(f"ema{n}_estado", "Neutro")
         cond = p.get(f"ema{n}_cond", "Naciendo" if n == 20 else "Ninguna")
+        if n == 20 and not _filtro_activo(p, "ema20_activa", _filtro_activo(p, "ema20_on", False)):
+            # Con el interruptor en OFF solo se ignora la EMA20 si esta en su valor por defecto.
+            # Si el usuario eligio ARRIBA/ABAJO o una condicion distinta, SI se aplica.
+            if pedido not in ("Por encima", "Por debajo") and cond in ("Naciendo", "Ninguna"):
+                continue
         if pedido in ("Por encima", "Por debajo") and c.get(f"ema{n}_estado", "Neutro") != pedido:
             return False
+        if cond in ("Pullback a la baja", "Pullback a la alta"):
+            try:
+                limite_pb = float(p.get(f"ema{n}_dist", 0.5))
+            except Exception:
+                limite_pb = 0.5
+            dist_pb = c.get(f"ema{n}_pb_baja_dist" if cond == "Pullback a la baja" else f"ema{n}_pb_alta_dist")
+            if dist_pb is None or float(dist_pb) > limite_pb:
+                return False
+            continue
         if cond not in ("Naciendo", "Distancia", "Naciendo o distancia"):
             continue
         abajo = (pedido == "Por debajo")
@@ -2182,6 +2201,16 @@ def filtrar_resultados(filas, p):
         # MACD según el selector (Positivo por defecto).
         if not cumple_macd(c, p):
             continue
+        # RSI (14): solo se exige cuando el rango se aparta de 0-100.
+        try:
+            _rmin = float(p.get("rsi_min", 0.0))
+            _rmax = float(p.get("rsi_max", 100.0))
+        except (TypeError, ValueError):
+            _rmin, _rmax = 0.0, 100.0
+        if _rmin > 0.0 or _rmax < 100.0:
+            _rsi = c.get("rsi")
+            if _rsi is None or not (_rmin <= float(_rsi) <= _rmax):
+                continue
         # Pestañas EMA20 / EMA50 / EMA200: estado + condición (naciendo / distancia).
         # Por defecto EMA20 = "Naciendo" (regla original); EMA50/200 sin condición.
         if not cumple_condiciones_ema(c, p):
@@ -2967,9 +2996,31 @@ class ServicioScanner:
             )
             if respuesta.status_code == 200:
                 con_noticia = set()
+                pedidos = set(tickers)
+                nuevos = {}
                 for n in respuesta.json().get("news", []):
-                    con_noticia.update(n.get("symbols", []))
-                return con_noticia & set(tickers)
+                    simbolos = n.get("symbols", []) or []
+                    con_noticia.update(simbolos)
+                    item = {
+                        "t": str(n.get("headline") or "")[:300],
+                        "r": str(n.get("summary") or "")[:500],
+                        "u": str(n.get("url") or ""),
+                        "s": str(n.get("source") or ""),
+                        "h": str(n.get("created_at") or ""),
+                    }
+                    for s in simbolos:
+                        if s not in pedidos:
+                            continue
+                        lista = nuevos.setdefault(s, [])
+                        if len(lista) >= 6 or (item["u"] and any(x["u"] == item["u"] for x in lista)):
+                            continue
+                        lista.append(item)
+                detalle = self.__dict__.setdefault("noticias_detalle", {})
+                detalle.update(nuevos)
+                if len(detalle) > 400:
+                    for _k in list(detalle.keys())[:len(detalle) - 400]:
+                        detalle.pop(_k, None)
+                return con_noticia & pedidos
         except Exception:
             pass
         return set()
@@ -4407,7 +4458,7 @@ def _render_scanner():
         ema200_txt = _ema_cell(ema200_val, row.get("ema200_estado", "Neutro"))
         mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
         mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
-        news = " 🔥" if noticia else ""
+        news = f" <button type='button' class='news-btn' title='Ver noticias' onclick='verNoticias(&quot;{ticker}&quot;)'>🔥</button>" if noticia else ""
         return (
             f"<tr class='{fila}'>"
             f"<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
@@ -4475,7 +4526,9 @@ def _render_scanner():
 
     active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
     try:
-        servicio.encendido = (active_val == "True")
+        # El motor es COMPARTIDO: un visitante sin sesion no debe poder apagarlo para todos.
+        if not PUBLIC_PREVIEW:
+            servicio.encendido = (active_val == "True")
     except Exception:
         pass
     lang_val = _qtxt("c_lang", "ESP")
@@ -4536,7 +4589,7 @@ def _render_scanner():
     h += ".status-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-top:1px solid #3c424a;padding-top:4px;}.status{font-weight:bold;white-space:nowrap;}.status.on{color:#3ddc84}.status.off{color:#ff6b6b}.status.wait{color:#f0b429}.date-time{font-size:9px;font-weight:bold;color:#b8c0ca;white-space:nowrap;margin-left:auto;}"
     h += ".tabs{display:flex;gap:3px;overflow-x:auto;background:#20242a;border:1px solid #777;padding:3px;margin-bottom:5px;white-space:nowrap;}"
     h += ".tab{font-size:10px;font-weight:bold;padding:4px 9px;background:#2a2f37;color:#dfe3e8;border:1px solid #555;cursor:pointer;}.tab.active{background:#11151a;color:#fff;border-bottom:2px solid #d4af37;}"
-    h += ".filtros-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}"
+    h += ".filtros-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(max(230px,calc(25% - 18px)),1fr));gap:5px;background:#1d2127;border:1px solid #888;padding:6px;margin-bottom:6px;}"
     h += ".filtro-item{min-width:0;display:flex;align-items:center;justify-content:space-between;gap:8px;background:#292e36;border:1px solid #aaa;padding:5px 7px;min-height:38px;}"
     h += ".filtro-item label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap;}.filtro-item>span{color:#d0d7e0;font-size:10px;line-height:1.3;}"
     h += "input,select,button{font-family:Verdana,Arial,sans-serif;font-size:11px;height:27px;border:1px solid #555;background:#171b20;color:#e7eaee;border-radius:0;outline:none;}"
@@ -4557,6 +4610,14 @@ def _render_scanner():
     h += "@media(max-width:520px){.main-container{padding:3px 3px 8px;width:100%;}.topbar{position:sticky;top:0;min-height:86px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px;margin:0 0 5px;overflow:visible;}.brand{font-size:20px;white-space:nowrap;line-height:1.05;width:100%;text-align:center;padding-top:7px;}.brand small{display:block;font-size:8px;margin-top:3px;}.status-line{gap:5px;align-items:center;}.status{font-size:9px;white-space:nowrap;text-align:left;width:auto;line-height:1.2;}.date-time{font-size:8px;white-space:nowrap;}"
     h += ".tabs{display:grid;grid-template-columns:repeat(6,1fr);gap:2px;overflow:visible;width:100%;}.tab{font-size:8px;padding:6px 2px;flex:1 1 auto;width:100%;}.filtros-grid{grid-template-columns:1fr;gap:4px;padding:5px;}.filtro-item{min-height:34px;padding:4px 6px;gap:6px;}.filtro-item label{font-size:9px;flex:0 0 auto;}.filtro-item input,.filtro-item select{font-size:10px;height:25px;max-width:none;width:auto;min-width:120px;}.filtro-item .range{flex:1;min-width:0;}.filtro-item .range input{width:100%;min-width:70px;}.logo{min-height:38px;font-size:15px;}.subline{font-size:9px;gap:8px;padding:6px;}.result-title{font-size:10px;padding:6px 7px;}.table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch;}.table-wrapper table{min-width:930px;}.footer-note{font-size:8px;flex-direction:column;gap:2px}.engranaje-select{width:112px;height:24px;font-size:10px}.panel-grid{grid-template-columns:1fr;gap:4px}.technical-control select{min-width:0;width:100%;}.tab-panel{font-size:9px;padding:6px}}"
     h += ".technical-subtabs{display:flex;gap:4px;margin-top:6px}.technical-subtab{flex:1;height:28px;background:#20242a;color:#fff;border:1px solid #555;font-size:9px;font-weight:900}.technical-subtab.active{background:#3a4048}.technical-subpanel{display:none;margin-top:4px}.technical-subpanel.active{display:block}.saved-config{display:grid;grid-template-columns:1.2fr 1fr auto auto;gap:5px;align-items:center;border-top:1px solid #444;padding:5px 0;font-size:9px}.saved-config button{height:23px;font-size:8px;background:#252a31;color:#fff;border:1px solid #555}.saved-empty{color:#9aa2ad;font-size:9px}@media(max-width:640px){.technical-subtabs{display:grid;grid-template-columns:1fr 1fr}.saved-config{grid-template-columns:1fr 1fr}}"
+    _css_ocultar = "".join(
+        f"th[data-col='ema{_n}'],td[data-col='ema{_n}']{{display:none!important}}"
+        for _n, _est in ((20, ema20_estado_ui), (50, ema50_estado_ui), (200, ema200_estado_ui))
+        if _est == "Neutro"
+    )
+    if _css_ocultar:
+        h += _css_ocultar
+    h += "#news-panel{display:none;position:fixed;top:0;right:0;width:350px;height:100%;overflow-y:auto;background:#1d2127;border-left:2px solid #f59e0b;z-index:999;padding:8px;box-sizing:border-box;color:#e5e9ee}.news-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#fbbf24;font-size:13px}.news-close{background:#333;color:#fff;border:1px solid #777;cursor:pointer}.news-item{background:#171a1f;border:1px solid #555;padding:7px;margin-bottom:7px}.news-title{font-weight:bold;color:#fff;font-size:12px;margin-bottom:3px}.news-meta{color:#9aa3ad;font-size:10px;margin-bottom:4px}.news-sum{color:#d0d7e0;font-size:11px;margin-bottom:5px}.news-item a{color:#60a5fa;font-size:11px}.news-btn{background:transparent;border:0;cursor:pointer;font-size:14px;padding:0 2px}.float-btn{background:#2d3748;color:#fff;border:1px solid #888;cursor:pointer;font-size:10px;padding:4px 8px;margin-left:auto}"
     h += ".refresh-bar{display:flex;align-items:center;gap:8px;background:#1d2127;border:1px solid #888;padding:5px 8px;margin-bottom:6px}.refresh-bar label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap}.refresh-bar span{color:#b8c0ca;font-size:10px}"
     h += "</style>"
     h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
@@ -4582,7 +4643,7 @@ def _render_scanner():
     h += 'document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){try{_restaurarUltimaConfiguracion()}catch(e){};try{renderConfiguraciones();var raw=localStorage.getItem(TS_USER_KEY)||\'\';if(!raw){try{raw=window.top.localStorage.getItem(TS_USER_KEY)||\'\'}catch(_e1){}}var o=JSON.parse(raw||\'{}\');if(o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target="\'+o._activeTab+\'"]\');if(b)showTab(o._activeTab,b)}if(o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target="\'+o._technicalSubtab+\'"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};try{var lg=(document.getElementById(\'cfg_lang\')||{}).value||\'\';if(lg&&TS_LANGS[lg])aplicarIdioma(lg);}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'technical_timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\',\'f_gap_on\',\'f_float_on\',\'f_vol_on\',\'ema20_on\',\'refresh_sec_inside\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{if(id===\'refresh_sec_inside\')cambiarRefresh(el.value);else if([\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\'].indexOf(id)>=0)return;else pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',technical_timeframe:\'technical_timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',ema20_cond:\'ema20_cond\',ema50_cond:\'ema50_cond\',ema200_cond:\'ema200_cond\',ema20_dist:\'ema20_dist\',ema50_dist:\'ema50_dist\',ema200_dist:\'ema200_dist\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\',f_gap_on:\'f_gap_on\',f_float_on:\'f_float_on\',f_vol_on:\'f_vol_on\',ema20_on:\'ema20_on\',refresh_sec_inside:\'refresh_sec\'};var k=map[id];if(k){q.set(k,el.value);_guardarUltimaConfiguracion(q);}}catch(e){}});});},100)});'
     h += "document.addEventListener('click',function(ev){var tab=ev.target.closest?ev.target.closest('.tab[data-tab-target]'):null;if(tab){ev.preventDefault();showTab(tab.getAttribute('data-tab-target'),tab);return;}var sub=ev.target.closest?ev.target.closest('.technical-subtab[data-subtab-target]'):null;if(sub){ev.preventDefault();showTechnicalSubTab(sub.getAttribute('data-subtab-target'),sub);return;}var save=ev.target.closest?ev.target.closest('.btn-guardar-config'):null;if(save){ev.preventDefault();guardarConfiguracionPersonal();return;}var btn=ev.target.closest?ev.target.closest('.btn-eliminar-config'):null;if(btn){ev.preventDefault();ev.stopPropagation();borrarConfiguracionPersonal(decodeURIComponent(btn.getAttribute('data-config-name')||''));return;}var cargar=ev.target.closest?ev.target.closest('.btn-cargar-config'):null;if(cargar){ev.preventDefault();ev.stopPropagation();cargarConfiguracionPersonal(decodeURIComponent(cargar.getAttribute('data-config-name')||''));return;}});"
     h += "var TS_LANGS={ESP:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'CONFIGURACIÓN','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUMNAS','PRECIO ($)':'PRECIO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTACIÓN ≤','VOLUMEN ≥':'VOLUMEN ≥','MACD':'MACD','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'VENTANA','TEMPORALIDAD':'TEMPORALIDAD','MOTOR':'MOTOR','HORARIO (ET)':'HORARIO (ET)','HORARIO DEL SCANNER':'HORARIO DEL SCANNER','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'PUENTE DE LAYOUT','GUARDAR':'GUARDAR','ELIMINAR':'ELIMINAR','CARGAR':'CARGAR'},ENG:{'RADAR':'RADAR','TÉCNICOS':'TECHNICALS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'SETTINGS','RESULTADOS':'RESULTS','COLUMNAS':'COLUMNS','PRECIO ($)':'PRICE ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','MACD':'MACD','ORDENAR':'SORT','IDIOMA':'LANGUAGE','VENTANA':'WINDOW','TEMPORALIDAD':'TIMEFRAME','MOTOR':'ENGINE','HORARIO (ET)':'SCHEDULE (ET)','HORARIO DEL SCANNER':'SCANNER SCHEDULE','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'LAYOUT BRIDGE','GUARDAR':'SAVE','ELIMINAR':'DELETE','CARGAR':'LOAD'},POR:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TÉCNICO','CONFIGURACIÓN':'CONFIGURAÇÃO','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUNAS','PRECIO ($)':'PREÇO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'JANELA','TEMPORALIDAD':'PERÍODO','MOTOR':'MOTOR','GUARDAR':'SALVAR','ELIMINAR':'EXCLUIR','CARGAR':'CARREGAR'},FRA:{'RADAR':'RADAR','TÉCNICOS':'TECHNIQUES','TECHNICAL':'TECHNIQUE','CONFIGURACIÓN':'CONFIGURATION','RESULTADOS':'RÉSULTATS','COLUMNAS':'COLONNES','PRECIO ($)':'PRIX ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTATION ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'TRIER','IDIOMA':'LANGUE','VENTANA':'FENÊTRE','TEMPORALIDAD':'UNITÉ DE TEMPS','MOTOR':'MOTEUR','GUARDAR':'ENREGISTRER','ELIMINAR':'SUPPRIMER','CARGAR':'CHARGER'},DEU:{'RADAR':'RADAR','TÉCNICOS':'TECHNIK','TECHNICAL':'TECHNIK','CONFIGURACIÓN':'EINSTELLUNGEN','RESULTADOS':'ERGEBNISSE','COLUMNAS':'SPALTEN','PRECIO ($)':'PREIS ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUMEN','ORDENAR':'SORTIEREN','IDIOMA':'SPRACHE','VENTANA':'FENSTER','TEMPORALIDAD':'ZEITRAHMEN','MOTOR':'MOTOR','GUARDAR':'SPEICHERN','ELIMINAR':'LÖSCHEN','CARGAR':'LADEN'},ITA:{'RADAR':'RADAR','TÉCNICOS':'TECNICI','TECHNICAL':'TECNICO','CONFIGURACIÓN':'CONFIGURAZIONE','RESULTADOS':'RISULTATI','COLUMNAS':'COLONNE','PRECIO ($)':'PREZZO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME','ORDENAR':'ORDINA','IDIOMA':'LINGUA','VENTANA':'FINESTRA','TEMPORALIDAD':'TIMEFRAME','MOTOR':'MOTORE','GUARDAR':'SALVA','ELIMINAR':'ELIMINA','CARGAR':'CARICA'},CHN:{'RADAR':'雷达','TÉCNICOS':'技术','TECHNICAL':'技术分析','CONFIGURACIÓN':'设置','RESULTADOS':'结果','COLUMNAS':'列','PRECIO ($)':'价格 ($)','GAP (%)':'跳空 (%)','FLOTACIÓN ≤':'流通股 ≤','VOLUMEN ≥':'成交量 ≥','ORDENAR':'排序','IDIOMA':'语言','VENTANA':'窗口','TEMPORALIDAD':'时间周期','MOTOR':'引擎','GUARDAR':'保存','ELIMINAR':'删除','CARGAR':'加载'},JPN:{'RADAR':'レーダー','TÉCNICOS':'テクニカル','TECHNICAL':'テクニカル分析','CONFIGURACIÓN':'設定','RESULTADOS':'結果','COLUMNAS':'列','PRECIO ($)':'価格 ($)','GAP (%)':'ギャップ (%)','FLOTACIÓN ≤':'浮動株 ≤','VOLUMEN ≥':'出来高 ≥','ORDENAR':'並べ替え','IDIOMA':'言語','VENTANA':'ウィンドウ','TEMPORALIDAD':'時間足','MOTOR':'エンジン','GUARDAR':'保存','ELIMINAR':'削除','CARGAR':'読み込み'}};"
-    h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var t=(el.textContent||'').trim();if(d[t])el.textContent=d[t]});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}";
+    h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var o=el.getAttribute('data-orig');var t=(el.textContent||'').trim();if(!o){if(TS_LANGS.ESP[t]!==undefined){o=t;el.setAttribute('data-orig',t)}else return}var tr=(lang&&lang!=='ESP'&&d[o])?d[o]:o;if(el.textContent!==tr)el.textContent=tr});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}"
     h += "function _sq(q,k,id){var e=document.getElementById(id);if(e&&e.value!==undefined&&e.value!==null)q.set(k,e.value)}"
     h += "function pushConfig(){var q=_qtop();"
     h += "_sq(q,'f_price_min','price_min');_sq(q,'f_price_max','price_max');"
@@ -4602,6 +4663,10 @@ def _render_scanner():
     h += "function cambiarRefresh(v){var _n=Date.now();if(window._tsRf===String(v)&&_n-(window._tsRfT||0)<1500)return;window._tsRf=String(v);window._tsRfT=_n;var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += ""
     h += _JS_COLUMNAS
+    h += "function abrirVentanaFlotante(){try{var q=_qtop();q.set('embed','true');q.set('c_wnd','Incrustada');var base='';try{base=window.top.location.origin+window.top.location.pathname}catch(e1){}if(!base){try{base=window.parent.location.origin+window.parent.location.pathname}catch(e2){base='/'}}var w=window.open(base+'?'+q.toString(),'tsFloatWin','popup=yes,width='+Math.min(1400,screen.availWidth-80)+',height='+Math.min(950,screen.availHeight-80)+',left=40,top=40,resizable=yes,scrollbars=yes');if(!w){alert('El navegador bloqueo la ventana. Permite ventanas emergentes para este sitio y vuelve a intentar.')}else if(w.focus){w.focus()}}catch(e){alert('No se pudo abrir la ventana: '+e.message)}}"
+    h += "function cerrarNoticias(){var p=document.getElementById('news-panel');if(p)p.style.display='none';document.body.style.paddingRight='';try{sessionStorage.removeItem('tsNewsOpen')}catch(e){}}"
+    h += "function verNoticias(t){try{var p=document.getElementById('news-panel');if(!p)return;var lista=(typeof TS_NEWS!=='undefined'&&TS_NEWS[t])||[];p.innerHTML='';var hd=document.createElement('div');hd.className='news-head';var tt=document.createElement('b');tt.textContent='\U0001F525 '+t+' - noticias';var cx=document.createElement('button');cx.type='button';cx.className='news-close';cx.textContent='X';cx.onclick=cerrarNoticias;hd.appendChild(tt);hd.appendChild(cx);p.appendChild(hd);if(!lista.length){var e0=document.createElement('div');e0.className='news-item';e0.textContent='Sin detalle de noticias disponible en este momento.';p.appendChild(e0)}lista.forEach(function(n){var d=document.createElement('div');d.className='news-item';var ti=document.createElement('div');ti.className='news-title';ti.textContent=n.t||'(sin titulo)';d.appendChild(ti);var m=document.createElement('div');m.className='news-meta';var f='';try{f=n.h?new Date(n.h).toLocaleString():''}catch(e1){}m.textContent=[n.s||'',f].filter(Boolean).join(' - ');d.appendChild(m);if(n.r){var r=document.createElement('div');r.className='news-sum';r.textContent=n.r;d.appendChild(r)}if(n.u&&n.u.indexOf('http')===0){var a=document.createElement('a');a.href=n.u;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Leer articulo completo';d.appendChild(a)}p.appendChild(d)});p.style.display='block';document.body.style.paddingRight='360px';try{sessionStorage.setItem('tsNewsOpen',t)}catch(e2){}}catch(e){}}"
+    h += "document.addEventListener('input',function(ev){var t=ev.target;if(t&&t.tagName==='INPUT'&&t.type!=='checkbox')window._tsDirty=true},true);document.addEventListener('change',function(){window._tsDirty=false},true);document.addEventListener('focusout',function(){window._tsDirty=false},true);"
     h += "window.addEventListener('load',function(){setTimeout(function(){try{window.parent.postMessage({tsReady:1},'*')}catch(e){}},400)});"
     h += "</script></head><body>"
     _head_html = h  # encabezado común (CSS + JS) para los dos marcos
@@ -4618,7 +4683,9 @@ def _render_scanner():
     def _cond_txt(n, cond):
         d = ema_dist_ui[n]
         return {"Ninguna": "sin condición extra", "Naciendo": "primera vela naciendo",
-                "Distancia": f"a ≤ {d:g}% de la EMA", "Naciendo o distancia": f"naciendo o a ≤ {d:g}%"}.get(cond, cond)
+                "Distancia": f"a ≤ {d:g}% de la EMA", "Naciendo o distancia": f"naciendo o a ≤ {d:g}%",
+                "Pullback a la baja": f"vela con pullback a la baja (mín. a ≤ {d:g}% de la EMA)",
+                "Pullback a la alta": f"vela con pullback a la alta (máx. a ≤ {d:g}% de la EMA)"}.get(cond, cond)
 
     _ema_resumen_html = "".join(
         f"<div>EMA{n}: <b>{_le.get(_estados_ema[n], _estados_ema[n])}</b> · {_cond_txt(n, ema_cond_ui[n])}</div>"
@@ -4654,7 +4721,10 @@ def _render_scanner():
         h += f"<div class='panel-card technical-control'><b>{_ename}</b>"
         h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
         h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
-        for _v, _t in _lbl_cond:
+        _opts_cond = list(_lbl_cond)
+        if _n in (50, 200):
+            _opts_cond += [("Pullback a la baja", "VELA CON PULLBACK A LA BAJA"), ("Pullback a la alta", "VELA CON PULLBACK A LA ALTA")]
+        for _v, _t in _opts_cond:
             h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
         h += "</select>"
         h += f"<div class='range'><input type='number' step='0.1' min='0' max='25' id='ema{_n}_dist' value='{ema_dist_ui[_n]:g}' onchange='aplicarTecnicas()'><span>% distancia máx.</span></div>"
@@ -4713,7 +4783,7 @@ def _render_scanner():
             return f"<div class='filtro-item'><label>{label}</label><select id='cfg_broker' onchange='pushConfig()'><option value='Interactive Brokers' {'selected' if v=='Interactive Brokers' else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if v=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if v=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if v=='Otro' else ''}>Otro</option></select></div>"
         if label == "VENTANA":
             v=_v('cfg_wnd', wnd_val)
-            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if v=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if v=='Flotante' else ''}>Flotante</option></select></div>"
+            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_wnd' onchange='pushConfig();if(this.value===&quot;Flotante&quot;)abrirVentanaFlotante()'><option value='Incrustada' {'selected' if v=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if v=='Flotante' else ''}>Flotante</option></select></div>"
         if label == "MOTOR":
             v=_v('cfg_active', active_val)
             return f"<div class='filtro-item'><label>{label}</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if v=='True' else ''}>🟢 ON</option><option value='False' {'selected' if v!='True' else ''}>🔴 OFF</option></select></div>"
@@ -4739,7 +4809,7 @@ def _render_scanner():
     else:
         h += _ctl_res("IDIOMA", lang_val, [("cfg_lang", lang_val)])
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
+        h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig();if(this.value===&quot;Flotante&quot;)abrirVentanaFlotante()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
     else:
         h += _ctl_res("VENTANA", wnd_val, [("cfg_wnd", wnd_val)])
     h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
@@ -4816,13 +4886,13 @@ def _render_scanner():
     if _layout_status:
         h += f"<div class='panel-card' style='margin:6px 0;border-color:#d4af37;'><b>ENVÍO AL LAYOUT</b><span>{_safe_text(_layout_status)}</span></div>"
     if PUBLIC_PREVIEW:
-        h += "<div class='refresh-bar'><label>⏱ REFRESH</label><select disabled><option>⏱ 3 min (fijo)</option></select><span>Regístrate para elegir tu propio refresh.</span></div>"
+        h += "<div class='refresh-bar'><label>⏱ REFRESH</label><select disabled><option>⏱ 3 min (fijo)</option></select><span>Regístrate para elegir tu propio refresh.</span><button type='button' class='float-btn' onclick='abrirVentanaFlotante()'>⧉ VENTANA FLOTANTE</button></div>"
     else:
         h += "<div class='refresh-bar'><label>⏱ REFRESH</label><select id='refresh_sec_inside' onchange='cambiarRefresh(this.value)'>"
         for _rv in refresh_options:
             _rl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
             h += f"<option value='{_rv}' {'selected' if refresh_sec==_rv else ''}>⏱ {_rl}</option>"
-        h += "</select><span>Cada cuánto se actualizan los resultados.</span></div>"
+        h += "</select><span>Cada cuánto se actualizan los resultados.</span><button type='button' class='float-btn' onclick='abrirVentanaFlotante()'>⧉ VENTANA FLOTANTE</button></div>"
     h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Velas:</b> {timeframe_ui.upper()}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
     # El diagnóstico del embudo se conserva internamente en el motor y no se muestra
     # como un bloque fijo antes de RESULTADOS.
@@ -4840,6 +4910,16 @@ def _render_scanner():
     h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th><th data-col='ema20'>EMA20 ({timeframe_ui})</th><th data-col='ema50'>EMA50 ({timeframe_ui})</th><th data-col='ema200'>EMA200 ({timeframe_ui})</th><th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
     h += "<script>try{aplicarColumnas()}catch(e){}</script>"
+    try:
+        _det_noticias = getattr(servicio, "noticias_detalle", {}) or {}
+        _noticias_ui = {}
+        for _fr in filas_visualizacion:
+            if _fr and _fr.get("tiene_noticia"):
+                _noticias_ui[str(_fr.get("ticker"))] = list(_det_noticias.get(_fr.get("ticker"), []))[:6]
+        _json_news = json.dumps(_noticias_ui).replace("</", "<\\/")
+    except Exception:
+        _json_news = "{}"
+    h += "<div id='news-panel'></div><script>var TS_NEWS=" + _json_news + ";try{var _o=sessionStorage.getItem('tsNewsOpen');if(_o&&TS_NEWS[_o])verNoticias(_o)}catch(e){}</script>"
     _ultima_scan_txt = servicio.ultima_actualizacion.strftime("%H:%M:%S ET") if servicio.ultima_actualizacion else "aún no ejecutado"
     _error_scan_txt = str(getattr(servicio, "ultimo_error", "") or "").strip()
     if len(_error_scan_txt) > 140:
