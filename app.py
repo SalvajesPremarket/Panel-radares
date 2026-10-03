@@ -4798,6 +4798,7 @@ def _render_scanner():
     h += "td{height:25px;padding:3px 5px;border:1px solid #363d47;font-size:10px;line-height:18px;white-space:nowrap;}";
     h += "tbody tr:nth-child(even){background:#292e36;}tbody tr:nth-child(odd){background:#242a31;}";
     h += ".layout-col{width:78px;}.engranaje-select{width:70px;height:20px;font-size:8px;}";
+    h += ".schwab-item{grid-column:span 2;align-items:center;}.schwab-item label{flex:0 0 auto;}.schwab-item>span{flex:1 1 auto;min-width:0;text-align:left;}.schwab-item button{white-space:nowrap;}";
     h += ".footer-note{margin-top:3px;font-size:8px;color:#7f8995;}";
     h += "@media(max-width:1100px){.main-container{width:calc(100% - 24px);}.filtros-grid{grid-template-columns:repeat(4,minmax(0,1fr));}.tab{min-width:82px;padding-left:7px;padding-right:7px;}}";
     h += "@media(max-width:900px){.main-container{width:100%;padding:0 3px 8px;}.filtros-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.brand{font-size:18px;}}";
@@ -5061,7 +5062,7 @@ def _render_scanner():
         h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
     else:
         h += "<div class='filtro-item'><label>CONTROLES</label><span style='font-size:10px;line-height:1.35;'>Los filtros, temporalidad, EMA, idioma y refresh se cambian directamente dentro de este cuadro gris.</span></div>"
-    h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
+    h += "<div class='filtro-item schwab-item'><label>CHARLES SCHWAB</label><span style='font-size:10px;line-height:1.2;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:auto;min-width:190px;height:26px;flex:0 0 auto;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
     _schwab_connected = bool(_schwab_access_token())
