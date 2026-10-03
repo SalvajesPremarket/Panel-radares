@@ -3673,6 +3673,15 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
+# El motor se guarda en cache y conserva el codigo VIEJO aunque subas un app.py nuevo.
+# Aqui se le reasignan los metodos de la version actual para que los cambios apliquen sin reiniciar.
+try:
+    import types as _types
+    for _nombre, _fn in list(vars(ServicioScanner).items()):
+        if isinstance(_fn, _types.FunctionType) and not (_nombre.startswith("__") and _nombre.endswith("__")):
+            servicio.__dict__[_nombre] = _types.MethodType(_fn, servicio)
+except Exception as _e_patch:
+    print(f"⚠️ No se pudo actualizar el motor en caliente: {_e_patch}")
 try:
     servicio.finnhub_api_key = st.secrets.get("FINNHUB_API_KEY", None)
 except Exception:
