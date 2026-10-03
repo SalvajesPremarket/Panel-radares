@@ -50,9 +50,9 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   function viewportHeight(){
     try{
       var h=Number(window.top.innerHeight)||0;
-      if(h>300)return Math.max(620,Math.min(1400,h-28));
+      if(h>300)return Math.max(680,Math.min(1200,h-18));
     }catch(e){}
-    return 900;
+    return 1000;
   }
   function fitViewport(){setHeight(viewportHeight());}
   function busy(f){try{return !!(f.contentWindow&&f.contentWindow._tsDirty);}catch(e){return false;}}
@@ -102,7 +102,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   });
   post('streamlit:componentReady',{apiVersion:1});
   setHeight(viewportHeight());
-  setTimeout(fitViewport,120);
+  setTimeout(fitViewport,250);
   window.addEventListener('resize',function(){setTimeout(fitViewport,80);});
   window.addEventListener('orientationchange',function(){setTimeout(fitViewport,180);});
 })();
@@ -4731,7 +4731,7 @@ def _render_scanner():
     h += "*{box-sizing:border-box;}"
     h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
     h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
-    h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
+    h += ".topbar{background:#20242a;border:1px solid #777;padding:7px 10px;margin-bottom:5px;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-height:54px;position:sticky;top:0;z-index:1000;overflow:visible;}"
     h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
     h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
     h += ".status-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-top:1px solid #3c424a;padding-top:4px;}.status{font-weight:bold;white-space:nowrap;}.status.on{color:#3ddc84}.status.off{color:#ff6b6b}.status.wait{color:#f0b429}.date-time{font-size:9px;font-weight:bold;color:#b8c0ca;white-space:nowrap;margin-left:auto;}"
@@ -5268,9 +5268,9 @@ def _render_scanner():
     except Exception:
         pass
     if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
+        _ts_scanner_ui(html=h, alto=1000, key="ts_scanner_ui", default=None)
     else:
-        st.iframe(h, height=900)
+        st.iframe(h, height=1000)
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
