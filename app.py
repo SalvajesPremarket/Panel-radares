@@ -3038,7 +3038,9 @@ class ServicioScanner:
                 pendientes.append(t)
                 continue
             ts_cache = float(entrada[0]) if entrada else 0.0
-            if ahora - ts_cache > ttl:
+            _swing_req = _filtro_activo(self._filtros_para(tf_actual), "swing_activo", False)
+            _extra = self._cache_ema_extra(tf_actual).get(t, {})
+            if ahora - ts_cache > ttl or (_swing_req and "swing_cross_ago" not in _extra):
                 pendientes.append(t)
 
         if not pendientes:
@@ -4462,7 +4464,7 @@ def _render_scanner():
         if swing_activo_ui and swing_multitimeframe_ui:
             _tf_swing=swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]
             for _i_tf,_tf_s in enumerate(_tf_swing):
-                servicio.configurar_modo_operacion("TODO EL MERCADO",_tf_s,ema_dist_max_ui,principal=(_i_tf==0),filtros=params_ui)
+                servicio.configurar_modo_operacion("TODO EL MERCADO",_tf_s,ema_dist_max_ui,principal=(bool(ES_ADMIN) and _i_tf==0),filtros=params_ui)
             if _tf_swing:
                 timeframe_ui=_tf_swing[0]; params_ui["timeframe"]=timeframe_ui
         else:
