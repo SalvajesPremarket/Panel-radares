@@ -36,8 +36,8 @@ _USAR_FILTROS_NATIVOS = False
 _TS_COMP_HTML = r'''<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
-html,body{margin:0;padding:0;background:#15181d;overflow:hidden}
-#wrap{position:relative;width:100%;height:1200px;background:#15181d}
+html,body{margin:0;padding:0;width:100%;height:100%;background:#15181d;overflow:hidden}
+#wrap{position:relative;width:100%;height:100vh;min-height:680px;background:#15181d;overflow:hidden}
 iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background:#15181d}
 </style></head>
 <body><div id="wrap"></div>
@@ -50,9 +50,9 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   function viewportHeight(){
     try{
       var h=Number(window.top.innerHeight)||0;
-      if(h>300)return Math.max(680,Math.min(1200,h-18));
+      if(h>300)return Math.max(680,Math.min(1400,h-12));
     }catch(e){}
-    return 1000;
+    return 900;
   }
   function fitViewport(){setHeight(viewportHeight());}
   function busy(f){try{return !!(f.contentWindow&&f.contentWindow._tsDirty);}catch(e){return false;}}
@@ -102,7 +102,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   });
   post('streamlit:componentReady',{apiVersion:1});
   setHeight(viewportHeight());
-  setTimeout(fitViewport,250);
+  setTimeout(fitViewport,300);
   window.addEventListener('resize',function(){setTimeout(fitViewport,80);});
   window.addEventListener('orientationchange',function(){setTimeout(fitViewport,180);});
 })();
@@ -4729,8 +4729,8 @@ def _render_scanner():
     h += "<title>TradeScanner</title>"
     h += "<style>"
     h += "*{box-sizing:border-box;}"
-    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
-    h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
+    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:4px;}"
+    h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:4px;}"
     h += ".topbar{background:#20242a;border:1px solid #777;padding:7px 10px;margin-bottom:5px;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-height:54px;position:sticky;top:0;z-index:1000;overflow:visible;}"
     h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
     h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
@@ -4747,8 +4747,8 @@ def _render_scanner():
     h += ".engine{font-weight:bold;}.subline{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}.subline span,.subline span *{color:#f0f2f4 !important;opacity:1 !important;text-shadow:none !important;}.subline b{color:#f0f2f4 !important;font-weight:900;opacity:1 !important;text-shadow:none !important;}"
     h += ".result-title{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}"
     h += ".table-wrapper{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
-    h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
-    h += "td{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}"
+    h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:5px 6px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
+    h += "td{padding:4px 6px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:25px;}"
     h += ".fila-alza{background:#1e3325}.fila-baja{background:#3a2426}.fila-vacia{background:#1c2025;color:#7f8995}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#9aa3ad;font-style:italic;}"
     h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
     h += ".layout-col{width:120px;text-align:center;background:#242930;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
@@ -5268,9 +5268,9 @@ def _render_scanner():
     except Exception:
         pass
     if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_scanner_ui(html=h, alto=1000, key="ts_scanner_ui", default=None)
+        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
     else:
-        st.iframe(h, height=1000)
+        st.iframe(h, height=900)
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
