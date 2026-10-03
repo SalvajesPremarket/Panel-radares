@@ -328,8 +328,27 @@ VALORES_POR_DEFECTO = {
 
 
 def cargar_config():
-    """Filtros por defecto (los del dueño). Solo lectura: cada usuario ajusta su propia vista."""
+    """Filtros personales por defecto; no se usan para controlar el motor compartido."""
     return VALORES_POR_DEFECTO.copy()
+
+
+def cargar_config_motor_compartido():
+    """Pool técnico común: amplio, sin filtros personales de ningún usuario."""
+    d = VALORES_POR_DEFECTO.copy()
+    d.update({
+        "precio_min": BASE_PRECIO_MIN, "precio_max": BASE_PRECIO_MAX,
+        "gap_min": BASE_GAP_MIN, "gap_max": BASE_GAP_MAX,
+        "flotacion_max": BASE_FLOTACION_MAX, "volumen_min": 0,
+        "macd": "No exigir",
+        "ema20_estado": "Neutro", "ema50_estado": "Neutro", "ema200_estado": "Neutro",
+        "ema20_cond": "Ninguna", "ema50_cond": "Ninguna", "ema200_cond": "Ninguna",
+        "ema20_dist": 0.0, "ema50_dist": 0.0, "ema200_dist": 0.0,
+        "gap_activo": False, "flotacion_activa": False, "volumen_activo": False,
+        "ema20_activa": False, "f_gap_on": "OFF", "f_float_on": "OFF",
+        "f_vol_on": "OFF", "ema20_on": "OFF",
+        "rsi_min": 0.0, "rsi_max": 100.0, "swing_activo": False, "timeframe": "1m",
+    })
+    return d
 
 
 def cargar_horario_guardado():
@@ -2432,6 +2451,8 @@ class ServicioScanner:
         self.tf_principal = str(self.timeframe or "1m").lower()
         self.tfs_activos = {self.tf_principal: time.time()}
         self.resultados_por_tf = {}
+        # Pool técnico amplio y compartido; cada usuario filtra su propia vista.
+        self.pool_por_tf = {}
         self.diag_por_tf = {}
         self.cache_tecnico_por_tf = {}
         self.cache_ema_extra_por_tf = {}
@@ -2543,7 +2564,7 @@ class ServicioScanner:
             self._despertar.set()   # calcularla ya, sin esperar al siguiente ciclo
 
     def _filtros_para(self, tf):
-        """Filtros vigentes para UNA temporalidad (los suyos; si no hay, los generales)."""
+        """Filtros del motor global para una temporalidad."""
         f = dict(self.filtros_dueno)
         propios = self.filtros_por_tf.get(str(tf or "").lower())
         if propios:
@@ -2577,10 +2598,10 @@ class ServicioScanner:
         self._actualizar_calendario(ahora_et)
         es_dia_mercado = ahora_et.date() in self.dias_mercado_cache
         minuto_actual = ahora_et.hour * 60 + ahora_et.minute + ahora_et.second / 60
-        # La sesión seleccionada define la ventana real del scanner.
-        # Ventana única del scanner: 04:00–20:00 ET.
-        # No se divide en pre-market, mercado regular ni after-market.
-        inicio, fin = 4 * 60, 20 * 60
+        # La ventana global se mantiene en el estado del motor y solo la administra
+        # el administrador. Cada usuario normal aplica su propia ventana a su vista.
+        inicio = int(getattr(self, "hora_inicio_auto_min", 4 * 60))
+        fin = int(getattr(self, "hora_fin_auto_min", 20 * 60))
         self.hora_inicio_auto_min = inicio
         self.hora_fin_auto_min = fin
         if inicio == fin:
@@ -2602,11 +2623,16 @@ class ServicioScanner:
         return self.auto_en_horario
 
     def configurar_horario(self, inicio=None, fin=None):
-        """Mantiene la ventana única fija de 04:00–20:00 ET."""
-        self.hora_inicio_auto_min = 4 * 60
-        self.hora_fin_auto_min = 20 * 60
-        guardar_horario_en_disco(self.hora_inicio_auto_min, self.hora_fin_auto_min)
-        self.auto_motivo = "Ventana fija del scanner · 04:00–20:00 ET"
+        """Configura el horario global; solo el administrador debe llamarlo."""
+        try:
+            inicio = int(inicio); fin = int(fin)
+        except Exception:
+            inicio, fin = 4 * 60, 20 * 60
+        inicio = max(0, min(1439, inicio)); fin = max(0, min(1439, fin))
+        self.hora_inicio_auto_min = inicio
+        self.hora_fin_auto_min = fin
+        guardar_horario_en_disco(inicio, fin)
+        self.auto_motivo = f"Ventana global · {inicio//60:02d}:{inicio%60:02d}–{fin//60:02d}:{fin%60:02d} ET"
 
     def reiniciar_scanner(self):
         """Reinicia de forma segura el motor compartido del scanner.
@@ -2661,6 +2687,7 @@ class ServicioScanner:
             self.cache_tecnico = {}
             self.cache_tecnico_por_tf = {}
             self.cache_ema_extra_por_tf = {}
+            self.pool_por_tf = {}
             self.resultados_por_tf = {}
             self.diag_por_tf = {}
             self._raw_prev_por_tf = {}
@@ -3715,6 +3742,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         # Publicar exactamente la lista final del mismo ciclo. Así la tabla,
         # Telegram y el diagnóstico parten del mismo conjunto de señales.
+        # Guardar el pool antes de los filtros personales permite que cada usuario
+        # vea su propia configuración sin reconfigurar el motor compartido.
+        self.pool_por_tf[tf] = list(enriquecidos)
         self.resultados_por_tf[tf] = list(resultados_finales_hist)
         if es_principal:
             self.resultados = list(resultados_finales_hist)
@@ -3818,7 +3848,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 @st.cache_resource
 def obtener_servicio(api_key, secret_key, tg_token, tg_chat, fmp_api_key):
     print("⚙️ Iniciando el motor del scanner (una sola vez para todos los usuarios)...")
-    return ServicioScanner(api_key, secret_key, tg_token, tg_chat, fmp_api_key, cargar_config())
+    return ServicioScanner(api_key, secret_key, tg_token, tg_chat, fmp_api_key, cargar_config_motor_compartido())
 
 
 servicio = obtener_servicio(
@@ -3842,10 +3872,8 @@ try:
 except Exception:
     servicio.finnhub_api_key = None
 
-# Ventana operativa única e invariable del scanner. Los filtros son editables;
-# el horario no se divide por sesión.
-servicio.hora_inicio_auto_min = 4 * 60
-servicio.hora_fin_auto_min = 20 * 60
+# Ventana operativa global: se conserva la configurada por el administrador.
+# Los usuarios normales tienen su propia ventana de visualización.
 servicio.sesion = "TODO EL MERCADO"
 
 # Vigilancia del hilo: si el hilo se detuvo, la siguiente ejecución lo vuelve a levantar.
@@ -4462,29 +4490,31 @@ def _render_scanner():
     # IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
     # Antes el motor podía conservar una configuración vieja de cargar_config(),
     # mientras la pantalla mostraba otra, dejando el scanner aparentemente vacío.
-    if not PUBLIC_PREVIEW:
-      try:
-        servicio.filtros_dueno.update(params_ui)
-        servicio.sesion = sesion_ui
-      except Exception:
-        pass
-      # Solo usuarios con acceso reconfiguran el motor compartido. Un visitante (con
-      # valores por defecto en 1m) no debe pisar la temporalidad elegida por otro.
-      # La temporalidad viaja CON sus filtros: el motor escanea esa temporalidad
-      # con precio/gap/float/volumen/EMA/MACD de esta pantalla.
-      try:
-        if swing_activo_ui and swing_multitimeframe_ui:
-            _tf_swing=swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]
-            for _i_tf,_tf_s in enumerate(_tf_swing):
-                servicio.configurar_modo_operacion("TODO EL MERCADO",_tf_s,ema_dist_max_ui,principal=(bool(ES_ADMIN) and _i_tf==0),filtros=params_ui)
-            if _tf_swing:
-                timeframe_ui=_tf_swing[0]; params_ui["timeframe"]=timeframe_ui
-        else:
-            servicio.configurar_modo_operacion(
-                "TODO EL MERCADO", timeframe_ui, ema_dist_max_ui,
-                principal=bool(ES_ADMIN), filtros=params_ui,
-            )
-      except Exception:
+    # Solo el administrador modifica el motor global. Un usuario normal registra
+    # las temporalidades que necesita sobre el pool amplio, sin escribir sus filtros
+    # en el singleton compartido.
+    try:
+        if ES_ADMIN:
+            servicio.filtros_dueno.update(params_ui)
+            servicio.sesion = sesion_ui
+            if swing_activo_ui and swing_multitimeframe_ui:
+                _tf_swing=swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]
+                for _i_tf,_tf_s in enumerate(_tf_swing):
+                    servicio.configurar_modo_operacion("TODO EL MERCADO",_tf_s,ema_dist_max_ui,principal=(_i_tf==0),filtros=params_ui)
+                if _tf_swing:
+                    timeframe_ui=_tf_swing[0]; params_ui["timeframe"]=timeframe_ui
+            else:
+                servicio.configurar_modo_operacion("TODO EL MERCADO", timeframe_ui, ema_dist_max_ui, principal=True, filtros=params_ui)
+        elif USUARIO_AUTENTICADO:
+            _pool_cfg = cargar_config_motor_compartido()
+            if swing_activo_ui and swing_multitimeframe_ui:
+                for _tf_s in swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]:
+                    servicio.registrar_timeframe(_tf_s, principal=False, filtros=_pool_cfg)
+                if swing_tfs_ui:
+                    timeframe_ui=swing_tfs_ui[0]; params_ui["timeframe"]=timeframe_ui
+            else:
+                servicio.registrar_timeframe(timeframe_ui, principal=False, filtros=_pool_cfg)
+    except Exception:
         pass
 
     _guardar_ultima_configuracion_servidor()
