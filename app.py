@@ -4609,7 +4609,7 @@ def _render_scanner():
             f"<td class='num-col' data-col='volumen'>{_big(volumen)}</td>"
             f"<td class='num-col' data-col='gap'>{_pct(row.get('gap_pct'))}</td>"
             f"<td class='num-col' data-col='flot'>{flotacion:.2f}M</td>"
-            (f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>" if _show_ema20 else "") +
+            + (f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>" if _show_ema20 else "") +
             (f"<td data-col='ema50'>{_safe_text(ema50_txt)}</td>" if _show_ema50 else "") +
             (f"<td data-col='ema200'>{_safe_text(ema200_txt)}</td>" if _show_ema200 else "") +
             f"<td class='{mac_cls}' data-col='macd'>{mac_txt}</td></tr>"
