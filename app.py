@@ -5021,12 +5021,12 @@ def _render_scanner():
     h += "<div id='panel-columnas' class='tab-panel'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
     if not PUBLIC_PREVIEW:
         h += "<div id='panel-conexiones' class='tab-panel'><div class='panel-grid'>"
-    h += "<div class='panel-card' style='grid-column:1/-1;'><b>🔌 PUENTE DE LAYOUT</b><span style='display:block;margin-top:6px;'>Escribe la dirección del puente que está funcionando en tu PC. Normalmente: <b>http://localhost:8080/layout</b></span>"
-    h += "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;'><input id='bridge_url_conn' type='text' value='" + _safe_text(bridge_val) + "' style='flex:1 1 320px;min-width:240px;height:30px;padding:4px 7px;box-sizing:border-box;'><button type='button' onclick=\"probarPuente()\" style='height:30px;padding:0 14px;font-weight:700;'>🔗 CONECTAR PUENTE</button></div>"
-    h += "<div id='bridge_status' style='margin-top:8px;font-size:11px;'>⚪ PUENTE SIN PROBAR</div>"
-    h += "<div style='margin-top:8px;font-size:10px;color:#8f98a3;'>El puente se ejecuta en la computadora del usuario. El scanner no necesita instalarse allí.</div></div>"
-    h += "<div class='panel-card' style='grid-column:1/-1;'><b>🏦 BROKER</b><span style='display:block;margin-top:6px;'>La conexión de la cuenta se añadirá en el siguiente paso con autorización segura. No se piden claves en esta fase.</span>"
-    h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
+        h += "<div class='panel-card' style='grid-column:1/-1;'><b>🔌 PUENTE DE LAYOUT</b><span style='display:block;margin-top:6px;'>Escribe la dirección del puente que está funcionando en tu PC. Normalmente: <b>http://localhost:8080/layout</b></span>"
+        h += "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;'><input id='bridge_url_conn' type='text' value='" + _safe_text(bridge_val) + "' style='flex:1 1 320px;min-width:240px;height:30px;padding:4px 7px;box-sizing:border-box;'><button type='button' onclick=\"probarPuente()\" style='height:30px;padding:0 14px;font-weight:700;'>🔗 CONECTAR PUENTE</button></div>"
+        h += "<div id='bridge_status' style='margin-top:8px;font-size:11px;'>⚪ PUENTE SIN PROBAR</div>"
+        h += "<div style='margin-top:8px;font-size:10px;color:#8f98a3;'>El puente se ejecuta en la computadora del usuario. El scanner no necesita instalarse allí.</div></div>"
+        h += "<div class='panel-card' style='grid-column:1/-1;'><b>🏦 BROKER</b><span style='display:block;margin-top:6px;'>La conexión de la cuenta se añadirá en el siguiente paso con autorización segura. No se piden claves en esta fase.</span>"
+        h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
         h += "</div></div>"
     h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
     def _ctl_res(label, texto, campos):
