@@ -4771,7 +4771,7 @@ def _render_scanner():
                 f"<button type='button' class='layout-chain' data-layout-chain='L{indice}' title='L{indice} · línea {indice}'>🔗</button>"
                 f"<input type='color' class='layout-color-picker' data-layout-color='L{indice}' title='Color de L{indice}' onchange='guardarColorLayout(&quot;L{indice}&quot;,this.value)'>"
                 f"</div></td>"
-                f"<td data-col='ticker'><b>—</b></td>"<td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
+                f"<td data-col='ticker'><b>—</b></td><td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
                 "<td class='num-col' data-col='cambio'>—</td><td class='num-col' data-col='volumen'>—</td><td class='num-col' data-col='gap'>—</td>"
                 "<td class='num-col' data-col='flot'>—</td>"
                 + ("<td data-col='ema20'>—</td>" if _show_ema20 else "")
