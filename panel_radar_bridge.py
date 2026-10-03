@@ -23,6 +23,18 @@ import time
 
 HOST = "127.0.0.1"
 PORT = 8080
+DEFAULT_LAYOUT_COLORS = {
+    "L1": "#e53935",
+    "L2": "#1e88e5",
+    "L3": "#43a047",
+    "L4": "#f9a825",
+    "L5": "#8e44ad",
+    "L6": "#fb8c00",
+    "L7": "#f5f5f5",
+    "L8": "#212121",
+    "L9": "#00acc1",
+    "L10": "#ec407a",
+}
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel_radar_bridge_state.json")
 
 
@@ -39,7 +51,7 @@ def save_state(data):
 
 
 class BridgeHandler(BaseHTTPRequestHandler):
-    server_version = "PanelRadarBridge/1.0"
+    server_version = "PanelRadarBridge/1.1"
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -69,7 +81,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._json(200, {
                 "ok": True,
                 "service": "Panel Radar Bridge",
-                "version": "1.0",
+                "version": "1.1",
                 "host": HOST,
                 "port": PORT,
             })
@@ -83,6 +95,16 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 "health": "/health",
                 "layout": "/layout",
             })
+            return
+
+        if path == "/layouts":
+            try:
+                with open(STATE_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                last = data.get("last_layout") or {}
+            except Exception:
+                last = {}
+            self._json(200, {"ok": True, "layouts": DEFAULT_LAYOUT_COLORS, "last_layout": last})
             return
 
         if path == "/last-layout":
@@ -113,6 +135,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
         ticker = str(data.get("ticker", "")).strip().upper()
         layout = str(data.get("layout") or data.get("layout_color") or "").strip().upper()
+        color = str(data.get("color") or data.get("broker_color") or "").strip().lower()
+        if not color:
+            color = DEFAULT_LAYOUT_COLORS.get(layout, "")
 
         if not ticker:
             self._json(400, {"ok": False, "error": "Falta ticker"})
@@ -122,10 +147,15 @@ class BridgeHandler(BaseHTTPRequestHandler):
             self._json(400, {"ok": False, "error": "Layout inválido. Use L1-L10"})
             return
 
+        if color and (len(color) != 7 or not color.startswith("#")):
+            self._json(400, {"ok": False, "error": "Color inválido. Use formato #RRGGBB"})
+            return
+
         command = {
             "broker": str(data.get("broker", "")),
             "ticker": ticker,
             "layout": layout,
+            "color": color,
             "received_at": time.time(),
         }
         save_state(command)
@@ -137,6 +167,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             "message": "Orden recibida",
             "ticker": ticker,
             "layout": layout,
+            "color": color,
         })
 
     def log_message(self, fmt, *args):
