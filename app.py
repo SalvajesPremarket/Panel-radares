@@ -47,6 +47,14 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   var current=null,pending=null,lastHtml=null,height=0,deferSince=0,timer=null;
   function post(type,data){var m={isStreamlitMessage:true,type:type};for(var k in data){m[k]=data[k];}window.parent.postMessage(m,'*');}
   function setHeight(h){if(!h||h===height)return;height=h;wrap.style.height=h+'px';post('streamlit:setFrameHeight',{height:h});}
+  function viewportHeight(){
+    try{
+      var h=Number(window.top.innerHeight)||0;
+      if(h>300)return Math.max(620,Math.min(1400,h-28));
+    }catch(e){}
+    return 900;
+  }
+  function fitViewport(){setHeight(viewportHeight());}
   function busy(f){try{return !!(f.contentWindow&&f.contentWindow._tsDirty);}catch(e){return false;}}
   function isOurs(w){return !!w&&((current&&current.contentWindow===w)||(pending&&pending.contentWindow===w));}
   function show(f){
@@ -93,7 +101,10 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
     if(d.tsReady&&pending&&ev.source===pending.contentWindow){show(pending);}
   });
   post('streamlit:componentReady',{apiVersion:1});
-  setHeight(1200);
+  setHeight(viewportHeight());
+  setTimeout(fitViewport,120);
+  window.addEventListener('resize',function(){setTimeout(fitViewport,80);});
+  window.addEventListener('orientationchange',function(){setTimeout(fitViewport,180);});
 })();
 </script></body></html>
 '''
@@ -5257,9 +5268,9 @@ def _render_scanner():
     except Exception:
         pass
     if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_scanner_ui(html=h, alto=1200, key="ts_scanner_ui", default=None)
+        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
     else:
-        st.iframe(h, height=1200)
+        st.iframe(h, height=900)
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
