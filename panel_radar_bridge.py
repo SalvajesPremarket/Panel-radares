@@ -24,16 +24,16 @@ import time
 HOST = "127.0.0.1"
 PORT = 8080
 DEFAULT_LAYOUT_COLORS = {
-    "L1": "#e53935",
-    "L2": "#1e88e5",
-    "L3": "#43a047",
-    "L4": "#f9a825",
-    "L5": "#8e44ad",
-    "L6": "#fb8c00",
-    "L7": "#f5f5f5",
-    "L8": "#212121",
-    "L9": "#00acc1",
-    "L10": "#ec407a",
+    "L1": "#d51f1f",
+    "L2": "#f1cf16",
+    "L3": "#178fca",
+    "L4": "#159447",
+    "L5": "#9a4de3",
+    "L6": "#8b2f18",
+    "L7": "#d86b08",
+    "L8": "#8b5a2b",
+    "L9": "#b56bd9",
+    "L10": "#11a9b5",
 }
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "panel_radar_bridge_state.json")
 
