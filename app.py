@@ -365,8 +365,40 @@ def cargar_horario_guardado():
 def guardar_horario_en_disco(inicio_min, fin_min):
     """Guarda el horario automático en disco para que sobreviva a reinicios de la app."""
     try:
+        with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        d = {}
+    try:
+        d["hora_inicio_auto_min"] = int(inicio_min)
+        d["hora_fin_auto_min"] = int(fin_min)
         with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
-            json.dump({"hora_inicio_auto_min": int(inicio_min), "hora_fin_auto_min": int(fin_min)}, f)
+            json.dump(d, f)
+    except Exception:
+        pass
+
+
+def cargar_estado_motor_guardado():
+    """Estado ON/OFF del motor central administrado por ADMIN."""
+    try:
+        with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return bool(d.get("motor_central_encendido", True))
+    except Exception:
+        return True
+
+
+def guardar_estado_motor_en_disco(encendido):
+    """Guarda el ON/OFF central para que no se pierda al reiniciar la app."""
+    try:
+        with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        d = {}
+    try:
+        d["motor_central_encendido"] = bool(encendido)
+        with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
+            json.dump(d, f)
     except Exception:
         pass
 
@@ -1363,6 +1395,9 @@ def _ts_aplicar_evento_ui():
                 continue
             if str(st.query_params.get(_k, "")) != _v:
                 st.query_params[_k] = _v
+        if "c_active" in pares:
+            # Solo se consume como orden de motor después de verificar ES_ADMIN.
+            st.session_state["_admin_motor_evento"] = str(pares.get("c_active", ""))
         # Una accion del usuario siempre gana a un auto-refresh que coincida en el tiempo.
         st.session_state["_ts_rerun_auto"] = False
     except Exception as _e_ev:
@@ -2407,10 +2442,9 @@ class ServicioScanner:
         self.trading = TradingClient(api_key, secret_key)
         self.data = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
 
-        self.encendido = True
+        self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
-        # El horario se carga desde disco si el administrador ya lo guardó antes;
-        # si no hay nada guardado, usa los valores por defecto del código.
+        # El estado ON/OFF se carga desde disco para que un reinicio no lo vuelva a encender.
         self.hora_inicio_auto_min, self.hora_fin_auto_min = cargar_horario_guardado()
         self.resultados = []
         self.ultima_actualizacion = None
@@ -3875,6 +3909,17 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
+
+# CONTROL EXCLUSIVO DEL MOTOR CENTRAL: solo una orden proveniente de una sesión
+# que ya fue identificada como ADMIN puede cambiar el motor compartido.
+if ES_ADMIN:
+    try:
+        _admin_motor_evento = st.session_state.pop("_admin_motor_evento", None)
+        if _admin_motor_evento in ("True", "False"):
+            servicio.encendido = (_admin_motor_evento == "True")
+            guardar_estado_motor_en_disco(servicio.encendido)
+    except Exception:
+        pass
 # El motor se guarda en cache y conserva el codigo VIEJO aunque subas un app.py nuevo.
 # Aqui se le reasignan los metodos de la version actual para que los cambios apliquen sin reiniciar.
 try:
@@ -4732,10 +4777,13 @@ def _render_scanner():
     )
     start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
     end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
-    active_val = _qtxt("c_active", "True" if ES_ADMIN and getattr(servicio, "encendido", True) else "False")
+    # ADMIN ve siempre el estado real del motor central guardado en el servicio.
+    # Los usuarios normales siguen usando su MOTOR personal, aislado del motor central.
+    active_val = (
+        "True" if getattr(servicio, "encendido", True) else "False"
+    ) if ES_ADMIN else _qtxt("c_active", "True")
     try:
         if ES_ADMIN:
-            servicio.encendido = (active_val == "True")
             servicio.configurar_horario(_usuario_hora_ini, _usuario_hora_fin)
     except Exception:
         pass
@@ -5072,9 +5120,11 @@ def _render_scanner():
     h += "<div class='logo'>TRADE SCANNER</div>"
     # (El selector de REFRESH vive solo en la barra nativa superior; antes estaba duplicado aqui.)
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
+        h += "<div class='filtro-item'><label>MOTOR</label><select disabled><option>👀 SOLO LECTURA</option></select></div>"
+    elif ES_ADMIN:
+        h += _ctl_res("MOTOR CENTRAL", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
     else:
-        h += _ctl_res("MOTOR", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
+        h += _ctl_res("MOTOR PERSONAL", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
     if ES_ADMIN:
         h += f"<div class='filtro-item'><label>HORARIO GLOBAL</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
     elif USUARIO_AUTENTICADO:
