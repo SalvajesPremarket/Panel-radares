@@ -1,8 +1,8 @@
 streamlit
 streamlit-autorefresh
-yfinance
 pandas
 pandas-ta-classic
 plotly
 requests
 alpaca-py
+yfinance
