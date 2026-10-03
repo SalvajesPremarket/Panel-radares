@@ -4587,7 +4587,10 @@ def _render_scanner():
         mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
         mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
         news = f" <button type='button' class='news-btn' title='Ver noticias' onclick='verNoticias(&quot;{ticker}&quot;)'>🔥</button>" if noticia else ""
-        _tf_badge=_safe_text(" · ".join(row.get("_swing_timeframes",[])))
+        _swing_tfs = row.get("_swing_timeframes") or []
+        if isinstance(_swing_tfs, str):
+            _swing_tfs = [_swing_tfs]
+        _tf_badge=_safe_text(" · ".join(_swing_tfs))
         _ticker_extra=f" <span class='tf-badge'>{_tf_badge}</span>" if _tf_badge else ""
         return (
             f"<tr class='{fila}'>"
