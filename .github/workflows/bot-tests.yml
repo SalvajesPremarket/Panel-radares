@@ -9,6 +9,7 @@ on:
     paths:
       - "BotTradeScanner/**"
       - ".github/workflows/bot-tests.yml"
+  workflow_dispatch:
 
 jobs:
   pytest:
