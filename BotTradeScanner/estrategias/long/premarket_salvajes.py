@@ -83,11 +83,11 @@ class PreMarketSalvajesLong:
             return False, "Sin vela en curso."
 
         apertura = vela.get("apertura")
-        ema20 = self._numero(snap, "ema20")
+        ema20 = self._numero(snap, "ema20_anterior") or self._numero(snap, "ema20")
         macd = self._numero(snap, "macd")
-        ema50 = self._numero(snap, "ema50")
-        ema200 = self._numero(snap, "ema200")
-        banda_sup = self._numero(snap, "banda_bollinger_superior")
+        ema50 = self._numero(snap, "ema50_anterior") or self._numero(snap, "ema50")
+        ema200 = self._numero(snap, "ema200_anterior") or self._numero(snap, "ema200")
+        banda_sup = self._numero(snap, "banda_bollinger_superior_anterior") or self._numero(snap, "banda_bollinger_superior")
 
         if apertura is None or ema20 is None:
             return False, "Faltan apertura o EMA20."
@@ -106,11 +106,16 @@ class PreMarketSalvajesLong:
         if ema50 is None or ema200 is None or banda_sup is None:
             return False, "Faltan EMA50/EMA200/Bollinger para validar el camino."
 
-        # Para LONG, EMA50/EMA200 son obstaculos solo si quedan entre EMA20 y
-        # la banda superior.
+        # Regla literal de la estrategia: EMA50/EMA200 no deben quedar
+        # entre EMA20 y ninguna de las bandas (superior o inferior).
+        banda_inf = self._numero(snap, "banda_bollinger_inferior_anterior") or self._numero(snap, "banda_bollinger_inferior")
+        if banda_inf is None:
+            return False, "Falta Bollinger inferior para validar el camino."
         for nombre, ema in (("EMA50", ema50), ("EMA200", ema200)):
-            if ema20 < ema < banda_sup:
-                return False, f"{nombre} esta entre EMA20 y Bollinger superior."
+            entre_superior = ema20 < ema < banda_sup
+            entre_inferior = banda_inf < ema < ema20
+            if entre_superior or entre_inferior:
+                return False, f"{nombre} esta entre EMA20 y una banda de Bollinger."
 
         return True, "Candidato LONG valido."
 
