@@ -27,6 +27,7 @@ class MotorVelasBridge:
 
         self.motor = MotorVelas(api_key, secret_key)
         self._lock = Lock()
+        self._subscribe_lock = Lock()
         self._arrancado = False
         self._hilo_inicio = None
         self._simbolos_solicitados = set()
@@ -100,22 +101,25 @@ class MotorVelasBridge:
         ).start()
 
     def _preparar_y_suscribir(self, simbolos):
-        try:
+        # Solo una precarga/suscripción a la vez para no disparar llamadas
+        # históricas concurrentes contra Alpaca.
+        with self._subscribe_lock:
+            try:
             # El motor existente intenta cargar historial de 1 minuto antes
             # de empezar a consumir trades. En el plan Basic, Alpaca limita
             # la ventana histórica disponible; se usa lo que el plan permita.
-            self.motor.precargar_historial(simbolos, cantidad=300)
+                self.motor.precargar_historial(simbolos, cantidad=300)
 
-            for symbol in simbolos:
-                self.motor.agregar_simbolo_en_caliente(symbol)
-
-            with self._lock:
-                self._simbolos_cargados.update(simbolos)
-        except Exception as exc:
-            self._ultima_error = str(exc)
-            with self._lock:
                 for symbol in simbolos:
-                    self._simbolos_solicitados.discard(symbol)
+                    self.motor.agregar_simbolo_en_caliente(symbol)
+
+                with self._lock:
+                    self._simbolos_cargados.update(simbolos)
+            except Exception as exc:
+                self._ultima_error = str(exc)
+                with self._lock:
+                    for symbol in simbolos:
+                        self._simbolos_solicitados.discard(symbol)
 
     def snapshot(self, simbolo: str) -> dict:
         return self.motor.snapshot_simbolo(str(simbolo).strip().upper())
