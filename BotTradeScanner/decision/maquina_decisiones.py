@@ -27,6 +27,7 @@ class DecisionBot:
     estado: str
     motivo: str
     stop_loss: float | None = None
+    precio: float | None = None
     candidato_scanner: bool = False
     estrategia: str = "PreMarketSalvajes LONG"
 
@@ -98,6 +99,7 @@ class MaquinaDecisionesLong:
                 estado=decision.estado.value,
                 motivo=decision.motivo,
                 stop_loss=decision.stop_loss,
+                precio=precio,
                 candidato_scanner=candidato_scanner,
             )
 
