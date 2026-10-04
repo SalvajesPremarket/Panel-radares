@@ -37,7 +37,7 @@ _TS_COMP_HTML = r'''<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
 html,body{margin:0;padding:0;width:100%;height:100%;background:#15181d;overflow:hidden}
-#wrap{position:relative;width:100%;height:100vh;min-height:380px;background:#15181d;overflow:hidden}
+#wrap{position:relative;width:100%;height:100vh;min-height:680px;background:#15181d;overflow:hidden}
 iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background:#15181d}
 </style></head>
 <body><div id="wrap"></div>
@@ -49,14 +49,10 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   function setHeight(h){if(!h||h===height)return;height=h;wrap.style.height=h+'px';post('streamlit:setFrameHeight',{height:h});}
   function viewportHeight(){
     try{
-      var pw=window.parent,fe=window.frameElement,r=fe.getBoundingClientRect();
-      var sc=pw.document.querySelector('[data-testid="stMain"]')||pw.document.querySelector('section.main');
-      var off=sc?sc.scrollTop:0;
-      var h=Math.floor((pw.innerHeight||0)-(r.top+off)-6);
-      if(h>300)return Math.min(2400,h);
+      var h=Number(window.top.innerHeight)||0;
+      if(h>300)return Math.max(680,Math.min(1400,h-12));
     }catch(e){}
-    try{var t=Number(window.top.innerHeight)||0;if(t>300)return Math.max(380,Math.min(2400,t-90));}catch(e){}
-    return 760;
+    return 900;
   }
   function fitViewport(){setHeight(viewportHeight());}
   function busy(f){try{return !!(f.contentWindow&&f.contentWindow._tsDirty);}catch(e){return false;}}
@@ -94,7 +90,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
     var d=ev.data;if(!d)return;
     if(d.type==='streamlit:render'){
       var a=d.args||{};
-      fitViewport();
+      if(a.alto)setHeight(parseInt(a.alto,10));
       if(typeof a.html==='string'&&a.html!==lastHtml){lastHtml=a.html;schedule();}
       return;
     }
@@ -4429,7 +4425,14 @@ document.addEventListener('change',function(ev){
 });
 document.addEventListener('DOMContentLoaded',function(){renderColumnas();aplicarColumnas();aplicarColoresLayouts();});
 window.addEventListener('storage',function(e){if(e&&e.key===_colKey()){aplicarColumnas();renderColumnas();}});
-function _ajustarMarco(){}
+function _ajustarMarco(){
+  try{
+    var fe=window.frameElement;if(!fe)return;
+    var mc=document.querySelector('.main-container')||document.body;
+    var alto=Math.ceil(mc.getBoundingClientRect().height)+18;
+    if(alto>80){fe.style.height=alto+'px';fe.setAttribute('height',String(alto));}
+  }catch(e){}
+}
 window.addEventListener('load',function(){_ajustarMarco();setTimeout(_ajustarMarco,250);setTimeout(_ajustarMarco,1000);});
 document.addEventListener('click',function(){setTimeout(_ajustarMarco,60);});
 window.addEventListener('load',function(){try{var mc=document.querySelector('.main-container');if(mc)new ResizeObserver(function(){_ajustarMarco();}).observe(mc);}catch(e){}});
@@ -4719,8 +4722,7 @@ def _render_scanner():
                 txt = f"${float(valor):.4f}"
             except Exception:
                 txt = "N/D"
-            _cls = "es-up" if estado == "Por encima" else ("es-dn" if estado == "Por debajo" else "es-ne")
-            return f"<span class='ev'>{_safe_text(txt)} · </span><span class='es {_cls}'>{_safe_text(estado)}</span>"
+            return f"{txt} · {estado}"
         ema_txt = _ema_cell(ema20_val, row.get("ema20_estado", "Por encima" if ema_ok else ("Por debajo" if ema_down else "Neutro")))
         ema50_txt = _ema_cell(ema50_val, row.get("ema50_estado", "Neutro"))
         ema200_txt = _ema_cell(ema200_val, row.get("ema200_estado", "Neutro"))
@@ -4746,9 +4748,9 @@ def _render_scanner():
             f"<td class='num-col' data-col='volumen'>{_big(volumen)}</td>"
             f"<td class='num-col' data-col='gap'>{_pct(row.get('gap_pct'))}</td>"
             f"<td class='num-col' data-col='flot'>{flotacion:.2f}M</td>"
-            + (f"<td data-col='ema20'>{ema_txt}</td>" if _show_ema20 else "") +
-            (f"<td data-col='ema50'>{ema50_txt}</td>" if _show_ema50 else "") +
-            (f"<td data-col='ema200'>{ema200_txt}</td>" if _show_ema200 else "") +
+            + (f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>" if _show_ema20 else "") +
+            (f"<td data-col='ema50'>{_safe_text(ema50_txt)}</td>" if _show_ema50 else "") +
+            (f"<td data-col='ema200'>{_safe_text(ema200_txt)}</td>" if _show_ema200 else "") +
             f"<td class='{mac_cls}' data-col='macd'>{mac_txt}</td></tr>"
         )
 
@@ -4890,14 +4892,6 @@ def _render_scanner():
         h += _css_ocultar
     h += "#news-panel{display:none;position:fixed;top:0;right:0;width:350px;height:100%;overflow-y:auto;background:#1d2127;border-left:2px solid #f59e0b;z-index:999;padding:8px;box-sizing:border-box;color:#e5e9ee}.news-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#fbbf24;font-size:13px}.news-close{background:#333;color:#fff;border:1px solid #777;cursor:pointer}.news-item{background:#171a1f;border:1px solid #555;padding:7px;margin-bottom:7px}.news-title{font-weight:bold;color:#fff;font-size:12px;margin-bottom:3px}.news-meta{color:#9aa3ad;font-size:10px;margin-bottom:4px}.news-sum{color:#d0d7e0;font-size:11px;margin-bottom:5px}.news-item a{color:#60a5fa;font-size:11px}.news-btn{background:transparent;border:0;cursor:pointer;font-size:14px;padding:0 2px}.float-btn{background:#2d3748;color:#fff;border:1px solid #888;cursor:pointer;font-size:10px;padding:4px 8px;margin-left:auto}"
     h += ".refresh-bar{display:flex;align-items:center;gap:8px;background:#1d2127;border:1px solid #888;padding:5px 8px;margin-bottom:6px}.refresh-bar label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap}.refresh-bar span{color:#b8c0ca;font-size:10px}"
-    h += ".ts-menu-btn{display:none;background:#2476d8;color:#fff;border:1px solid #4a9cff;font-weight:700;font-size:10px;padding:0 10px;height:26px;border-radius:3px;cursor:pointer}.ts-menu-btn .m-close{display:none}body.ts-menu .ts-menu-btn .m-close{display:inline}body.ts-menu .ts-menu-btn .m-open{display:none}"
-    h += "body.ts-phone{overflow-y:auto!important}body.ts-phone .ts-menu-btn{display:inline-block}body.ts-phone .main-container{width:100%!important;max-width:100%!important;margin:0!important;padding:0 2px 6px!important;transform:none!important}"
-    h += "body.ts-phone .brand{font-size:15px!important;text-align:left!important}body.ts-phone .brand small{display:none}body.ts-phone .topbar{display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;min-height:0!important;padding:4px 6px!important;gap:2px 6px!important;margin:0 0 3px!important}body.ts-phone .top-actions{width:auto!important}body.ts-phone .status-line{height:auto!important;min-height:0!important;flex-wrap:wrap;font-size:8px!important;gap:2px 8px!important}body.ts-phone .status,body.ts-phone .date-time{font-size:8px!important}"
-    h += "body.ts-phone:not(.ts-menu) .tabs,body.ts-phone:not(.ts-menu) .tab-panel,body.ts-phone:not(.ts-menu) .filtros-grid,body.ts-phone:not(.ts-menu) .refresh-bar,body.ts-phone:not(.ts-menu) .subline{display:none!important}body.ts-phone.ts-menu .result-title,body.ts-phone.ts-menu .table-wrapper,body.ts-phone.ts-menu .footer-note{display:none!important}"
-    h += "body.ts-phone .result-title{font-size:9px!important;height:auto!important;line-height:1.2!important;padding:3px 5px!important}body.ts-phone .table-wrapper{overflow-x:hidden!important;width:100%!important}body.ts-phone table{min-width:0!important;width:100%!important;table-layout:fixed!important}body.ts-phone th,body.ts-phone td{padding:3px 1px!important;font-size:9px!important;height:auto!important;line-height:1.2!important;overflow:hidden;text-overflow:ellipsis;text-align:center}body.ts-phone th{font-size:7.5px!important;white-space:normal!important}body.ts-phone td[data-col='ticker']{text-align:left}"
-    h += "body.ts-phone [data-col='layout'],body.ts-phone [data-col='sector'],body.ts-phone [data-col='flot']{display:none!important}body.ts-phone .ev{display:none}body.ts-phone .es{font-size:0}body.ts-phone .es-up::before{content:'\\25B2';font-size:11px;color:#3ddc84}body.ts-phone .es-dn::before{content:'\\25BC';font-size:11px;color:#ff6b6b}body.ts-phone .es-ne::before{content:'\\2013';font-size:11px;color:#9aa3ad}"
-    h += "body.ts-phone .footer-note{font-size:7px!important}body.ts-phone tbody td{height:clamp(30px,calc((100vh - 128px) / 10),54px)!important}body.ts-phone #news-panel{width:100%!important;max-width:100%!important}"
-    h += "body.ts-phone .tabs{display:grid!important;grid-template-columns:repeat(3,1fr)!important;height:auto!important;gap:2px!important;overflow:visible!important}body.ts-phone .tab{min-width:0!important;width:100%!important;height:26px!important;padding:2px 1px!important;font-size:9px!important;white-space:normal!important;line-height:1.1!important}body.ts-phone .filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important}body.ts-phone .filtro-item{min-width:0!important;overflow:hidden!important;flex-wrap:wrap!important;height:auto!important;min-height:31px!important}body.ts-phone .filtro-item input,body.ts-phone .filtro-item select{min-width:0!important;max-width:100%!important;width:100%!important}body.ts-phone .filtro-item .range{width:100%!important;display:flex!important;min-width:0!important}body.ts-phone .filtro-item .range input{width:50%!important;min-width:0!important}body.ts-phone .schwab-item,body.ts-phone .logo{grid-column:1/-1!important}body.ts-phone .refresh-bar{flex-wrap:wrap!important;height:auto!important}@media(max-height:460px){body.ts-phone tbody td{height:clamp(16px,calc((100vh - 92px) / 10),30px)!important;padding:1px!important;font-size:8px!important;line-height:1.1!important}body.ts-phone th{padding:1px!important}body.ts-phone .result-title,body.ts-phone .footer-note{display:none!important}body.ts-phone .topbar{padding:2px 6px!important}body.ts-phone .brand{font-size:12px!important}}"
     # ===== FINVIZ-STYLE DESKTOP SHELL =====
     # Solo presentación: no modifica filtros, motor, persistencia ni eventos.
     h += "<style>";
@@ -4994,17 +4988,16 @@ def _render_scanner():
     h += ""
     h += _JS_COLUMNAS
     h += "function abrirVentanaFlotante(){try{var q=_qtop();q.set('embed','true');q.set('c_wnd','Incrustada');var base='';try{base=window.top.location.origin+window.top.location.pathname}catch(e1){}if(!base){try{base=window.parent.location.origin+window.parent.location.pathname}catch(e2){base='/'}}var w=window.open(base+'?'+q.toString(),'tsFloatWin','popup=yes,width='+Math.min(1400,screen.availWidth-80)+',height='+Math.min(950,screen.availHeight-80)+',left=40,top=40,resizable=yes,scrollbars=yes');if(!w){alert('El navegador bloqueo la ventana. Permite ventanas emergentes para este sitio y vuelve a intentar.')}else if(w.focus){w.focus()}}catch(e){alert('No se pudo abrir la ventana: '+e.message)}}"
-    h += "function cerrarNoticias(){var p=document.getElementById('news-panel');if(p)p.style.display='none';window._tsReserve=0;if(window.tsFit)tsFit();try{sessionStorage.removeItem('tsNewsOpen')}catch(e){}}"
-    h += "function verNoticias(t){try{var p=document.getElementById('news-panel');if(!p)return;var lista=(typeof TS_NEWS!=='undefined'&&TS_NEWS[t])||[];p.innerHTML='';var hd=document.createElement('div');hd.className='news-head';var tt=document.createElement('b');tt.textContent='\U0001F525 '+t+' - noticias';var cx=document.createElement('button');cx.type='button';cx.className='news-close';cx.textContent='X';cx.onclick=cerrarNoticias;hd.appendChild(tt);hd.appendChild(cx);p.appendChild(hd);if(!lista.length){var e0=document.createElement('div');e0.className='news-item';e0.textContent='Sin detalle de noticias disponible en este momento.';p.appendChild(e0)}lista.forEach(function(n){var d=document.createElement('div');d.className='news-item';var ti=document.createElement('div');ti.className='news-title';ti.textContent=n.t||'(sin titulo)';d.appendChild(ti);var m=document.createElement('div');m.className='news-meta';var f='';try{f=n.h?new Date(n.h).toLocaleString():''}catch(e1){}m.textContent=[n.s||'',f].filter(Boolean).join(' - ');d.appendChild(m);if(n.r){var r=document.createElement('div');r.className='news-sum';r.textContent=n.r;d.appendChild(r)}if(n.u&&n.u.indexOf('http')===0){var a=document.createElement('a');a.href=n.u;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Leer articulo completo';d.appendChild(a)}p.appendChild(d)});if(p.parentNode!==document.body)document.body.appendChild(p);p.style.display='block';window._tsReserve=360;if(window.tsFit)tsFit();try{sessionStorage.setItem('tsNewsOpen',t)}catch(e2){}}catch(e){}}"
+    h += "function cerrarNoticias(){var p=document.getElementById('news-panel');if(p)p.style.display='none';document.body.style.paddingRight='';try{sessionStorage.removeItem('tsNewsOpen')}catch(e){}}"
+    h += "function verNoticias(t){try{var p=document.getElementById('news-panel');if(!p)return;var lista=(typeof TS_NEWS!=='undefined'&&TS_NEWS[t])||[];p.innerHTML='';var hd=document.createElement('div');hd.className='news-head';var tt=document.createElement('b');tt.textContent='\U0001F525 '+t+' - noticias';var cx=document.createElement('button');cx.type='button';cx.className='news-close';cx.textContent='X';cx.onclick=cerrarNoticias;hd.appendChild(tt);hd.appendChild(cx);p.appendChild(hd);if(!lista.length){var e0=document.createElement('div');e0.className='news-item';e0.textContent='Sin detalle de noticias disponible en este momento.';p.appendChild(e0)}lista.forEach(function(n){var d=document.createElement('div');d.className='news-item';var ti=document.createElement('div');ti.className='news-title';ti.textContent=n.t||'(sin titulo)';d.appendChild(ti);var m=document.createElement('div');m.className='news-meta';var f='';try{f=n.h?new Date(n.h).toLocaleString():''}catch(e1){}m.textContent=[n.s||'',f].filter(Boolean).join(' - ');d.appendChild(m);if(n.r){var r=document.createElement('div');r.className='news-sum';r.textContent=n.r;d.appendChild(r)}if(n.u&&n.u.indexOf('http')===0){var a=document.createElement('a');a.href=n.u;a.target='_blank';a.rel='noopener noreferrer';a.textContent='Leer articulo completo';d.appendChild(a)}p.appendChild(d)});p.style.display='block';document.body.style.paddingRight='360px';try{sessionStorage.setItem('tsNewsOpen',t)}catch(e2){}}catch(e){}}"
     h += "document.addEventListener('input',function(ev){var t=ev.target;if(t&&t.tagName==='INPUT'&&t.type!=='checkbox')window._tsDirty=true},true);document.addEventListener('change',function(){window._tsDirty=false},true);document.addEventListener('focusout',function(){window._tsDirty=false},true);"
-    h += '''var _tsFitT=null;function tsFit(){try{var mc=document.querySelector('.main-container');if(!mc)return;var np=document.getElementById('news-panel');if(np&&np.parentNode!==document.body)document.body.appendChild(np);var CW=document.documentElement.clientWidth,H=window.innerHeight;var W=CW-(window._tsReserve||0);var phone=(CW<=640)||(H<460);document.body.classList.toggle('ts-phone',phone);var de=document.documentElement,bd=document.body;if(phone){mc.style.cssText='';de.style.overflowY='auto';bd.style.overflowY='auto';return}de.style.overflowY='hidden';bd.style.overflowY='hidden';var MAXS=1.25,MINS=0.42,s=MAXS,hh=0;mc.style.transformOrigin='0 0';mc.style.maxWidth='none';mc.style.margin='0';mc.style.marginBottom='0px';for(var i=0;i<45;i++){mc.style.transform='scale('+s+')';mc.style.width=(W/s)+'px';hh=mc.offsetHeight;if(hh*s<=H-4||s<=MINS)break;s=Math.max(MINS,Math.round((s-0.03)*100)/100)}mc.style.marginBottom=(hh*s-hh)+'px';window._tsScale=s;if(hh*s>H){de.style.overflowY='auto';bd.style.overflowY='auto'}}catch(e){}}function tsFitSoon(){if(_tsFitT)return;_tsFitT=setTimeout(function(){_tsFitT=null;tsFit()},60)}window.addEventListener('resize',tsFitSoon);document.addEventListener('DOMContentLoaded',function(){try{if(sessionStorage.getItem('tsMenu')==='1')document.body.classList.add('ts-menu')}catch(e){}tsFit()});window.addEventListener('load',function(){tsFit();setTimeout(tsFit,250);setTimeout(tsFit,900);try{var mc=document.querySelector('.main-container');if(mc&&window.ResizeObserver)new ResizeObserver(tsFitSoon).observe(document.body)}catch(e){}});document.addEventListener('click',function(){setTimeout(tsFit,80)});function tsToggleMenu(){var b=document.body;b.classList.toggle('ts-menu');try{sessionStorage.setItem('tsMenu',b.classList.contains('ts-menu')?'1':'0')}catch(e){}tsFit();try{window.scrollTo(0,0)}catch(e){}}'''
     h += "window.addEventListener('load',function(){setTimeout(function(){try{window.parent.postMessage({tsReady:1},'*')}catch(e){}},400)});"
     h += "</script></head><body>"
     _head_html = h  # encabezado común (CSS + JS) para los dos marcos
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
-    h += "<button type='button' class='ts-menu-btn' onclick='tsToggleMenu()'><span class='m-open'>☰ FILTROS</span><span class='m-close'>✕ CERRAR</span></button>"
+    # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
     h += "</div>"  # cierra topbar
@@ -5357,11 +5350,11 @@ def _render_scanner():
         .st-key-ts_ctrl_bar [data-testid="stSelectbox"]{width:150px;}
         .st-key-ts_ctrl_bar [data-testid="stCaptionContainer"]{max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
         .st-key-ts_ctrl_bar button{white-space:nowrap;}
-        [data-testid="stHeader"]{display:none !important;}
-        .block-container,[data-testid="stMainBlockContainer"]{padding-top:.25rem !important;padding-bottom:.25rem !important;}
-        .st-key-ts_ctrl_bar{margin:0 0 2px 0 !important;}
-        .st-key-ts_ctrl_bar button{height:26px !important;min-height:26px !important;padding:0 10px !important;font-size:11px !important;}
-        [data-testid="stVerticalBlock"]{gap:.2rem !important;}
+        /* Pantallas anchas: la barra se superpone dentro de la barra superior del scanner. */
+        @media (min-width: 900px){
+          .st-key-ts_ctrl_bar{height:0 !important;min-height:0 !important;overflow:visible !important;position:relative;z-index:60;}
+          .st-key-ts_ctrl_bar > *{position:relative;top:24px;}
+        }
         </style>
         """,
         unsafe_allow_html=True,
