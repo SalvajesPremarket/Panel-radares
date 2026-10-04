@@ -146,3 +146,49 @@ def test_stop_is_not_percentage_trailing_stop():
     # Debe usar exactamente el cierre de la vela anterior (10.4),
     # no un trailing porcentual calculado desde 10.9.
     assert s.stop_loss == 10.4
+
+
+def test_decision_machine_enforces_strategy_stop():
+    from BotTradeScanner.decision.maquina_decisiones import MaquinaDecisionesLong
+
+    m = MaquinaDecisionesLong()
+
+    # Candidato -> libelula -> LONG.
+    m.evaluar(snap(
+        tramo=1, apertura=10.0, maximo=10.0, minimo=9.7,
+        cierre=10.0, libelula=True,
+    ))
+
+    # El precio cae al stop vigente de 10.0: la maquina debe producir EXIT
+    # aunque la estrategia todavía no haya evaluado una regla de vela.
+    d = m.evaluar(snap(
+        tramo=2, apertura=10.0, maximo=10.2, minimo=9.9,
+        cierre=10.0, positiva=False,
+    ))
+    assert d.accion == "EXIT"
+    assert d.stop_loss == 10.0
+
+
+def test_pullback_requires_ema_support_higher_low_and_higher_high():
+    s = PreMarketSalvajesLong()
+    s.marcar_salida_para_pullback()
+
+    # Solo tocar EMA20 no basta.
+    d = s.evaluar(snap(
+        tramo=2, apertura=10.0, maximo=10.5, minimo=9.7,
+        cierre=10.3, positiva=True,
+        anterior_min=9.5, anterior_max=10.6,
+    ))
+    assert d.accion == "WAIT"
+    assert d.estado.value == "pullback_long"
+
+    # Soporte + higher low + higher high habilita vigilar una nueva entrada,
+    # pero NO abre una segunda posicion automaticamente.
+    d = s.evaluar(snap(
+        tramo=2, apertura=10.0, maximo=10.8, minimo=10.0,
+        cierre=10.6, positiva=True,
+        anterior_min=9.9, anterior_max=10.7,
+    ))
+    assert d.accion == "WATCH"
+    assert d.pullback_reentrada is True
+    assert d.estado.value == "esperando_libelula"
