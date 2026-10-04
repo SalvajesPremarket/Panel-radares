@@ -78,11 +78,13 @@ class MaquinaDecisionesLong:
                 and precio is not None
                 and precio <= estrategia.stop_loss
             ):
+                stop_vigente = estrategia.stop_loss
+                estrategia.marcar_salida_para_pullback()
                 decision = DecisionLong(
                     "EXIT",
                     estrategia.estado,
                     "El precio alcanzo el stop_loss vigente.",
-                    stop_loss=estrategia.stop_loss,
+                    stop_loss=stop_vigente,
                 )
             elif not candidato_scanner and estrategia.estado == EstadoLong.ESPERANDO_CANDIDATO:
                 decision = DecisionLong(
