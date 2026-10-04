@@ -205,6 +205,12 @@ st.markdown("""
 ET = ZoneInfo("America/New_York")
 
 # ==========================================
+# 📊 INSTRUMENTACIÓN FASE 1 — CONSUMO REAL
+# Solo mide; no modifica la lógica del scanner.
+# ==========================================
+METRICAS_FASE1_VERSION = 1
+
+# ==========================================
 # ⚙️ PARÁMETROS DEL MOTOR
 # ==========================================
 INTERVALO_ESCANEO_SEGUNDOS = 10        # cada cuánto el motor recorre el mercado (una sola vez para todos los usuarios)
@@ -2306,6 +2312,8 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
             if getattr(data_client, "_bars_retraso", False):
                 solicitud = StockBarsRequest(symbol_or_symbols=lote, timeframe=tf, start=inicio, end=_fin_retraso)
             try:
+                _owner_metricas = getattr(data_client, "_scanner_metricas_owner", None); _t_metric_bars = time.monotonic()
+                if _owner_metricas is not None: _owner_metricas._metrica_sumar("bars")
                 barras = data_client.get_stock_bars(solicitud)
             except Exception as _e1:
                 _m1 = str(_e1).lower()
@@ -2317,7 +2325,13 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
                 else:
                     raise
             datos = getattr(barras, "df", None)
+            if _owner_metricas is not None: _owner_metricas._metrica_tiempo("tiempo_bars", _t_metric_bars)
         except Exception as e:
+            try:
+                if "_owner_metricas" in locals() and _owner_metricas is not None:
+                    _owner_metricas._metrica_tiempo("tiempo_bars", _t_metric_bars); _owner_metricas._metrica_sumar("errores_alpaca")
+                    if "429" in str(e).lower() or "rate limit" in str(e).lower(): _owner_metricas._metrica_sumar("alpaca_429")
+            except Exception: pass
             print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {e}")
             try:
                 data_client._ultimo_error_barras = str(e)
@@ -2527,8 +2541,38 @@ class ServicioScanner:
         # Control del hilo para permitir un reinicio limpio desde el panel de administrador.
         self._detener_hilo = threading.Event()
         self._lock_reinicio = threading.Lock()
+        self._metricas_lock = threading.Lock()
+        self.metricas = {
+            "inicio": time.time(), "ciclos": 0, "ciclos_por_tf": {},
+            "duracion_ciclo_total": 0.0, "duracion_ciclo_min": None, "duracion_ciclo_max": 0.0,
+            "universo_cargas": 0, "simbolos_universo": 0, "snapshots": 0, "bars": 0, "calendario": 0,
+            "fmp_bulk": 0, "fmp_individual": 0, "fmp_429": 0, "fmp_errores": 0,
+            "fmp_cache_hits": 0, "fmp_cache_misses": 0, "errores_alpaca": 0, "alpaca_429": 0,
+            "tiempo_snapshots": 0.0, "tiempo_bars": 0.0, "tiempo_fmp": 0.0,
+            "resultados_publicados": 0, "simbolos_procesados": 0,
+            "ultimo_ciclo_ts": None, "ultimo_ciclo_duracion": None,
+        }
+        self.data._scanner_metricas_owner = self
         self._hilo = threading.Thread(target=self._bucle, daemon=True)
         self._hilo.start()
+
+    # ---------- instrumentación Fase 1 ----------
+    def _metrica_sumar(self, clave, valor=1):
+        try:
+            with self._metricas_lock:
+                self.metricas[clave] = self.metricas.get(clave, 0) + valor
+        except Exception: pass
+
+    def _metrica_tiempo(self, clave, inicio):
+        self._metrica_sumar(clave, max(0.0, time.monotonic() - inicio))
+
+    def metricas_snapshot(self):
+        with self._metricas_lock:
+            m = dict(self.metricas); m["ciclos_por_tf"] = dict(self.metricas.get("ciclos_por_tf", {}))
+        m["uptime_segundos"] = max(0.0, time.time() - float(m.get("inicio", time.time())))
+        m["ciclo_promedio"] = m["duracion_ciclo_total"] / m["ciclos"] if m.get("ciclos") else 0.0
+        m["fmp_total"] = m.get("fmp_bulk", 0) + m.get("fmp_individual", 0)
+        return m
 
     # ---------- utilidades ----------
     def _esperar_turno(self):
@@ -2565,6 +2609,7 @@ class ServicioScanner:
             )
             self.dias_mercado_cache = {c.date for c in calendario}
             self.calendario_ts = time.time()
+            self._metrica_sumar("calendario")
         except Exception as e:
             # El calendario es una ayuda para evitar ejecutar en fines de semana/feriados,
             # pero un fallo temporal de la consulta de calendario NO debe detener el scanner.
@@ -2764,6 +2809,8 @@ class ServicioScanner:
                 and "-" not in a.symbol
             ]
             self.universo_ts = time.time()
+            self._metrica_sumar("universo_cargas")
+            self._metrica_sumar("simbolos_universo", len(self.universo))
             print(f"🌐 Universo cargado: {len(self.universo)} tickers.")
         except Exception as e:
             self.ultimo_error = f"Universo: {e}"
@@ -2774,12 +2821,14 @@ class ServicioScanner:
         lotes = [self.universo[i:i + TAMANO_LOTE_SNAPSHOT] for i in range(0, len(self.universo), TAMANO_LOTE_SNAPSHOT)]
 
         def pedir(lote):
-            self._esperar_turno()
+            self._esperar_turno(); _t_metric = time.monotonic(); self._metrica_sumar("snapshots")
             try:
-                return self.data.get_stock_snapshot(StockSnapshotRequest(symbol_or_symbols=lote)) or {}
+                _resp = self.data.get_stock_snapshot(StockSnapshotRequest(symbol_or_symbols=lote)) or {}
+                self._metrica_tiempo("tiempo_snapshots", _t_metric); return _resp
             except Exception as e:
-                self.ultimo_error = f"Snapshot: {e}"
-                return {}
+                self._metrica_tiempo("tiempo_snapshots", _t_metric); self._metrica_sumar("errores_alpaca")
+                if "429" in str(e).lower() or "rate limit" in str(e).lower(): self._metrica_sumar("alpaca_429")
+                self.ultimo_error = f"Snapshot: {e}"; return {}
 
         snapshots = {}
         with ThreadPoolExecutor(max_workers=WORKERS_SNAPSHOT) as ex:
@@ -2857,6 +2906,7 @@ class ServicioScanner:
                     if espera > 0:
                         time.sleep(espera)
                     self._ultima_peticion_fmp = time.time()
+                    self._metrica_sumar("fmp_bulk"); _t_metric_fmp = time.monotonic()
                     respuesta = requests.get(
                         FMP_BULK_FLOAT_URL,
                         params={
@@ -2866,14 +2916,18 @@ class ServicioScanner:
                         },
                         timeout=20,
                     )
+                self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
+                if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
                 if respuesta.status_code == 429:
                     self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
                     self.ultimo_error = "FMP bulk devolvió HTTP 429; se usará la caché existente y luego el endpoint individual."
                     break
                 if respuesta.status_code in (401, 403):
+                    self._metrica_sumar("fmp_errores")
                     self.ultimo_error = f"FMP bulk rechazó la API (HTTP {respuesta.status_code}); se mantiene el respaldo individual."
                     break
                 if respuesta.status_code != 200:
+                    self._metrica_sumar("fmp_errores")
                     self.ultimo_error = f"FMP bulk devolvió HTTP {respuesta.status_code}; se mantiene la caché existente."
                     break
                 try:
@@ -2939,11 +2993,14 @@ class ServicioScanner:
                 if espera_fmp > 0:
                     time.sleep(espera_fmp)
                 self._ultima_peticion_fmp = time.time()
+                self._metrica_sumar("fmp_individual"); _t_metric_fmp = time.monotonic()
                 respuesta = requests.get(
                     FMP_API_URL,
                     params={"symbol": ticker, "apikey": self.fmp_api_key},
                     timeout=8,
                 )
+            self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
+            if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
             if respuesta.status_code == 429:
                 self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
                 self.ultimo_error = (
@@ -2953,12 +3010,14 @@ class ServicioScanner:
                 print(f"⚠️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s")
                 return None
             if respuesta.status_code in (401, 403):
+                self._metrica_sumar("fmp_errores")
                 self.ultimo_error = (
                     f"FMP rechazó la API para {ticker} (HTTP {respuesta.status_code}). "
                     "Revisa que FMP_API_KEY sea válida y tenga acceso a shares-float."
                 )
                 return None
             if respuesta.status_code != 200:
+                self._metrica_sumar("fmp_errores")
                 self.ultimo_error = f"FMP devolvió HTTP {respuesta.status_code} para {ticker}."
                 return None
             try:
@@ -3054,8 +3113,10 @@ class ServicioScanner:
         for t in tickers:
             e = self.cache_fund.get(t)
             if e is None:
+                self._metrica_sumar("fmp_cache_misses")
                 faltan.append(t)
                 continue
+            self._metrica_sumar("fmp_cache_hits")
             ts = float(e.get("ts", 0))
             if e.get("float") is None and ahora - ts > REINTENTO_FUNDAMENTALES:
                 faltan.append(t)
@@ -3483,7 +3544,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
     # ---------- ciclo principal ----------
     def _ciclo(self, tf=None, snapshots_pre=None):
-        inicio = time.monotonic()
+        inicio = time.monotonic(); self._metrica_sumar("ciclos")
+        _tf_metric = str(tf or self.tf_principal or self.timeframe or "1m").lower()
+        with self._metricas_lock: self.metricas["ciclos_por_tf"][_tf_metric] = self.metricas["ciclos_por_tf"].get(_tf_metric, 0) + 1
         tf = str(tf or self.tf_principal or self.timeframe or "1m").lower()
         es_principal = (tf == str(self.tf_principal).lower())
         cache_tf = self.cache_tecnico_por_tf.setdefault(tf, {})
@@ -3498,6 +3561,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         if not self.universo:
             self.ultima_actualizacion = datetime.now(ET)
             self.duracion_ciclo = time.monotonic() - inicio
+        self._metrica_sumar("duracion_ciclo_total", self.duracion_ciclo)
+        with self._metricas_lock:
+            self.metricas["duracion_ciclo_min"] = self.duracion_ciclo if self.metricas["duracion_ciclo_min"] is None else min(self.metricas["duracion_ciclo_min"], self.duracion_ciclo)
+            self.metricas["duracion_ciclo_max"] = max(self.metricas["duracion_ciclo_max"], self.duracion_ciclo)
+            self.metricas["ultimo_ciclo_ts"] = time.time(); self.metricas["ultimo_ciclo_duracion"] = self.duracion_ciclo
+            self.metricas["simbolos_procesados"] += len(radar_gap)
             if not self.ultimo_error:
                 self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
             self.resultados_por_tf[tf] = []
@@ -3798,7 +3867,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self.pool_por_tf[tf] = list(enriquecidos)
         self.resultados_por_tf[tf] = list(resultados_finales_hist)
         if es_principal:
-            self.resultados = list(resultados_finales_hist)
+            self.resultados = list(resultados_finales_hist); self._metrica_sumar("resultados_publicados", len(resultados_finales_hist))
         self.float_pendientes = sum(
             1 for c in enriquecidos
             if c.get("float_shares") is None and c.get("float_status") == "pending"
@@ -5145,8 +5214,16 @@ def _render_scanner():
             return f"<div class='filtro-item'><label>{label}</label><input type='text' id='cfg_url' value='{_safe_text(v)}' style='width:100%;' onchange='pushConfig()'></div>"
         return f"<div class='filtro-item'><label>{label}</label><span style='font-size:11px;'>{_safe_text(texto)}</span></div>"
 
+    if ES_ADMIN and not PUBLIC_PREVIEW:
+        _m1 = servicio.metricas_snapshot(); _up_h = int(_m1.get("uptime_segundos",0)//3600); _up_m = int((_m1.get("uptime_segundos",0)%3600)//60)
+        h += ("<div class='simple-card' style='margin:4px 0 6px;'><div class='simple-title'>📊 MOTOR · CONSUMO REAL · FASE 1</div>"
+              f"<div style='font-size:10px;line-height:1.55;color:#d7d0bd;'><b>Uptime:</b> {_up_h}h {_up_m}m · <b>Ciclos:</b> {int(_m1.get('ciclos',0))} · <b>Prom:</b> {_m1.get('ciclo_promedio',0):.2f}s · <b>Máx:</b> {_m1.get('duracion_ciclo_max',0):.2f}s<br>"
+              f"<b>Universo:</b> {int(_m1.get('simbolos_universo',0)):,} · <b>Snapshots:</b> {int(_m1.get('snapshots',0))} · <b>Bars:</b> {int(_m1.get('bars',0))} · <b>Resultados:</b> {int(_m1.get('resultados_publicados',0))}<br>"
+              f"<b>FMP:</b> {int(_m1.get('fmp_total',0))} · <b>Bulk:</b> {int(_m1.get('fmp_bulk',0))} · <b>Individual:</b> {int(_m1.get('fmp_individual',0))} · <b>429:</b> {int(_m1.get('fmp_429',0))} · <b>Cache H/M:</b> {int(_m1.get('fmp_cache_hits',0))}/{int(_m1.get('fmp_cache_misses',0))}<br>"
+              f"<b>Alpaca errores:</b> {int(_m1.get('errores_alpaca',0))} · <b>429:</b> {int(_m1.get('alpaca_429',0))} · <b>Tiempo Snap:</b> {_m1.get('tiempo_snapshots',0):.1f}s · <b>Bars:</b> {_m1.get('tiempo_bars',0):.1f}s · <b>FMP:</b> {_m1.get('tiempo_fmp',0):.1f}s</div></div>")
+
     h += "<div class='filtros-grid'>"
-    h += "<div class='logo'>TRADE SCANNER</div>"
+    h += "<div class='logo'>TRADE SCANNER</div>
     # (El selector de REFRESH vive solo en la barra nativa superior; antes estaba duplicado aqui.)
     if PUBLIC_PREVIEW:
         h += "<div class='filtro-item'><label>MOTOR</label><select disabled><option>👀 SOLO LECTURA</option></select></div>"
