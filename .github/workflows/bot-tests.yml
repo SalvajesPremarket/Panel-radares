@@ -1,0 +1,26 @@
+name: BotTradeScanner tests
+
+on:
+  push:
+    paths:
+      - "BotTradeScanner/**"
+      - ".github/workflows/bot-tests.yml"
+  pull_request:
+    paths:
+      - "BotTradeScanner/**"
+      - ".github/workflows/bot-tests.yml"
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependency
+        run: python -m pip install pytest
+      - name: Run BotTradeScanner tests
+        run: python -m pytest BotTradeScanner/pruebas -q
