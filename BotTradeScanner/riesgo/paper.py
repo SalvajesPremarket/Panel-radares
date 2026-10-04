@@ -14,16 +14,10 @@ from uuid import uuid4
 
 @dataclass
 class RiskConfig:
-    # Capital inicial del Paper Trading.
     initial_capital: float = 600.0
-    # Riesgo máximo permitido por operación: 1% del capital.
     max_risk_per_trade: float = 0.01
-    # Máximo de posiciones simultáneas.
     max_simultaneous_positions: int = 3
-    # Límite de pérdida diaria. La medición de P&L se implementará al añadir
-    # el registro completo de operaciones cerradas.
     daily_loss_limit: float = 0.03
-    # Exposición máxima por posición como porcentaje del capital.
     max_exposure: float = 0.20
     kill_switch: bool = False
 
@@ -56,6 +50,7 @@ class Decision:
     cantidad: float | None = None
     capital_expuesto: float | None = None
     riesgo_dolares: float | None = None
+    pnl_realizado: float | None = None
 
 
 class PaperBot:
@@ -65,6 +60,7 @@ class PaperBot:
         self.risk = risk or RiskConfig()
         self.positions: dict[str, PaperPosition] = {}
         self.decisions: list[dict] = []
+        self.closed_trades: list[dict] = []
         self._lock = Lock()
 
     @staticmethod
@@ -87,8 +83,23 @@ class PaperBot:
         except (TypeError, ValueError):
             return None
 
+    @staticmethod
+    def _fecha_operativa() -> str:
+        # Fecha UTC para mantener el registro determinista del PaperBot.
+        return datetime.now(timezone.utc).date().isoformat()
+
+    def _pnl_hoy(self) -> float:
+        hoy = self._fecha_operativa()
+        return sum(
+            float(trade["pnl_realizado"])
+            for trade in self.closed_trades
+            if trade["fecha"] == hoy
+        )
+
+    def _limite_perdida_diaria(self) -> float:
+        return self.risk.initial_capital * self.risk.daily_loss_limit
+
     def _calcular_tamano(self, precio: float, stop_loss: float | None) -> tuple[float, float, float, str | None]:
-        """Devuelve cantidad, exposición, riesgo y motivo de bloqueo si existe."""
         if stop_loss is None:
             return 0.0, 0.0, 0.0, "missing_long_stop"
 
@@ -99,7 +110,6 @@ class PaperBot:
         riesgo_maximo = self.risk.initial_capital * self.risk.max_risk_per_trade
         exposicion_maxima = self.risk.initial_capital * self.risk.max_exposure
 
-        # Primero limitamos por riesgo y después por capital expuesto.
         cantidad_por_riesgo = floor(riesgo_maximo / distancia_stop)
         cantidad_por_exposicion = floor(exposicion_maxima / precio)
         cantidad = min(cantidad_por_riesgo, cantidad_por_exposicion)
@@ -130,14 +140,19 @@ class PaperBot:
                 return self._record(signal_id, "blocked", "kill_switch", now, simbolo, precio, stop_loss)
 
             if accion == "BUY":
+                if self._pnl_hoy() <= -self._limite_perdida_diaria():
+                    return self._record(
+                        signal_id, "blocked", "daily_loss_limit", now,
+                        simbolo, precio, stop_loss
+                    )
                 return self._open(signal_id, simbolo, precio, stop_loss, signal, now)
+
             if accion == "EXIT":
                 return self._close(signal_id, simbolo, precio, signal, now)
+
             if accion in {"HOLD", "WATCH", "WAIT"}:
                 pos = self.positions.get(simbolo)
                 if pos and stop_loss is not None:
-                    # El trailing es exclusivamente el cierre de la vela anterior
-                    # calculado por la estrategia. Nunca se baja el stop.
                     if pos.stop_loss is None or stop_loss > pos.stop_loss:
                         pos.stop_loss = stop_loss
                 return self._record(
@@ -148,46 +163,89 @@ class PaperBot:
                     pos.capital_expuesto if pos else None,
                     pos.riesgo_dolares if pos else None,
                 )
-            return self._record(signal_id, "ignored", f"unsupported_action:{accion}", now, simbolo, precio, stop_loss)
+
+            return self._record(
+                signal_id, "ignored", f"unsupported_action:{accion}", now,
+                simbolo, precio, stop_loss
+            )
 
     def _open(self, signal_id, simbolo, precio, stop_loss, signal, now):
         if precio is None:
             return self._record(signal_id, "blocked", "BUY_without_price", now, simbolo, None, stop_loss)
+
         if simbolo in self.positions:
             p = self.positions[simbolo]
-            return self._record(signal_id, "hold", "position_already_open", now, simbolo, precio, p.stop_loss, p.position_id, p.cantidad, p.capital_expuesto, p.riesgo_dolares)
+            return self._record(
+                signal_id, "hold", "position_already_open", now,
+                simbolo, precio, p.stop_loss, p.position_id,
+                p.cantidad, p.capital_expuesto, p.riesgo_dolares
+            )
+
         if len(self.positions) >= self.risk.max_simultaneous_positions:
-            return self._record(signal_id, "blocked", "max_simultaneous_positions", now, simbolo, precio, stop_loss)
+            return self._record(
+                signal_id, "blocked", "max_simultaneous_positions",
+                now, simbolo, precio, stop_loss
+            )
+
         cantidad, exposicion, riesgo, error = self._calcular_tamano(precio, stop_loss)
         if error:
             return self._record(signal_id, "blocked", error, now, simbolo, precio, stop_loss)
+
         position_id = uuid4().hex
         self.positions[simbolo] = PaperPosition(
             position_id, simbolo,
             str(signal.get("estrategia") or "PreMarketSalvajes LONG"),
             precio, stop_loss, cantidad, exposicion, riesgo, now
         )
-        return self._record(signal_id, "buy", "paper_position_opened", now, simbolo, precio, stop_loss, position_id, cantidad, exposicion, riesgo)
+        return self._record(
+            signal_id, "buy", "paper_position_opened", now,
+            simbolo, precio, stop_loss, position_id,
+            cantidad, exposicion, riesgo
+        )
 
     def _close(self, signal_id, simbolo, precio, signal, now):
         position = self.positions.pop(simbolo, None)
         if position is None:
-            return self._record(signal_id, "ignored", "exit_without_open_position", now, simbolo, precio, signal.get("stop_loss"))
+            return self._record(
+                signal_id, "ignored", "exit_without_open_position",
+                now, simbolo, precio, signal.get("stop_loss")
+            )
+
+        pnl = None
+        if precio is not None and position.cantidad is not None:
+            pnl = (precio - position.precio_entrada) * position.cantidad
+
+        trade = {
+            "position_id": position.position_id,
+            "simbolo": simbolo,
+            "estrategia": position.estrategia,
+            "precio_entrada": position.precio_entrada,
+            "precio_salida": precio,
+            "cantidad": position.cantidad,
+            "pnl_realizado": pnl if pnl is not None else 0.0,
+            "fecha": self._fecha_operativa(),
+            "closed_at": now,
+            "motivo": str(signal.get("motivo") or "strategy_exit"),
+        }
+        self.closed_trades.append(trade)
+        self.closed_trades = self.closed_trades[-1000:]
+
         return self._record(
-            signal_id, "sell", str(signal.get("motivo") or "strategy_exit"), now,
+            signal_id, "sell", trade["motivo"], now,
             simbolo, precio, position.stop_loss, position.position_id,
-            position.cantidad, position.capital_expuesto, position.riesgo_dolares
+            position.cantidad, position.capital_expuesto,
+            position.riesgo_dolares, pnl
         )
 
     def _record(
         self, signal_id, action, reason, now, simbolo="", precio=None,
         stop_loss=None, position_id=None, cantidad=None,
-        capital_expuesto=None, riesgo_dolares=None
+        capital_expuesto=None, riesgo_dolares=None, pnl_realizado=None
     ):
         item = asdict(Decision(
             uuid4().hex, signal_id, "paper", action, reason, now,
             simbolo, precio, stop_loss, position_id,
-            cantidad, capital_expuesto, riesgo_dolares
+            cantidad, capital_expuesto, riesgo_dolares, pnl_realizado
         ))
         self.decisions.append(item)
         self.decisions = self.decisions[-1000:]
@@ -197,16 +255,25 @@ class PaperBot:
         with self._lock:
             return [asdict(p) for p in self.positions.values()]
 
+    def operaciones_cerradas(self) -> list[dict]:
+        with self._lock:
+            return list(self.closed_trades)
+
     def status(self) -> dict:
         with self._lock:
+            pnl_hoy = self._pnl_hoy()
             return {
                 "modo": "paper",
                 "capital_inicial": self.risk.initial_capital,
                 "riesgo_maximo_por_operacion": self.risk.initial_capital * self.risk.max_risk_per_trade,
                 "exposicion_maxima_por_posicion": self.risk.initial_capital * self.risk.max_exposure,
+                "limite_perdida_diaria": self._limite_perdida_diaria(),
+                "pnl_realizado_hoy": pnl_hoy,
+                "perdida_diaria_disponible": max(0.0, self._limite_perdida_diaria() + pnl_hoy),
                 "posiciones_abiertas": len(self.positions),
                 "max_simultaneous_positions": self.risk.max_simultaneous_positions,
                 "daily_loss_limit": self.risk.daily_loss_limit,
                 "kill_switch": self.risk.kill_switch,
                 "decisiones": len(self.decisions),
+                "operaciones_cerradas": len(self.closed_trades),
             }
