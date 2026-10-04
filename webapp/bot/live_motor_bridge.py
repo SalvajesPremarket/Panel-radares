@@ -105,9 +105,9 @@ class MotorVelasBridge:
         # históricas concurrentes contra Alpaca.
         with self._subscribe_lock:
             try:
-            # El motor existente intenta cargar historial de 1 minuto antes
-            # de empezar a consumir trades. En el plan Basic, Alpaca limita
-            # la ventana histórica disponible; se usa lo que el plan permita.
+                # El motor existente intenta cargar historial de 1 minuto antes
+                # de empezar a consumir trades. En el plan Basic, Alpaca limita
+                # la ventana histórica disponible; se usa lo que el plan permita.
                 self.motor.precargar_historial(simbolos, cantidad=300)
 
                 for symbol in simbolos:
