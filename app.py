@@ -3991,6 +3991,26 @@ if ES_ADMIN:
         pass
 # El motor se guarda en cache y conserva el codigo VIEJO aunque subas un app.py nuevo.
 # Aqui se le reasignan los metodos de la version actual para que los cambios apliquen sin reiniciar.
+# Fase 1: si Streamlit conserva una instancia antigua en st.cache_resource,
+# inicializamos las métricas sin reconstruir ni alterar el motor existente.
+try:
+    if not hasattr(servicio, "_metricas_lock"):
+        servicio._metricas_lock = threading.Lock()
+    if not hasattr(servicio, "metricas"):
+        servicio.metricas = {
+            "inicio": time.time(), "ciclos": 0, "ciclos_por_tf": {},
+            "duracion_ciclo_total": 0.0, "duracion_ciclo_min": None, "duracion_ciclo_max": 0.0,
+            "universo_cargas": 0, "simbolos_universo": 0, "snapshots": 0, "bars": 0, "calendario": 0,
+            "fmp_bulk": 0, "fmp_individual": 0, "fmp_429": 0, "fmp_errores": 0,
+            "fmp_cache_hits": 0, "fmp_cache_misses": 0, "errores_alpaca": 0, "alpaca_429": 0,
+            "tiempo_snapshots": 0.0, "tiempo_bars": 0.0, "tiempo_fmp": 0.0,
+            "resultados_publicados": 0, "simbolos_procesados": 0,
+            "ultimo_ciclo_ts": None, "ultimo_ciclo_duracion": None,
+        }
+    servicio.data._scanner_metricas_owner = servicio
+except Exception as _metricas_init_error:
+    print(f"⚠️ No se pudo inicializar la instrumentación Fase 1: {_metricas_init_error}")
+
 try:
     import types as _types
     for _nombre, _fn in list(vars(ServicioScanner).items()):
