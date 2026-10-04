@@ -20,6 +20,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
+from webapp.bot.live_motor_bridge import MotorVelasBridge
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
@@ -2456,6 +2457,10 @@ class ServicioScanner:
         self.trading = TradingClient(api_key, secret_key)
         self.data = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
 
+        # Motor de velas en tiempo real: una sola conexión compartida y solo
+        # para los candidatos que el scanner publica. No toma decisiones de trading.
+        self.motor_velas = MotorVelasBridge(api_key, secret_key)
+
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
         # El estado ON/OFF se carga desde disco para que un reinicio no lo vuelva a encender.
@@ -2555,6 +2560,30 @@ class ServicioScanner:
         self.data._scanner_metricas_owner = self
         self._hilo = threading.Thread(target=self._bucle, daemon=True)
         self._hilo.start()
+
+    # ---------- puente scanner -> motor de velas ----------
+    def _sincronizar_motor_velas(self, resultados):
+        """Entrega al motor de velas únicamente los candidatos publicados.
+
+        El motor de velas observa trades y arma velas; no decide entradas/salidas.
+        La lógica del bot real queda desacoplada y podrá consumir estos snapshots.
+        """
+        try:
+            self.motor_velas.sync_results(resultados)
+        except Exception as exc:
+            print(f"⚠️ Puente motor de velas: {exc}")
+
+    def snapshot_motor_velas(self, ticker):
+        try:
+            return self.motor_velas.snapshot(ticker)
+        except Exception:
+            return {"simbolo": str(ticker).upper(), "sin_datos": True}
+
+    def estado_motor_velas(self):
+        try:
+            return self.motor_velas.status()
+        except Exception as exc:
+            return {"stream_hilo_vivo": False, "error": str(exc)}
 
     # ---------- instrumentación Fase 1 ----------
     def _metrica_sumar(self, clave, valor=1):
@@ -3868,6 +3897,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         self.resultados_por_tf[tf] = list(resultados_finales_hist)
         if es_principal:
             self.resultados = list(resultados_finales_hist); self._metrica_sumar("resultados_publicados", len(resultados_finales_hist))
+            # Conectar los candidatos publicados al motor de velas en tiempo real.
+            # Esto ocurre fuera del navegador y no depende del refresh de los usuarios.
+            self._sincronizar_motor_velas(resultados_finales_hist)
         self.float_pendientes = sum(
             1 for c in enriquecidos
             if c.get("float_shares") is None and c.get("float_status") == "pending"
