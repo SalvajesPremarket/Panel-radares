@@ -18,6 +18,7 @@ import time
 from typing import Iterable
 
 from BotTradeScanner.decision.maquina_decisiones import MaquinaDecisionesLong
+from BotTradeScanner.riesgo.paper import PaperBot
 
 
 class BotLongRealtime:
@@ -29,6 +30,7 @@ class BotLongRealtime:
         self.max_decisiones = max(100, int(max_decisiones))
 
         self.decisiones = MaquinaDecisionesLong()
+        self.paper = PaperBot()
         self._candidatos: set[str] = set()
         self._lock = Lock()
         self._detener = Event()
@@ -103,8 +105,10 @@ class BotLongRealtime:
                     "stop_loss": decision.get("stop_loss"),
                 }
                 if anterior != comparable or decision.get("accion") in {"BUY", "EXIT"}:
+                    paper = self.paper.evaluar(decision)
                     registro = {
                         **decision,
+                        "paper": paper,
                         "ts": time.time(),
                     }
                     with self._lock:
@@ -148,6 +152,8 @@ class BotLongRealtime:
             "ultima_evaluacion": self._ultima_evaluacion,
             "ultimo_error": self._ultimo_error,
             "decisiones_guardadas": len(self._decisiones),
+            "paper": self.paper.status(),
+            "posiciones_paper": self.paper.posiciones(),
             "posiciones_observadas": [
                 self.decisiones.estado(s)["estado"]
                 for s in self.decisiones.simbolos()
