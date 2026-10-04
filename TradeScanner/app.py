@@ -2581,7 +2581,8 @@ class ServicioScanner:
         La lógica del bot real queda desacoplada y podrá consumir estos snapshots.
         """
         try:
-            self.motor_velas.sync_results(resultados)
+            # BotLongRealtime sincroniza a su vez el puente de market-data.
+            # Asi evitamos suscribir/procesar los mismos candidatos dos veces.
             self.bot_long.sync_candidates(resultados)
         except Exception as exc:
             print(f"⚠️ Puente motor de velas: {exc}")
