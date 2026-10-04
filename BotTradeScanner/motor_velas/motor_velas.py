@@ -227,6 +227,15 @@ class MotorVelasSimbolo:
                 else []
             )
 
+            # Indicadores sobre historial cerrado, antes de la vela actual.
+            ema9_anterior = calcular_ema(cierres, 9)
+            ema20_anterior = calcular_ema(cierres, 20)
+            ema50_anterior = calcular_ema(cierres, 50)
+            ema200_anterior = calcular_ema(cierres, 200)
+            macd_anterior, señal_anterior, histograma_anterior = calcular_macd(cierres)
+            banda_sup_anterior, banda_media_anterior, banda_inf_anterior = calcular_bandas_bollinger(cierres)
+
+            # Indicadores incluyendo el ultimo precio disponible.
             ema9 = calcular_ema(precios, 9)
             ema20 = calcular_ema(precios, 20)
             ema50 = calcular_ema(precios, 50)
@@ -285,12 +294,22 @@ class MotorVelasSimbolo:
                 "ema20": ema20,
                 "ema50": ema50,
                 "ema200": ema200,
+                "ema9_anterior": ema9_anterior,
+                "ema20_anterior": ema20_anterior,
+                "ema50_anterior": ema50_anterior,
+                "ema200_anterior": ema200_anterior,
                 "macd": macd,
                 "macd_señal": señal,
                 "macd_histograma": histograma,
+                "macd_anterior": macd_anterior,
+                "macd_señal_anterior": señal_anterior,
+                "macd_histograma_anterior": histograma_anterior,
                 "banda_bollinger_superior": banda_sup,
                 "banda_bollinger_media": banda_media,
                 "banda_bollinger_inferior": banda_inf,
+                "banda_bollinger_superior_anterior": banda_sup_anterior,
+                "banda_bollinger_media_anterior": banda_media_anterior,
+                "banda_bollinger_inferior_anterior": banda_inf_anterior,
                 "num_velas_historial": len(self.historial),
             }
 
