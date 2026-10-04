@@ -65,7 +65,7 @@ def recommendations(user=Depends(account_user)):
     conn = db()
     rows = conn.execute("""SELECT recommendation_id,category,title,description,symbol,
         context,status,priority,admin_notes,created_at,updated_at
-        FROM recommendations WHERE user_id=? ORDER BY created_at DESC""",(user["id"],)).fetchall()
+        FROM recommendations WHERE user_id=? ORDER BY created_at DESC""",(user["user_id"],)).fetchall()
     conn.close()
     return {"items":[dict(r) for r in rows]}
 
@@ -76,7 +76,7 @@ def create_recommendation(payload: RecommendationIn, user=Depends(account_user))
     cur = conn.execute("""INSERT INTO recommendations
         (user_id,category,title,description,symbol,context,status,priority,created_at,updated_at)
         VALUES (?,?,?,?,?,?, 'new','P2',?,?)""",
-        (user["id"],payload.category,payload.title,payload.description,payload.symbol,payload.context,now,now))
+        (user["user_id"],payload.category,payload.title,payload.description,payload.symbol,payload.context,now,now))
     conn.commit()
     rid = cur.lastrowid
     conn.close()
