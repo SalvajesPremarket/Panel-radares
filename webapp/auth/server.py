@@ -113,6 +113,9 @@ def create_session(user_id):
                      (str(uuid4()), user_id, token_hash(token), iso(now), iso(expires)))
     return token
 
+def get_current_user(tradescanner_session: str | None = Cookie(default=None)):
+    return current_user(tradescanner_session)
+
 def current_user(session_token):
     if not session_token:
         raise HTTPException(status_code=401, detail="Authentication required")
