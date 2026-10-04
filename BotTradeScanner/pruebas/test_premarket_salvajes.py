@@ -154,10 +154,17 @@ def test_decision_machine_enforces_strategy_stop():
     m = MaquinaDecisionesLong()
 
     # Candidato -> libelula -> LONG.
-    m.evaluar(snap(
+    d = m.evaluar(snap(
         tramo=1, apertura=10.0, maximo=10.0, minimo=9.7,
         cierre=10.0, libelula=True,
     ))
+    assert d.accion == "WATCH"
+
+    d = m.evaluar(snap(
+        tramo=1, apertura=10.0, maximo=10.0, minimo=9.7,
+        cierre=10.0, libelula=True,
+    ))
+    assert d.accion == "BUY"
 
     # El precio cae al stop vigente de 10.0: la maquina debe producir EXIT
     # aunque la estrategia todavía no haya evaluado una regla de vela.
