@@ -145,6 +145,14 @@ class PreMarketSalvajesLong:
         maximo = vela.get("maximo")
         positiva = bool(vela.get("es_positiva"))
         regreso = bool(vela.get("regreso_a_apertura"))
+        # El primer trade de una vela siempre puede tener cierre == apertura.
+        # Eso no significa que haya regresado: debe existir excursion previa.
+        regreso_real = (
+            regreso
+            and apertura is not None
+            and maximo is not None
+            and maximo > apertura
+        )
         libelula = bool(vela.get("es_libelula_en_curso"))
         lapida = bool(vela.get("es_lapida_en_curso"))
         banda_sup = self._numero(snap, "banda_bollinger_superior")
@@ -178,7 +186,7 @@ class PreMarketSalvajesLong:
         if self.estado == EstadoLong.LONG_PRIMERA_VELA:
             # Si el precio primero fue positivo y luego vuelve a apertura,
             # cerrar/no mantener la posicion.
-            if regreso and tramo == 3:
+            if regreso_real and tramo == 3:
                 return self._cerrar("Primera vela regreso a apertura en tramo 3.")
 
             if lapida and tramo == 3:
@@ -199,7 +207,7 @@ class PreMarketSalvajesLong:
 
         if self.estado == EstadoLong.LONG_SEGUNDA_VELA:
             # La siguiente vela debe ser positiva y tener higher low.
-            if regreso:
+            if regreso_real:
                 return self._cerrar("Segunda vela regreso a su apertura.")
 
             anterior_min = snap.get("vela_anterior", {}).get("minimo")
@@ -224,7 +232,7 @@ class PreMarketSalvajesLong:
             return DecisionLong("WAIT", self.estado, "Esperando segunda vela positiva con higher low.")
 
         if self.estado == EstadoLong.LONG_SIGUIENTES:
-            if regreso:
+            if regreso_real:
                 return self._cerrar("La vela regreso a su apertura.")
 
             # Bollinger superior no es salida por si sola.
