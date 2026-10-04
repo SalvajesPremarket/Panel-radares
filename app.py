@@ -5243,7 +5243,7 @@ def _render_scanner():
               f"<b>Alpaca errores:</b> {int(_m1.get('errores_alpaca',0))} · <b>429:</b> {int(_m1.get('alpaca_429',0))} · <b>Tiempo Snap:</b> {_m1.get('tiempo_snapshots',0):.1f}s · <b>Bars:</b> {_m1.get('tiempo_bars',0):.1f}s · <b>FMP:</b> {_m1.get('tiempo_fmp',0):.1f}s</div></div>")
 
     h += "<div class='filtros-grid'>"
-    h += "<div class='logo'>TRADE SCANNER</div>
+    h += "<div class='logo'>TRADE SCANNER</div>"
     # (El selector de REFRESH vive solo en la barra nativa superior; antes estaba duplicado aqui.)
     if PUBLIC_PREVIEW:
         h += "<div class='filtro-item'><label>MOTOR</label><select disabled><option>👀 SOLO LECTURA</option></select></div>"
