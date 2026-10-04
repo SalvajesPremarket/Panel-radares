@@ -98,9 +98,15 @@ class PaperBot:
                 return self._close(signal_id, simbolo, precio, signal, now)
             if accion in {"HOLD", "WATCH", "WAIT"}:
                 pos = self.positions.get(simbolo)
+                if pos and stop_loss is not None:
+                    # El trailing es exclusivamente el cierre de la vela anterior
+                    # calculado por la estrategia. Nunca se baja el stop.
+                    if pos.stop_loss is None or stop_loss > pos.stop_loss:
+                        pos.stop_loss = stop_loss
                 return self._record(
                     signal_id, accion.lower(), str(signal.get("motivo") or accion.lower()), now,
-                    simbolo, precio, stop_loss, pos.position_id if pos else None
+                    simbolo, precio, pos.stop_loss if pos else stop_loss,
+                    pos.position_id if pos else None
                 )
             return self._record(signal_id, "ignored", f"unsupported_action:{accion}", now, simbolo, precio, stop_loss)
 
