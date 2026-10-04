@@ -5186,6 +5186,10 @@ def _render_scanner():
     h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
     h += f"<div class='filtro-item'><label>VOLUMEN · FILTRO</label><select id='f_vol_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_vol_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_vol_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    h += f"<div class='filtro-item'><label>EMA20 · FILTRO</label><select id='ema20_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('ema20_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('ema20_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
+    else:
+        h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
     if swing_activo_ui and swing_multitimeframe_ui:
         h += "<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' disabled><option>NEUTRO · MULTITEMPORAL</option></select></div>"
     elif PUBLIC_PREVIEW:
@@ -5198,11 +5202,7 @@ def _render_scanner():
         for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
             h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
         h += "</select></div>"
-    if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
-    else:
-        h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
-    h += f"<div class='filtro-item'><label>EMA20 · FILTRO</label><select id='ema20_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('ema20_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('ema20_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
     else:
