@@ -28,6 +28,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
+from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
@@ -2467,6 +2468,10 @@ class ServicioScanner:
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
         self.motor_velas = MotorVelasBridge(api_key, secret_key)
+        # Bot LONG: evalua snapshots continuamente, independiente del refresh visual.
+        # En esta fase solo genera decisiones/señales; NO envia ordenes reales.
+        self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
+        self.bot_long.iniciar()
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
@@ -2577,6 +2582,7 @@ class ServicioScanner:
         """
         try:
             self.motor_velas.sync_results(resultados)
+            self.bot_long.sync_candidates(resultados)
         except Exception as exc:
             print(f"⚠️ Puente motor de velas: {exc}")
 
