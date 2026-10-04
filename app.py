@@ -5674,6 +5674,21 @@ def _render_scanner():
                     )
                 except Exception as _e_fmp:
                     st.caption(f"FMP: estado no disponible ({_e_fmp})")
+                try:
+                    _mv = servicio.estado_motor_velas()
+                    _mv_symbols = _mv.get("simbolos_cargados", []) or []
+                    _mv_last = _mv.get("ultimo_trade")
+                    st.caption(
+                        "Motor velas: "
+                        + ("🟢 conectado" if _mv.get("stream_hilo_vivo") and _mv.get("stream_iniciado") else "🔴 sin conexión")
+                        + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 30)}"
+                        + f" · trades: {_mv.get('total_trades', 0)}"
+                        + (f" · último: {_mv_last}" if _mv_last else "")
+                    )
+                    if _mv.get("error"):
+                        st.caption(f"Motor velas — último error: {_mv.get('error')}")
+                except Exception:
+                    pass
                 _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
                 if _err:
                     st.warning(f"Último error del motor: {_err}")
