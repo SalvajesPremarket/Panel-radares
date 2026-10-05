@@ -5771,8 +5771,64 @@ def _render_scanner():
     except Exception as _e_robot_ui:
         st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
 
+    # El componente devuelve al servidor la configuración que el usuario acaba
+    # de cambiar. Ese retorno es la fuente de verdad de la interacción: se
+    # normaliza, se guarda en Session State + query params + persistencia por
+    # usuario, y solo después se repinta ESTE fragmento. Así el auto-refresh
+    # nunca puede resucitar una configuración anterior.
     if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
+        _ts_nav_result = _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
+        try:
+            if isinstance(_ts_nav_result, dict):
+                _ts_q_raw = str(_ts_nav_result.get("q", "") or "")
+                if _ts_q_raw:
+                    from urllib.parse import parse_qsl
+                    _ts_q_new = dict(parse_qsl(_ts_q_raw, keep_blank_values=True))
+                    _ts_cambios = {}
+                    for _ts_k in _CONFIG_USUARIO_KEYS:
+                        if _ts_k in _ts_q_new and str(_ts_q_new[_ts_k]) != "":
+                            _ts_cambios[_ts_k] = str(_ts_q_new[_ts_k])
+                    if _ts_cambios:
+                        # Mantener siempre la sesión de autenticación actual.
+                        _ts_auth_sid = str(st.query_params.get("auth_session", "") or "").strip()
+                        if _ts_auth_sid:
+                            _ts_cambios["auth_session"] = _ts_auth_sid
+                        _ts_prev_cfg = st.session_state.get("_ts_query_elegida")
+                        if not isinstance(_ts_prev_cfg, dict):
+                            _ts_prev_cfg = {}
+                        _ts_changed = any(
+                            str(_ts_prev_cfg.get(_k, "")) != str(_ts_v)
+                            for _ts_k, _ts_v in _ts_cambios.items()
+                            for _ts_k in [_ts_k]
+                        )
+                        # Comparar también contra lo que realmente está en la URL.
+                        _ts_changed = _ts_changed or any(
+                            str(_qp_valor(_ts_k) or "") != str(_ts_v)
+                            for _ts_k, _ts_v in _ts_cambios.items()
+                            if _ts_k != "auth_session"
+                        )
+                        if _ts_changed:
+                            _ts_prev_cfg.update(_ts_cambios)
+                            st.session_state["_ts_query_elegida"] = _ts_prev_cfg
+                            for _ts_k, _ts_v in _ts_cambios.items():
+                                if _ts_k != "auth_session":
+                                    st.query_params[_ts_k] = str(_ts_v)
+                            try:
+                                _guardar_ultima_configuracion_servidor()
+                            except Exception:
+                                pass
+                            # Este componente está dentro del fragmento de
+                            # refresh. Re-ejecutamos solo el fragmento; nunca
+                            # reconstruimos toda la app/iframe.
+                            try:
+                                st.rerun(scope="fragment")
+                            except Exception:
+                                # Si por compatibilidad esta ejecución no está
+                                # dentro de un fragment-rerun, dejamos el estado
+                                # persistido y no forzamos un rerun completo.
+                                pass
+        except Exception as _e_ts_nav:
+            print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
         st.iframe(h, height=900)
 
