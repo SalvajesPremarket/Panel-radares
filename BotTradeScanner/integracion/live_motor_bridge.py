@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from threading import Lock, Thread
 from typing import Iterable
+import time
 
 
 class MotorVelasBridge:
@@ -22,10 +23,12 @@ class MotorVelasBridge:
     MAX_SIMBOLOS_BASIC = 30
     MAX_NUEVOS_POR_CICLO = 10
 
-    def __init__(self, api_key: str, secret_key: str):
-        from BotTradeScanner.motor_velas.motor_velas import MotorVelas
+    def __init__(self, api_key: str, secret_key: str, motor=None):
+        if motor is None:
+            from BotTradeScanner.motor_velas.motor_velas import MotorVelas
+            motor = MotorVelas(api_key, secret_key)
 
-        self.motor = MotorVelas(api_key, secret_key)
+        self.motor = motor
         self._lock = Lock()
         self._subscribe_lock = Lock()
         self._arrancado = False
@@ -109,6 +112,16 @@ class MotorVelasBridge:
                 # de empezar a consumir trades. En el plan Basic, Alpaca limita
                 # la ventana histórica disponible; se usa lo que el plan permita.
                 self.motor.precargar_historial(simbolos, cantidad=300)
+
+                # El stream se arranca en otro hilo. No intentamos suscribir
+                # mientras MotorVelas todavía no haya creado su websocket:
+                # de lo contrario el candidato puede quedar marcado como
+                # cargado sin llegar a suscribirse realmente.
+                limite_espera = time.monotonic() + 15.0
+                while getattr(self.motor, "_stream", None) is None:
+                    if time.monotonic() >= limite_espera:
+                        raise RuntimeError("stream_market_data_no_disponible")
+                    time.sleep(0.1)
 
                 for symbol in simbolos:
                     self.motor.agregar_simbolo_en_caliente(symbol)
