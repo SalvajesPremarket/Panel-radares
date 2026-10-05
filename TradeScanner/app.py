@@ -2530,6 +2530,13 @@ def filtrar_eventos(eventos, p):
     return salida
 
 
+# Yahoo Finance es solo respaldo. Estos controles son GLOBALES al proceso
+# para que una recreación de ServicioScanner no vuelva a golpear Yahoo después
+# de un 401/403/429 ya detectado.
+_YAHOO_FALLBACK_LOCK = threading.Lock()
+_YAHOO_FALLBACK_PAUSADO_HASTA = 0.0
+_YAHOO_FALLBACK_ULTIMA_PETICION = 0.0
+
 # ==========================================
 # ⚡️ MOTOR COMPARTIDO (un solo hilo para TODOS los usuarios)
 # ==========================================
@@ -3222,23 +3229,25 @@ class ServicioScanner:
 
     def _float_yahoo(self, ticker):
         """Respaldo 1: floatShares de Yahoo Finance (yfinance).
-        Es opcional y queda serializado para que un 401/crumb no provoque
-        una ráfaga de consultas concurrentes.
+        Queda serializado y, ante un 401/403/429, se pausa GLOBALMENTE
+        para que nuevas instancias del scanner no vuelvan a martillar Yahoo.
         """
-        with self._lock_yahoo:
-            if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
+        global _YAHOO_FALLBACK_PAUSADO_HASTA, _YAHOO_FALLBACK_ULTIMA_PETICION
+        with _YAHOO_FALLBACK_LOCK:
+            if _YAHOO_FALLBACK_PAUSADO_HASTA > time.time():
+                self._yahoo_estado = "pausado globalmente"
                 return None
             try:
                 import yfinance as yf
             except Exception:
                 self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
-                self._yahoo_pausado_hasta = time.time() + 3600
+                _YAHOO_FALLBACK_PAUSADO_HASTA = time.time() + 3600
                 return None
             try:
-                espera = getattr(self, "_yahoo_ultima", 0.0) + 0.4 - time.time()
+                espera = _YAHOO_FALLBACK_ULTIMA_PETICION + 0.4 - time.time()
                 if espera > 0:
                     time.sleep(espera)
-                self._yahoo_ultima = time.time()
+                _YAHOO_FALLBACK_ULTIMA_PETICION = time.time()
                 info = yf.Ticker(ticker).info or {}
                 valor = info.get("floatShares")
                 valor = float(valor) if valor not in (None, "", 0) else None
@@ -3259,14 +3268,15 @@ class ServicioScanner:
                     or "unable to access this feature" in _txt_lower
                 )
                 if _auth_yahoo:
-                    self._yahoo_pausado_hasta = time.time() + 1800
+                    _YAHOO_FALLBACK_PAUSADO_HASTA = time.time() + 1800
                     self._yahoo_fallos = 0
-                    self._yahoo_estado = "pausado 30 min: Yahoo rechazó acceso/crumb"
-                    print(f"⚠️ Yahoo rechazó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
+                    self._yahoo_estado = "pausado global 30 min: Yahoo rechazó acceso/crumb"
+                    print(f"⚠️ Yahoo rechazó acceso para {ticker}; respaldo Yahoo pausado GLOBALMENTE 30 min.")
                 elif "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
-                    self._yahoo_pausado_hasta = time.time() + 1800
+                    _YAHOO_FALLBACK_PAUSADO_HASTA = time.time() + 1800
                     self._yahoo_fallos = 0
-                    print(f"⚠️ Yahoo limitó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
+                    self._yahoo_estado = "pausado global 30 min: Yahoo limitó acceso"
+                    print(f"⚠️ Yahoo limitó acceso para {ticker}; respaldo Yahoo pausado GLOBALMENTE 30 min.")
                 return None
 
     def _circulacion_finnhub(self, ticker):
