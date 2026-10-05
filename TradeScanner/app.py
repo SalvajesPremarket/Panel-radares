@@ -14,6 +14,7 @@ import secrets
 from urllib.parse import quote
 from html import escape as html_escape
 import threading
+import traceback
 from datetime import date, datetime, timedelta, timezone, time as dt_time
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
@@ -4085,6 +4086,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                         except Exception as _e_tf:
                             self.ultimo_error = f"Ciclo {_tf}: {_e_tf}"
                             print(f"⚠️ Error en escaneo {_tf}: {_e_tf}")
+                            # Diagnóstico temporal: conservar la lógica del scanner intacta
+                            # y mostrar la línea exacta que origina la excepción.
+                            traceback.print_exc()
                         _snaps = self._ultimos_snapshots or None
             except Exception as e:
                 self.ultimo_error = f"Ciclo: {e}"
