@@ -423,7 +423,9 @@ def guardar_estado_motor_en_disco(encendido):
 # Estos precios son únicamente de prueba. No hay cobro real ni tarjeta.
 PRECIO_MENSUAL_USD = 28.00
 PRECIO_ANUAL_USD = 270.00
-DIAS_PRUEBA_GRATIS = 7
+PRECIO_MENSUAL_ROBOT_USD = 38.00
+PRECIO_ANUAL_ROBOT_USD = 370.00
+DIAS_PRUEBA_GRATIS = 30
 RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
 
 def _leer_licencias_simuladas():
@@ -457,7 +459,7 @@ def _parse_iso(value):
         return None
 
 def crear_prueba_usuario(user_id, email):
-    """Crea una prueba de 7 días una sola vez por usuario."""
+    """Crea una prueba de 1 mes una sola vez por usuario."""
     if not user_id:
         return None
     data = _leer_licencias_simuladas()
@@ -501,12 +503,26 @@ def activar_plan_simulado(user_id, plan):
     clave = str(user_id)
     actual = data.get(clave) or {"user_id": clave}
     inicio = _ahora_utc()
-    if plan == "MENSUAL":
+    if plan in {"MENSUAL", "MENSUAL_SCANNER"}:
         dias = 30
         precio = PRECIO_MENSUAL_USD
-    elif plan == "ANUAL":
+        nombre_plan = "SCANNER MENSUAL"
+        incluye_robot = False
+    elif plan in {"ANUAL", "ANUAL_SCANNER"}:
         dias = 365
         precio = PRECIO_ANUAL_USD
+        nombre_plan = "SCANNER ANUAL"
+        incluye_robot = False
+    elif plan == "MENSUAL_ROBOT":
+        dias = 30
+        precio = PRECIO_MENSUAL_ROBOT_USD
+        nombre_plan = "SCANNER + ROBOT MENSUAL"
+        incluye_robot = True
+    elif plan == "ANUAL_ROBOT":
+        dias = 365
+        precio = PRECIO_ANUAL_ROBOT_USD
+        nombre_plan = "SCANNER + ROBOT ANUAL"
+        incluye_robot = True
     else:
         return False, "Plan no válido."
     # En simulación, cada activación extiende desde hoy o desde el vencimiento vigente.
@@ -514,7 +530,8 @@ def activar_plan_simulado(user_id, plan):
     if base < inicio:
         base = inicio
     actual.update({
-        "plan": plan,
+        "plan": nombre_plan,
+        "incluye_robot": incluye_robot,
         "estado": "ACTIVO",
         "inicio": _iso(inicio),
         "vencimiento": _iso(base + timedelta(days=dias)),
@@ -1137,7 +1154,9 @@ def pantalla_autenticacion():
             <div style="width:100%;margin:5px 0 11px;color:#8e96a3;font-family:Arial,sans-serif;font-size:10px;letter-spacing:2px;text-align:center;">SCANNER</div>
             <div style="box-sizing:border-box;width:100%;margin:0;padding:10px 8px 9px;border:1px solid rgba(212,175,55,.55);border-radius:10px;background:linear-gradient(180deg,rgba(212,175,55,.10),rgba(212,175,55,.035));text-align:center;color:#f3f3f3;">
                 <div style="color:#f2d675;font-family:Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.8px;margin-bottom:6px;">🎁 OFERTA DE LANZAMIENTO</div>
-                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.5;color:#d9dee7;">Prueba <span style="color:#37c77a;font-weight:800;">7 DÍAS GRATIS</span> &nbsp;•&nbsp; Luego <span style="color:#f2d675;font-weight:800;">$28/mes</span> &nbsp;•&nbsp; Anual <span style="color:#f2d675;font-weight:800;">$270/año</span></div>
+                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;">Prueba <span style="color:#37c77a;font-weight:800;">1 MES GRATIS</span></div>
+                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;margin-top:3px;">Solo Scanner: <span style="color:#f2d675;font-weight:800;">$28/mes</span> · <span style="color:#f2d675;font-weight:800;">$270/año</span></div>
+                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;">Scanner + Robot: <span style="color:#f2d675;font-weight:800;">$38/mes</span> · <span style="color:#f2d675;font-weight:800;">$370/año</span></div>
             </div>
         </div>
         """,
@@ -1335,12 +1354,12 @@ def pantalla_autenticacion():
                         st.query_params["auth_session"] = _sid
                         st.session_state["mostrar_auth"] = False
                         st.query_params.pop("auth", None)
-                        st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
+                        st.success("✅ Cuenta creada. Tu prueba gratuita de 1 mes está activa.")
                         st.rerun()
                     else:
                         st.success(
                             "✅ Cuenta creada. Revisa tu correo para confirmar la cuenta. "
-                            "Al iniciar sesión se activará tu prueba gratuita de 7 días."
+                            "Al iniciar sesión se activará tu prueba gratuita de 1 mes."
                         )
 
     with tab_admin:
@@ -1691,28 +1710,44 @@ if not ES_ADMIN and USUARIO_AUTENTICADO:
             """,
             unsafe_allow_html=True,
         )
-        st.markdown("### Elige un plan — COBRO SIMULADO")
-        st.caption("En esta versión de prueba no se realiza ningún cargo real ni se solicita tarjeta.")
+        st.markdown("### Elige tu plan — COBRO SIMULADO")
+        st.caption("Tu primer mes es gratis. En esta versión de prueba no se realiza ningún cargo real ni se solicita tarjeta.")
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("#### 💳 Mensual — $28 USD")
-            if st.button("ACTIVAR MENSUAL (SIMULADO)", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL")
+            st.markdown("#### 🟦 Solo Scanner")
+            st.markdown("**$28/mes** · **$270/año**")
+            if st.button("ACTIVAR SCANNER MENSUAL", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL_SCANNER")
                 if ok:
-                    st.success("✅ Membresía mensual simulada activada.")
+                    st.success("✅ Plan Scanner mensual simulado activado.")
+                    st.rerun()
+                else:
+                    st.error(msg)
+            if st.button("ACTIVAR SCANNER ANUAL", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL_SCANNER")
+                if ok:
+                    st.success("✅ Plan Scanner anual simulado activado.")
                     st.rerun()
                 else:
                     st.error(msg)
         with c2:
-            st.markdown("#### 💳 Anual — $270 USD")
-            if st.button("ACTIVAR ANUAL (SIMULADO)", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL")
+            st.markdown("#### 🟧 Scanner + 🤖 Robot")
+            st.markdown("**$38/mes** · **$370/año**")
+            if st.button("ACTIVAR SCANNER + ROBOT MENSUAL", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL_ROBOT")
                 if ok:
-                    st.success("✅ Membresía anual simulada activada.")
+                    st.success("✅ Plan Scanner + Robot mensual simulado activado.")
                     st.rerun()
                 else:
                     st.error(msg)
-        st.info("Para esta prueba, el administrador también podrá concederte acceso gratuito sin pago.")
+            if st.button("ACTIVAR SCANNER + ROBOT ANUAL", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL_ROBOT")
+                if ok:
+                    st.success("✅ Plan Scanner + Robot anual simulado activado.")
+                    st.rerun()
+                else:
+                    st.error(msg)
+        st.info("El administrador también podrá concederte acceso gratuito durante el período de prueba o como cortesía.")
         st.stop()
 
 
@@ -1753,9 +1788,9 @@ with st.sidebar:
                 estado, venc_txt = _resumen_licencia(lic)
                 st.markdown(f"**{lic.get('email','Usuario')}**  ")
                 st.caption(f"{lic.get('plan','—')} · {estado} · vence {venc_txt}")
-                if st.button("🎁 +7 días", key=f"grant_{uid}", width="stretch"):
+                if st.button("🎁 +30 días", key=f"grant_{uid}", width="stretch"):
                     if conceder_gratis_admin(uid, 30):
-                        st.success("7 días gratuitos concedidos.")
+                        st.success("30 días gratuitos concedidos.")
                         st.rerun()
                 if st.button("⛔ Suspender", key=f"suspend_{uid}", width="stretch"):
                     if suspender_usuario_admin(uid):
@@ -5669,11 +5704,6 @@ def _render_scanner():
             st.session_state["_ts_iframe_html"] = h
     except Exception:
         pass
-    if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
-    else:
-        st.iframe(h, height=900)
-
     # ================================================================
     # 🤖 PANEL VISIBLE DEL ROBOT LONG
     # El robot trabaja en segundo plano cada ~1 s, independiente del
@@ -5717,6 +5747,11 @@ def _render_scanner():
             st.info("El robot está encendido pero todavía no tiene decisiones para mostrar.")
     except Exception as _e_robot_ui:
         st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
+
+    if _TS_COMP_OK and _ts_scanner_ui is not None:
+        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
+    else:
+        st.iframe(h, height=900)
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
