@@ -203,32 +203,32 @@ class BotLongRealtime:
                                 decision_data["motivo"] = f"execution_blocked:{exc}"
                         else:
                             ask = snap.get("ask")
-                        bid = snap.get("bid")
-                        try:
-                            orden = preparar_buy(
-                                simbolo,
-                                ask=ask,
-                                bid=bid,
-                                cantidad=1,
-                                sesion=self.execution_config.regular,
-                                mercado="regular",
-                                client_order_id=f"paper-{simbolo.lower()}-{int(time.time() * 1000)}",
-                            )
-                            ejecucion = {
-                                "tipo": orden.tipo,
-                                "limit_price": orden.limit_price,
-                                "extended_hours": orden.extended_hours,
-                                "time_in_force": orden.time_in_force,
-                                "client_order_id": orden.client_order_id,
-                            }
-                            decision_data["precio"] = orden.limit_price
-                            # Modo sin executor: simulacion local. Aqui el fill se
-                            # considera inmediato para conservar compatibilidad con PaperBot.
-                            self.decisiones.confirmar_fill(simbolo, orden.limit_price)
-                        except (ValueError, TypeError) as exc:
-                            ejecucion = {"bloqueado": str(exc)}
-                            decision_data["accion"] = "WAIT"
-                            decision_data["motivo"] = f"execution_blocked:{exc}"
+                            bid = snap.get("bid")
+                            try:
+                                orden = preparar_buy(
+                                    simbolo,
+                                    ask=ask,
+                                    bid=bid,
+                                    cantidad=1,
+                                    sesion=self.execution_config.regular,
+                                    mercado="regular",
+                                    client_order_id=f"paper-{simbolo.lower()}-{int(time.time() * 1000)}",
+                                )
+                                ejecucion = {
+                                    "tipo": orden.tipo,
+                                    "limit_price": orden.limit_price,
+                                    "extended_hours": orden.extended_hours,
+                                    "time_in_force": orden.time_in_force,
+                                    "client_order_id": orden.client_order_id,
+                                }
+                                decision_data["precio"] = orden.limit_price
+                                # Modo sin executor: simulacion local. Aqui el fill se
+                                # considera inmediato para conservar compatibilidad con PaperBot.
+                                self.decisiones.confirmar_fill(simbolo, orden.limit_price)
+                            except (ValueError, TypeError) as exc:
+                                ejecucion = {"bloqueado": str(exc)}
+                                decision_data["accion"] = "WAIT"
+                                decision_data["motivo"] = f"execution_blocked:{exc}"
 
                     paper = self.paper.evaluar(decision_data)
                     registro = {
