@@ -5238,7 +5238,6 @@ def _render_scanner():
     h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
     h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
     h += "function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_BASE_QUERY||{});return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
-    h += "function abrirRobotLong(){try{var q=_qtop();q.set('robot','1');var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);window.top.location.href='/?'+q.toString();}catch(e){try{window.top.location.href='/?robot=1'}catch(_e){}}}"
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
     h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
@@ -5287,7 +5286,6 @@ def _render_scanner():
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
-    h += "<a href='#' onclick='abrirRobotLong();return false;' style='display:inline-flex;align-items:center;justify-content:center;height:25px;padding:0 9px;margin-right:5px;border:1px solid #555;background:#252a31;color:#fff;border-radius:4px;text-decoration:none;font-size:10px;font-weight:700;'>🤖 ROBOT LONG</a>"
     # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
@@ -5796,6 +5794,73 @@ def _render_scanner():
             st.session_state["_ts_iframe_html"] = h
     except Exception:
         pass
+    # ================================================================
+    # 🤖 PANEL VISIBLE DEL ROBOT LONG
+    # El robot trabaja en segundo plano cada ~1 s, independiente del
+    # refresh visual del scanner. Esta sección permite verlo en la misma
+    # página y comprobar qué está haciendo sin exponer claves.
+    # ================================================================
+    try:
+        _rb = servicio.estado_bot_long()
+        st.markdown("### 🤖 Robot LONG — tiempo real")
+        if _rb.get("hilo_vivo"):
+            st.success("🟢 Robot activo y evaluando continuamente")
+        elif _rb.get("disponible"):
+            st.warning("🟡 Robot cargado, pero su hilo no está activo")
+        else:
+            st.error("🔴 Robot no disponible")
+            if _rb.get("error"):
+                st.caption(f"Error del robot: {_rb.get('error')}")
+
+        # Tarjetas de estado del robot: alto contraste y lectura clara en PC/móvil.
+        # Solo cambia la presentación; no modifica ninguna variable del motor.
+        _ciclos = _rb.get("ciclos", 0)
+        _candidatos = len(_rb.get("candidatos", []) or [])
+        _posiciones = len(_rb.get("posiciones_paper", []) or [])
+        _observadas = len(_rb.get("posiciones_observadas", []) or [])
+        _decisiones = _rb.get("decisiones_guardadas", 0)
+        st.markdown("""
+        <style>
+        .ts-robot-panel{background:#1b2027;border:1px solid #3b4652;border-radius:12px;padding:14px 14px 10px;margin:4px 0 14px 0;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+        .ts-robot-title{font-size:1.15rem;font-weight:700;color:#f2f5f8;margin-bottom:12px}
+        .ts-robot-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+        .ts-robot-card{background:#252c35;border:1px solid #4a5663;border-radius:9px;padding:10px 8px;text-align:center;min-height:68px}
+        .ts-robot-label{font-size:.76rem;color:#b9c3ce;text-transform:uppercase;letter-spacing:.03em}
+        .ts-robot-value{font-size:1.45rem;font-weight:800;color:#ffffff;line-height:1.35;margin-top:2px}
+        @media(max-width:800px){.ts-robot-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+        @media(max-width:520px){.ts-robot-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.ts-robot-value{font-size:1.25rem;}}
+        </style>
+        <div class="ts-robot-panel">
+          <div class="ts-robot-title">📊 Estado del robot</div>
+          <div class="ts-robot-grid">
+            <div class="ts-robot-card"><div class="ts-robot-label">Ciclos</div><div class="ts-robot-value">""" + str(_ciclos) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Candidatos</div><div class="ts-robot-value">""" + str(_candidatos) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Posiciones</div><div class="ts-robot-value">""" + str(_posiciones) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Observadas</div><div class="ts-robot-value">""" + str(_observadas) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Decisiones</div><div class="ts-robot-value">""" + str(_decisiones) + """</div></div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        _dec = servicio.decisiones_bot_long(20)
+        if _dec:
+            _filas_bot = []
+            for _d in reversed(_dec):
+                _filas_bot.append({
+                    "Hora": datetime.fromtimestamp(float(_d.get("ts", time.time())), tz=ET).strftime("%H:%M:%S"),
+                    "Ticker": _d.get("simbolo", ""),
+                    "Acción": _d.get("accion", ""),
+                    "Estado": _d.get("estado", ""),
+                    "Motivo": _d.get("motivo", ""),
+                    "Precio": _d.get("precio", ""),
+                    "Stop": _d.get("stop_loss", ""),
+                })
+            st.dataframe(pd.DataFrame(_filas_bot), use_container_width=True, hide_index=True)
+        else:
+            st.info("El robot está encendido pero todavía no tiene decisiones para mostrar.")
+    except Exception as _e_robot_ui:
+        st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
+
     # El componente devuelve al servidor la configuración que el usuario acaba
     # de cambiar. Ese retorno es la fuente de verdad de la interacción: se
     # normaliza, se guarda en Session State + query params + persistencia por
@@ -6254,84 +6319,4 @@ _sincronizar_query_con_sesion()
 # El motor de mercado sigue trabajando en segundo plano; la actualización de
 # configuración se produce por setComponentValue y el usuario puede refrescar
 # la vista sin reconstruir un iframe activo dentro de un fragmento.
-
-
-def _render_robot_long_page(servicio):
-    _robot_q = {str(k): str(v) for k, v in st.query_params.items() if str(k) != "robot"}
-    _robot_href = "/?" + "&".join(f"{quote(k)}={quote(v)}" for k, v in _robot_q.items()) if _robot_q else "/"
-    st.markdown(f'<a href="{_robot_href}" target="_top" style="display:inline-block;margin:4px 0 12px 0;font-weight:700;text-decoration:none;">← VOLVER AL SCANNER</a>', unsafe_allow_html=True)
-    # ================================================================
-    # 🤖 PANEL VISIBLE DEL ROBOT LONG
-    # El robot trabaja en segundo plano cada ~1 s, independiente del
-    # refresh visual del scanner. Esta sección permite verlo en la misma
-    # página y comprobar qué está haciendo sin exponer claves.
-    # ================================================================
-    try:
-        _rb = servicio.estado_bot_long()
-        st.markdown("### 🤖 Robot LONG — tiempo real")
-        if _rb.get("hilo_vivo"):
-            st.success("🟢 Robot activo y evaluando continuamente")
-        elif _rb.get("disponible"):
-            st.warning("🟡 Robot cargado, pero su hilo no está activo")
-        else:
-            st.error("🔴 Robot no disponible")
-            if _rb.get("error"):
-                st.caption(f"Error del robot: {_rb.get('error')}")
-
-        # Tarjetas de estado del robot: alto contraste y lectura clara en PC/móvil.
-        # Solo cambia la presentación; no modifica ninguna variable del motor.
-        _ciclos = _rb.get("ciclos", 0)
-        _candidatos = len(_rb.get("candidatos", []) or [])
-        _posiciones = len(_rb.get("posiciones_paper", []) or [])
-        _observadas = len(_rb.get("posiciones_observadas", []) or [])
-        _decisiones = _rb.get("decisiones_guardadas", 0)
-        st.markdown("""
-        <style>
-        .ts-robot-panel{background:#1b2027;border:1px solid #3b4652;border-radius:12px;padding:14px 14px 10px;margin:4px 0 14px 0;box-shadow:0 2px 10px rgba(0,0,0,.18)}
-        .ts-robot-title{font-size:1.15rem;font-weight:700;color:#f2f5f8;margin-bottom:12px}
-        .ts-robot-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
-        .ts-robot-card{background:#252c35;border:1px solid #4a5663;border-radius:9px;padding:10px 8px;text-align:center;min-height:68px}
-        .ts-robot-label{font-size:.76rem;color:#b9c3ce;text-transform:uppercase;letter-spacing:.03em}
-        .ts-robot-value{font-size:1.45rem;font-weight:800;color:#ffffff;line-height:1.35;margin-top:2px}
-        @media(max-width:800px){.ts-robot-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
-        @media(max-width:520px){.ts-robot-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.ts-robot-value{font-size:1.25rem;}}
-        </style>
-        <div class="ts-robot-panel">
-          <div class="ts-robot-title">📊 Estado del robot</div>
-          <div class="ts-robot-grid">
-            <div class="ts-robot-card"><div class="ts-robot-label">Ciclos</div><div class="ts-robot-value">""" + str(_ciclos) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Candidatos</div><div class="ts-robot-value">""" + str(_candidatos) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Posiciones</div><div class="ts-robot-value">""" + str(_posiciones) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Observadas</div><div class="ts-robot-value">""" + str(_observadas) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Decisiones</div><div class="ts-robot-value">""" + str(_decisiones) + """</div></div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        _dec = servicio.decisiones_bot_long(20)
-        if _dec:
-            _filas_bot = []
-            for _d in reversed(_dec):
-                _filas_bot.append({
-                    "Hora": datetime.fromtimestamp(float(_d.get("ts", time.time())), tz=ET).strftime("%H:%M:%S"),
-                    "Ticker": _d.get("simbolo", ""),
-                    "Acción": _d.get("accion", ""),
-                    "Estado": _d.get("estado", ""),
-                    "Motivo": _d.get("motivo", ""),
-                    "Precio": _d.get("precio", ""),
-                    "Stop": _d.get("stop_loss", ""),
-                })
-            st.dataframe(pd.DataFrame(_filas_bot), use_container_width=True, hide_index=True)
-        else:
-            st.info("El robot está encendido pero todavía no tiene decisiones para mostrar.")
-    except Exception as _e_robot_ui:
-        st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
-
-
-# URL independiente del Robot LONG: mantiene su interfaz separada del Scanner.
-_ROBOT_MODE = str(st.query_params.get("robot", "") or "").lower() in ("1", "true", "yes")
-if _ROBOT_MODE:
-    _render_robot_long_page(servicio)
-    st.stop()
-
 _render_scanner()
