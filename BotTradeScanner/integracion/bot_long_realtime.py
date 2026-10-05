@@ -70,8 +70,21 @@ class BotLongRealtime:
         with self._lock:
             self._candidatos = candidatos
 
-        # La suscripcion al market-data sigue siendo responsabilidad del bridge.
-        self.motor_bridge.sync_results(resultados)
+        # Una posicion activa debe seguir recibiendo trades aunque el scanner
+        # deje de publicar el ticker como candidato. El bridge recibe la union
+        # de candidatos actuales + posiciones que la maquina aun esta gestionando.
+        activos = set()
+        for simbolo in self.decisiones.simbolos():
+            estado = self.decisiones.estado(simbolo).get("estado", "")
+            if estado in {
+                "long_primera_vela",
+                "long_segunda_vela",
+                "long_siguientes",
+            }:
+                activos.add(simbolo)
+
+        observados = candidatos | activos
+        self.motor_bridge.sync_results([{"ticker": s} for s in sorted(observados)])
 
     def evaluar_ahora(self) -> list[dict]:
         with self._lock:
