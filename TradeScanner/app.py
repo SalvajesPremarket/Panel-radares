@@ -1658,8 +1658,11 @@ def _guardar_ultima_configuracion_servidor():
 
 # Al volver a entrar con la misma cuenta, recuperar la última configuración
 # antes de construir la interfaz. Así el refresh tampoco vuelve a 3 minutos.
-if _restaurar_ultima_configuracion_servidor():
-    st.rerun()
+# La configuración restaurada ya quedó escrita en st.query_params y puede
+# ser consumida por este mismo ciclo. No forzar un segundo rerun durante
+# el arranque: en un refresh completo ese rerun intermedio puede dejar la
+# página sin contenido mientras Streamlit reconstruye la sesión.
+_restaurar_ultima_configuracion_servidor()
 
 
 # Solo los tokens configurados como ADMIN pueden ser administradores.
