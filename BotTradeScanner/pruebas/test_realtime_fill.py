@@ -100,11 +100,18 @@ def test_buy_queda_pendiente_hasta_filled():
     bot = BotLongRealtime(bridge, executor=executor, execution_config=cfg)
 
     bot.sync_candidates([{"ticker": "TEST"}])
-    first = bot.evaluar_ahora()
 
+    # Primer contacto: la maquina registra el candidato y devuelve WATCH.
+    first = bot.evaluar_ahora()
     assert first
-    assert first[-1]["accion"] == "WAIT"
-    assert first[-1]["motivo"] == "buy_order_submitted_waiting_fill"
+    assert first[-1]["accion"] == "WATCH"
+    assert bot.paper.posiciones() == []
+
+    # Segundo contacto: la libelula ya estaba formada y ahora se envia BUY.
+    second = bot.evaluar_ahora()
+    assert second
+    assert second[-1]["accion"] == "WAIT"
+    assert second[-1]["motivo"] == "buy_order_submitted_waiting_fill"
     assert bot.paper.posiciones() == []
 
     executor.status = "filled"
