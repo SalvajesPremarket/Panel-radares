@@ -13,6 +13,7 @@ La frecuencia de evaluacion es independiente del refresh visual del scanner.
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import asdict
 from threading import Event, Lock, Thread
 import time
 from typing import Iterable
@@ -107,20 +108,21 @@ class BotLongRealtime:
             try:
                 snap = self.motor_bridge.snapshot(simbolo)
                 candidato = simbolo in candidatos
-                decision = self.decisiones.procesar_snapshot(snap, candidato_scanner=candidato)
+                decision = self.decisiones.evaluar(snap, candidato_scanner=candidato)
+                decision_data = asdict(decision)
 
                 # No guardamos WAIT repetitivos sin cambio para no llenar la cola.
                 anterior = self._ultima_decision_por_simbolo.get(simbolo)
                 comparable = {
-                    "accion": decision.get("accion"),
-                    "estado": decision.get("estado"),
-                    "motivo": decision.get("motivo"),
-                    "stop_loss": decision.get("stop_loss"),
+                    "accion": decision_data.get("accion"),
+                    "estado": decision_data.get("estado"),
+                    "motivo": decision_data.get("motivo"),
+                    "stop_loss": decision_data.get("stop_loss"),
                 }
-                if anterior != comparable or decision.get("accion") in {"BUY", "EXIT"}:
-                    paper = self.paper.evaluar(decision)
+                if anterior != comparable or decision_data.get("accion") in {"BUY", "EXIT"}:
+                    paper = self.paper.evaluar(decision_data)
                     registro = {
-                        **decision,
+                        **decision_data,
                         "paper": paper,
                         "ts": time.time(),
                     }
