@@ -2611,6 +2611,8 @@ class ServicioScanner:
         self._bulk_float_running = False
         self._bulk_float_lock = threading.Lock()
         self._lock_fmp = threading.Lock()
+        # Yahoo es solo respaldo; evitar que varios workers disparen .info simultaneamente.
+        self._lock_yahoo = threading.Lock()
 
         self._lock_ritmo = threading.Lock()
         self._ultima_peticion = 0.0
@@ -3181,50 +3183,53 @@ class ServicioScanner:
             return None
 
     def _float_yahoo(self, ticker):
-        """Respaldo 1: floatShares de Yahoo Finance (yfinance). No es oficial: puede fallar o limitar."""
-        if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
-            return None
-        try:
-            import yfinance as yf
-        except Exception:
-            self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
-            self._yahoo_pausado_hasta = time.time() + 3600
-            return None
-        try:
-            espera = getattr(self, "_yahoo_ultima", 0.0) + 0.4 - time.time()
-            if espera > 0:
-                time.sleep(espera)
-            self._yahoo_ultima = time.time()
-            info = yf.Ticker(ticker).info or {}
-            valor = info.get("floatShares")
-            valor = float(valor) if valor not in (None, "", 0) else None
-            if valor is not None and valor <= 0:
-                valor = None
-            self._yahoo_fallos = 0
-            self._yahoo_estado = "ok"
-            return valor
-        except Exception as e:
-            txt = str(e)
-            self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
-            self._yahoo_estado = f"error: {txt[:80]}"
-            # Yahoo puede rechazar el endpoint .info con 401/403 por
-            # autenticación/crumb. No insistir en cada ciclo: es un respaldo
-            # opcional y FMP/Finnhub deben tener oportunidad de continuar.
-            _txt_lower = txt.lower()
-            _auth_yahoo = (
-                "401" in _txt_lower
-                or "403" in _txt_lower
-                or "invalid crumb" in _txt_lower
-                or "unable to access this feature" in _txt_lower
-            )
-            if _auth_yahoo:
-                self._yahoo_pausado_hasta = time.time() + 1800
+        """Respaldo 1: floatShares de Yahoo Finance (yfinance).
+        Es opcional y queda serializado para que un 401/crumb no provoque
+        una ráfaga de consultas concurrentes.
+        """
+        with self._lock_yahoo:
+            if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
+                return None
+            try:
+                import yfinance as yf
+            except Exception:
+                self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
+                self._yahoo_pausado_hasta = time.time() + 3600
+                return None
+            try:
+                espera = getattr(self, "_yahoo_ultima", 0.0) + 0.4 - time.time()
+                if espera > 0:
+                    time.sleep(espera)
+                self._yahoo_ultima = time.time()
+                info = yf.Ticker(ticker).info or {}
+                valor = info.get("floatShares")
+                valor = float(valor) if valor not in (None, "", 0) else None
+                if valor is not None and valor <= 0:
+                    valor = None
                 self._yahoo_fallos = 0
-                self._yahoo_estado = "pausado 30 min: Yahoo rechazó acceso/crumb"
-            elif "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
-                self._yahoo_pausado_hasta = time.time() + 1800
-                self._yahoo_fallos = 0
-            return None
+                self._yahoo_estado = "ok"
+                return valor
+            except Exception as e:
+                txt = str(e)
+                self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
+                self._yahoo_estado = f"error: {txt[:80]}"
+                _txt_lower = txt.lower()
+                _auth_yahoo = (
+                    "401" in _txt_lower
+                    or "403" in _txt_lower
+                    or "invalid crumb" in _txt_lower
+                    or "unable to access this feature" in _txt_lower
+                )
+                if _auth_yahoo:
+                    self._yahoo_pausado_hasta = time.time() + 1800
+                    self._yahoo_fallos = 0
+                    self._yahoo_estado = "pausado 30 min: Yahoo rechazó acceso/crumb"
+                    print(f"⚠️ Yahoo rechazó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
+                elif "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
+                    self._yahoo_pausado_hasta = time.time() + 1800
+                    self._yahoo_fallos = 0
+                    print(f"⚠️ Yahoo limitó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
+                return None
 
     def _circulacion_finnhub(self, ticker):
         """Respaldo 2: acciones en circulacion (Finnhub). La flotacion nunca es mayor que este numero,
