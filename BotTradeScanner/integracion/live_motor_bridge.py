@@ -35,6 +35,7 @@ class MotorVelasBridge:
         self._hilo_inicio = None
         self._simbolos_solicitados = set()
         self._simbolos_cargados = set()
+        self._simbolos_deseados = set()
         self._ultima_error = None
 
         self._arrancar_stream()
@@ -63,15 +64,9 @@ class MotorVelasBridge:
         self._hilo_inicio.start()
 
     def sync_results(self, resultados: Iterable[dict] | None):
-        """Suscribe los candidatos actuales del scanner al motor de velas.
-
-        Nunca modifica los resultados del scanner ni genera señales de compra/venta.
-        """
-        if not resultados:
-            return
-
+        """Ajusta la suscripcion al conjunto actual de candidatos."""
         candidatos = []
-        for row in resultados:
+        for row in resultados or []:
             try:
                 ticker = str(row.get("ticker", "")).strip().upper()
             except Exception:
@@ -79,59 +74,76 @@ class MotorVelasBridge:
             if ticker and ticker not in candidatos:
                 candidatos.append(ticker)
 
-        if not candidatos:
-            return
-
+        deseados = set(candidatos)
         with self._lock:
+            self._simbolos_deseados = deseados
+
+            # Simbolos ya suscritos que salieron del conjunto actual.
+            retirar = [
+                s for s in self._simbolos_cargados
+                if s not in deseados
+            ]
+            for symbol in retirar:
+                self._simbolos_cargados.discard(symbol)
+
+            # Si estaban en preparacion pero dejaron de ser necesarios,
+            # el worker no los suscribira cuando termine la precarga.
+            self._simbolos_solicitados.difference_update(retirar)
+
             disponibles = [
                 s for s in candidatos
                 if s not in self._simbolos_solicitados
                 and s not in self._simbolos_cargados
             ]
-            capacidad = max(0, self.MAX_SIMBOLOS_BASIC - len(self._simbolos_solicitados))
+            ocupados = len(self._simbolos_solicitados | self._simbolos_cargados)
+            capacidad = max(0, self.MAX_SIMBOLOS_BASIC - ocupados)
             nuevos = disponibles[: min(self.MAX_NUEVOS_POR_CICLO, capacidad)]
             for symbol in nuevos:
                 self._simbolos_solicitados.add(symbol)
 
-        if not nuevos:
-            return
+        if retirar or nuevos:
+            Thread(
+                target=self._actualizar_suscripciones,
+                args=(retirar, nuevos),
+                name="tradescanner-motor-velas-subscribe",
+                daemon=True,
+            ).start()
 
-        Thread(
-            target=self._preparar_y_suscribir,
-            args=(nuevos,),
-            name="tradescanner-motor-velas-subscribe",
-            daemon=True,
-        ).start()
+    def _esperar_stream(self, timeout=15.0):
+        limite_espera = time.monotonic() + timeout
+        while getattr(self.motor, "_stream", None) is None:
+            if time.monotonic() >= limite_espera:
+                raise RuntimeError("stream_market_data_no_disponible")
+            time.sleep(0.1)
 
-    def _preparar_y_suscribir(self, simbolos):
-        # Solo una precarga/suscripción a la vez para no disparar llamadas
-        # históricas concurrentes contra Alpaca.
+    def _actualizar_suscripciones(self, retirar, nuevos):
+        # Solo una precarga/suscripcion a la vez para no disparar llamadas
+        # historicas concurrentes contra Alpaca.
         with self._subscribe_lock:
             try:
-                # El motor existente intenta cargar historial de 1 minuto antes
-                # de empezar a consumir trades. En el plan Basic, Alpaca limita
-                # la ventana histórica disponible; se usa lo que el plan permita.
-                self.motor.precargar_historial(simbolos, cantidad=300)
+                self._esperar_stream()
 
-                # El stream se arranca en otro hilo. No intentamos suscribir
-                # mientras MotorVelas todavía no haya creado su websocket:
-                # de lo contrario el candidato puede quedar marcado como
-                # cargado sin llegar a suscribirse realmente.
-                limite_espera = time.monotonic() + 15.0
-                while getattr(self.motor, "_stream", None) is None:
-                    if time.monotonic() >= limite_espera:
-                        raise RuntimeError("stream_market_data_no_disponible")
-                    time.sleep(0.1)
+                for symbol in retirar:
+                    self.motor.quitar_simbolo_en_caliente(symbol)
 
-                for symbol in simbolos:
+                if nuevos:
+                    self.motor.precargar_historial(nuevos, cantidad=300)
+
+                for symbol in nuevos:
+                    with self._lock:
+                        sigue_deseado = symbol in self._simbolos_deseados
+                    if not sigue_deseado:
+                        with self._lock:
+                            self._simbolos_solicitados.discard(symbol)
+                        continue
                     self.motor.agregar_simbolo_en_caliente(symbol)
-
-                with self._lock:
-                    self._simbolos_cargados.update(simbolos)
+                    with self._lock:
+                        self._simbolos_solicitados.discard(symbol)
+                        self._simbolos_cargados.add(symbol)
             except Exception as exc:
                 self._ultima_error = str(exc)
                 with self._lock:
-                    for symbol in simbolos:
+                    for symbol in nuevos:
                         self._simbolos_solicitados.discard(symbol)
 
     def snapshot(self, simbolo: str) -> dict:
