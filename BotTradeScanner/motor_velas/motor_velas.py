@@ -333,6 +333,8 @@ class MotorVelas:
         self._simbolos_suscritos: set = set()
         self._iniciado = False
         self._historial_precargado: set = set()
+        # Ultima cotizacion real bid/ask, separada de las velas.
+        self._quotes: dict[str, dict] = {}
 
         # Diagnóstico de la conexión (útil para validar que llegan datos)
         self.total_trades: int = 0
@@ -383,6 +385,23 @@ class MotorVelas:
 
             self._historial_precargado.add(simbolo)
 
+    async def _al_recibir_quote(self, quote):
+        """Guarda el ultimo bid/ask real recibido por Alpaca."""
+        simbolo = quote.symbol
+        try:
+            bid = float(quote.bid_price) if quote.bid_price is not None else None
+        except (TypeError, ValueError):
+            bid = None
+        try:
+            ask = float(quote.ask_price) if quote.ask_price is not None else None
+        except (TypeError, ValueError):
+            ask = None
+        self._quotes[simbolo] = {
+            "bid": bid if bid and bid > 0 else None,
+            "ask": ask if ask and ask > 0 else None,
+            "timestamp": getattr(quote, "timestamp", None),
+        }
+
     async def _al_recibir_trade(self, trade):
         motor = self._obtener_motor(trade.symbol)
         momento = trade.timestamp
@@ -411,6 +430,7 @@ class MotorVelas:
             self._stream = StockDataStream(self.api_key, self.secret_key, feed=DataFeed.IEX)
             for simbolo in simbolos:
                 self._stream.subscribe_trades(self._al_recibir_trade, simbolo)
+                self._stream.subscribe_quotes(self._al_recibir_quote, simbolo)
                 self._simbolos_suscritos.add(simbolo)
             self._stream.run()
         finally:
@@ -422,6 +442,7 @@ class MotorVelas:
         """Para agregar un ticker nuevo sin reiniciar la conexión completa."""
         if self._stream is not None and simbolo not in self._simbolos_suscritos:
             self._stream.subscribe_trades(self._al_recibir_trade, simbolo)
+            self._stream.subscribe_quotes(self._al_recibir_quote, simbolo)
             self._simbolos_suscritos.add(simbolo)
 
     def quitar_simbolo_en_caliente(self, simbolo: str):
@@ -431,12 +452,23 @@ class MotorVelas:
                 self._stream.unsubscribe_trades(simbolo)
             except TypeError:
                 self._stream.unsubscribe_trades([simbolo])
+            try:
+                self._stream.unsubscribe_quotes(simbolo)
+            except TypeError:
+                self._stream.unsubscribe_quotes([simbolo])
             self._simbolos_suscritos.discard(simbolo)
+        self._quotes.pop(simbolo, None)
 
     def snapshot_simbolo(self, simbolo: str) -> dict:
         if simbolo not in self.motores:
-            return {"simbolo": simbolo, "sin_datos": True}
-        return self.motores[simbolo].snapshot()
+            snap = {"simbolo": simbolo, "sin_datos": True}
+        else:
+            snap = self.motores[simbolo].snapshot()
+        quote = self._quotes.get(simbolo, {})
+        snap["bid"] = quote.get("bid")
+        snap["ask"] = quote.get("ask")
+        snap["quote_timestamp"] = quote.get("timestamp")
+        return snap
 
     def simbolos_activos(self) -> list:
         return list(self.motores.keys())
