@@ -424,6 +424,15 @@ class MotorVelas:
             self._stream.subscribe_trades(self._al_recibir_trade, simbolo)
             self._simbolos_suscritos.add(simbolo)
 
+    def quitar_simbolo_en_caliente(self, simbolo: str):
+        """Deja de recibir trades de un ticker que ya no debe observarse."""
+        if self._stream is not None and simbolo in self._simbolos_suscritos:
+            try:
+                self._stream.unsubscribe_trades(simbolo)
+            except TypeError:
+                self._stream.unsubscribe_trades([simbolo])
+            self._simbolos_suscritos.discard(simbolo)
+
     def snapshot_simbolo(self, simbolo: str) -> dict:
         if simbolo not in self.motores:
             return {"simbolo": simbolo, "sin_datos": True}
