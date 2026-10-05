@@ -186,7 +186,7 @@ class BotLongRealtime:
                                 stop_para_riesgo = decision_data.get("stop_loss")
                                 if precio_orden is None:
                                     raise ValueError("quote_sin_precio")
-                                cantidad, _, _, error_tamano = self.paper.tamano_entrada(precio_orden, stop_para_riesgo)
+                                cantidad, _, _, error_tamano = self.paper.validar_entrada(precio_orden, stop_para_riesgo, posiciones_reservadas=len(self._ordenes_pendientes))
                                 if error_tamano:
                                     raise ValueError(error_tamano)
                                 orden = self.executor.preparar(
