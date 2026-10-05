@@ -1191,10 +1191,11 @@ def pantalla_autenticacion():
     # El acceso de administrador está dentro de la misma pantalla y
     # requiere el token secreto configurado en Streamlit Secrets.
     # No se utiliza una segunda URL ni un parámetro especial de administrador.
-    st.button(
-        "← Volver al scanner",
-        key="ts_volver_auth",
-        on_click=_ts_cerrar_auth,
+    st.markdown(
+        f'<a href="{_safe_text(_ts_auth_href("volver"))}" target="_self" '
+        'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+        'color:#e5e9ee;text-decoration:none;background:#20252c;font-size:11px;">← Volver al scanner</a>',
+        unsafe_allow_html=True,
     )
     tab_login, tab_registro, tab_admin = st.tabs(
         ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
@@ -1417,10 +1418,28 @@ def pantalla_autenticacion():
     return
 
 
-def _ts_cerrar_auth():
-    """Cierra la autenticación y vuelve al scanner."""
-    st.session_state["mostrar_auth"] = False
-    st.rerun()
+def _ts_auth_href(modo="abrir"):
+    """Construye una navegación de la misma página sin usar callbacks de Streamlit.
+    Se usa para aislar Auth del rerun que desmonta el iframe del scanner.
+    """
+    try:
+        from urllib.parse import urlencode
+        pares = {}
+        for _k, _v in st.query_params.items():
+            if isinstance(_v, list):
+                if _v:
+                    pares[str(_k)] = str(_v[0])
+            elif _v is not None:
+                pares[str(_k)] = str(_v)
+        pares.pop("logout", None)
+        if modo == "abrir":
+            pares["auth"] = "1"
+        else:
+            pares.pop("auth", None)
+        _qs = urlencode(pares)
+        return "?" + _qs if _qs else "/"
+    except Exception:
+        return "/?auth=1" if modo == "abrir" else "/"
 
 
 # =========================================================
@@ -5634,14 +5653,13 @@ def _render_scanner():
     # segundo marco blanco debajo.
     h = _panel_final
 
-    # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
-    def _ts_abrir_auth():
-        st.session_state["mostrar_auth"] = True
-
+    # ── Controles de cuenta y refresh ──
+    # Auth/Logout usan navegación normal de la misma página. Esto evita que
+    # un callback de Streamlit intente desmontar el iframe grande del scanner
+    # en el mismo rerun que abre/cierra autenticación.
     def _ts_salir():
-        # No tocar query_params ni limpiar la sesión dentro del callback.
-        # El callback solo marca la intención; el ciclo principal lo procesa
-        # después del rerun normal de Streamlit.
+        # Se conserva solo para compatibilidad con sesiones antiguas; el control
+        # visible de SALIR usa un enlace normal y no este callback.
         st.session_state["_ts_logout_requested"] = True
 
     def _ts_cambiar_refresh():
@@ -5678,17 +5696,35 @@ def _render_scanner():
     )
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
-            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
+            st.markdown(
+                f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_self" '
+                'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+                'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
+                '📝 REGISTRO / INICIAR SESIÓN</a>',
+                unsafe_allow_html=True,
+            )
         else:
             _n1, _n3, _n4 = st.columns([1.3, 1, 1])
             with _n1:
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
             with _n3:
-                st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
+                st.markdown(
+                    f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_self" '
+                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
+                    'CUENTA / REGISTRO</a>',
+                    unsafe_allow_html=True,
+                )
             with _n4:
-                st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
+                st.markdown(
+                    '<a href="/?logout=1" target="_self" '
+                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
+                    'SALIR</a>',
+                    unsafe_allow_html=True,
+                )
 
-    # La autenticación ya se resolvió antes de entrar a _render_scanner().
+    # La autenticación se resuelve mediante navegación normal (?auth=1).
     # Este bloque solo construye la página normal del scanner/robot.
     
     # Filtros nativos críticos: Precio y GAP.
