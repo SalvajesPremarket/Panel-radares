@@ -66,32 +66,30 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   function busy(f){try{return !!(f.contentWindow&&f.contentWindow._tsDirty);}catch(e){return false;}}
   function isOurs(w){return !!w&&((current&&current.contentWindow===w)||(pending&&pending.contentWindow===w));}
   function show(f){
-    var old=current;current=f;if(pending===f)pending=null;
+    // Conservado por compatibilidad con mensajes tsReady antiguos.
+    if(!f)return;
     f.style.visibility='visible';
-    if(old&&old!==f&&old.parentNode){old.parentNode.removeChild(old);}
+    if(f===current)pending=null;
   }
   function run(){
     if(!lastHtml)return;
-    if(current&&current.__html===lastHtml){
-      if(pending){if(pending.parentNode)pending.parentNode.removeChild(pending);pending=null;}
+    // ESTABLE: no desmontar/recrear iframes. El scanner ya no usa refresh
+    // dentro de st.fragment; cada cambio de configuración llega por el
+    // componente y puede actualizar el mismo iframe sin pantalla blanca.
+    if(!current){
+      var f=document.createElement('iframe');
+      f.__html=lastHtml;
+      try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
+      current=f;
+      wrap.appendChild(f);
+    }
+    if(current.__html===lastHtml){
+      current.style.visibility='visible';
       return;
     }
-    if(current&&busy(current)){
-      if(!deferSince)deferSince=Date.now();
-      if(Date.now()-deferSince<10000){timer=setTimeout(function(){timer=null;run();},600);return;}
-    }
-    deferSince=0;
-    if(pending){if(pending.parentNode)pending.parentNode.removeChild(pending);pending=null;}
-    var f=document.createElement('iframe');
-    f.__html=lastHtml;
-    try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
-    if(!current){current=f;}
-    else{
-      f.style.visibility='hidden';pending=f;
-      f.onload=function(){setTimeout(function(){if(pending===f)show(f);},2500);};
-    }
-    wrap.appendChild(f);
-    f.srcdoc=lastHtml;
+    current.__html=lastHtml;
+    current.style.visibility='visible';
+    try{current.srcdoc=lastHtml;}catch(e){current.src='data:text/html;charset=utf-8,'+encodeURIComponent(lastHtml);}
   }
   function schedule(){if(timer)return;timer=setTimeout(function(){timer=null;run();},0);}
   window.addEventListener('message',function(ev){
