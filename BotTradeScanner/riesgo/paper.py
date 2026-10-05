@@ -110,7 +110,11 @@ class PaperBot:
         riesgo_maximo = self.risk.initial_capital * self.risk.max_risk_per_trade
         exposicion_maxima = self.risk.initial_capital * self.risk.max_exposure
 
-        cantidad_por_riesgo = floor(riesgo_maximo / distancia_stop)
+        # Un stop exactamente en la entrada implica riesgo monetario cero.
+        # En ese caso el tamaño queda limitado exclusivamente por exposicion.
+        cantidad_por_riesgo = (
+            float("inf") if distancia_stop == 0 else floor(riesgo_maximo / distancia_stop)
+        )
         cantidad_por_exposicion = floor(exposicion_maxima / precio)
         cantidad = min(cantidad_por_riesgo, cantidad_por_exposicion)
 
