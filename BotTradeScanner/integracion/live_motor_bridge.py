@@ -125,6 +125,8 @@ class MotorVelasBridge:
 
                 for symbol in retirar:
                     self.motor.quitar_simbolo_en_caliente(symbol)
+                    with self._lock:
+                        self._simbolos_cargados.discard(symbol)
 
                 if nuevos:
                     self.motor.precargar_historial(nuevos, cantidad=300)
