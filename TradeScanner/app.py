@@ -6078,6 +6078,7 @@ def _sincronizar_nativos(accion_js):
     """El widget nativo manda; la URL solo se acepta al cargar por primera vez o al
     cargar una configuración guardada. Así el refresh nunca revierte lo elegido."""
     almacen = st.session_state.get("_ts_query_elegida")
+    _qp_updates = {}
     for qk, wk, tipo, ops, defecto in _NATIVOS_TODOS:
         w = _norm_nativo(tipo, ops, st.session_state.get(wk))
         previo = st.session_state.get("_ts_prev_" + wk)
@@ -6114,9 +6115,15 @@ def _sincronizar_nativos(accion_js):
         if st.session_state.get(wk) != val:
             st.session_state[wk] = val
         if _qp_valor(qk) != txt:
-            st.query_params[qk] = txt
+            _qp_updates[qk] = txt
         if isinstance(almacen, dict):
             almacen[qk] = txt
+    if _qp_updates:
+        try:
+            st.query_params.update(_qp_updates)
+        except Exception:
+            for _k, _v in _qp_updates.items():
+                st.query_params[_k] = _v
 
 
 def _sincronizar_timeframe(tf_url, accion_js):
@@ -6147,7 +6154,10 @@ def _sincronizar_timeframe(tf_url, accion_js):
     if st.session_state.get("ts_tf_sel") != tf:
         st.session_state["ts_tf_sel"] = tf
     if _qp_valor("timeframe") != tf:
-        st.query_params["timeframe"] = tf
+        try:
+            st.query_params.update({"timeframe": tf})
+        except Exception:
+            st.query_params["timeframe"] = tf
     almacen = st.session_state.get("_ts_query_elegida")
     if isinstance(almacen, dict):
         almacen["timeframe"] = tf
@@ -6187,16 +6197,22 @@ def _sincronizar_query_con_sesion():
                 st.session_state["_ts_query_elegida"] = nuevo
         elif guardado:
             # No dejamos que el auto-refresh sustituya los valores elegidos.
+            # Preparar todo antes de tocar la URL evita una cascada de reruns
+            # durante la reconstrucción de una sesión después de un refresh.
+            _qp_restaurar = {}
             for k, v in guardado.items():
-                # refresh_sec tiene su propio arbitraje de prioridad más abajo.
-                # No lo reescribimos aquí, porque una selección nueva en la
-                # URL podría ser reemplazada por un valor antiguo de sesión.
                 if k in ("timeframe", "refresh_sec"):
                     continue
                 if _qp_valor(k) != v:
-                    st.query_params[k] = v
+                    _qp_restaurar[k] = v
             if guardado.get("timeframe") and _qp_valor("timeframe") != guardado.get("timeframe"):
-                st.query_params["timeframe"] = guardado["timeframe"]
+                _qp_restaurar["timeframe"] = guardado["timeframe"]
+            if _qp_restaurar:
+                try:
+                    st.query_params.update(_qp_restaurar)
+                except Exception:
+                    for _k, _v in _qp_restaurar.items():
+                        st.query_params[_k] = _v
         else:
             # Primera carga sin estado previo: tomar la URL existente.
             nuevo = {}
