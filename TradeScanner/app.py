@@ -4231,18 +4231,14 @@ except Exception:
 # Los usuarios normales tienen su propia ventana de visualización.
 servicio.sesion = "TODO EL MERCADO"
 
-# Vigilancia del hilo: si el hilo se detuvo, la siguiente ejecución lo vuelve a levantar.
+# Vigilancia del hilo: solo reiniciar si el hilo realmente murió.
+# No reiniciamos por "stale" durante un F5/rerun: una demora temporal de Alpaca/FMP
+# no significa que el hilo esté muerto y reiniciar aquí puede crear reconexiones,
+# duplicar trabajo y elevar el consumo de CPU de Streamlit Cloud.
 try:
     _hilo_ok = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
-    _ultima = getattr(servicio, "ultima_actualizacion", None)
-    _stale = False
-    if _ultima is not None:
-        try:
-            _stale = (datetime.now(ET) - _ultima).total_seconds() > 45
-        except Exception:
-            _stale = False
-    if (not _hilo_ok) or (_ultima is not None and _stale and not getattr(servicio, "ultimo_error", None)):
-        print("⚠️ Watchdog: reiniciando hilo del scanner por detención o falta de actualización.")
+    if not _hilo_ok:
+        print("⚠️ Watchdog: reiniciando hilo del scanner porque está detenido.")
         servicio.reiniciar_scanner()
 except Exception as _watchdog_error:
     print(f"⚠️ Watchdog del scanner: {_watchdog_error}")
