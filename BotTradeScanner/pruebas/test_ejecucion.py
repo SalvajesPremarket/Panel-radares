@@ -92,6 +92,9 @@ def test_executor_envia_una_sola_vez_y_registra_fill():
     cfg.enabled = True
     client = FakeClient()
     ex = AlpacaExecutor(cfg, client)
+    # El objetivo de esta prueba es idempotencia/seguimiento; desacoplamos
+    # el test del modelo Pydantic concreto de alpaca-py.
+    ex._build_request = lambda orden: orden
     orden = ex.preparar(
         "AAPL", ask=10.12, bid=10.10, cantidad=2,
         mercado="regular", client_order_id="paper-2",
@@ -115,6 +118,7 @@ def test_executor_cancelacion():
     cfg.enabled = True
     client = FakeClient()
     ex = AlpacaExecutor(cfg, client)
+    ex._build_request = lambda orden: orden
     orden = ex.preparar(
         "AAPL", ask=10.12, bid=10.10, cantidad=1,
         mercado="regular", client_order_id="paper-3",
