@@ -45,7 +45,7 @@ def test_realtime_conserva_posicion_fuera_del_radar_y_la_cierra():
     bot.evaluar_ahora()
 
     bridge.snaps["TEST"] = s(vela_actual={
-        "minimo": 9.7, "cierre": 10.0, "es_libelula_en_curso": True
+        "minimo": 9.7, "maximo": 10.1, "cierre": 10.0, "es_libelula_en_curso": True, "regreso_a_apertura": True
     })
     bot.evaluar_ahora()
     assert bot.paper.posiciones()
