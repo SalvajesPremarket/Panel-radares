@@ -5703,7 +5703,7 @@ def _render_scanner():
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
             st.markdown(
-                f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_self" '
+                f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
                 'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
                 'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
                 '📝 REGISTRO / INICIAR SESIÓN</a>',
@@ -5715,7 +5715,7 @@ def _render_scanner():
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
             with _n3:
                 st.markdown(
-                    f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_self" '
+                    f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
                     'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
                     'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
                     'CUENTA / REGISTRO</a>',
@@ -5723,7 +5723,7 @@ def _render_scanner():
                 )
             with _n4:
                 st.markdown(
-                    '<a href="/?logout=1" target="_self" '
+                    '<a href="/?logout=1" target="_top" '
                     'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
                     'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
                     'SALIR</a>',
