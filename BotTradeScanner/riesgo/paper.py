@@ -125,6 +125,11 @@ class PaperBot:
         riesgo = cantidad * distancia_stop
         return float(cantidad), float(exposicion), float(riesgo), None
 
+    def tamano_entrada(self, precio: float, stop_loss: float | None) -> tuple[float, float, float, str | None]:
+        """Calcula el mismo tamaño que usara PaperBot al abrir una posicion."""
+        with self._lock:
+            return self._calcular_tamano(float(precio), stop_loss)
+
     def evaluar(self, signal: dict) -> dict:
         with self._lock:
             now = self._now()
