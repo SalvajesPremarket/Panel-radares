@@ -62,13 +62,6 @@ def enviar(maquina, paper, snapshot, candidato_scanner=True):
     if decision.accion == "BUY":
         precio_fill = snapshot["vela_actual"]["cierre"]
         maquina.confirmar_fill(precio_fill)
-        decision = type(decision)(
-            accion="BUY",
-            estado=maquina.estado("TEST")["estado"] if hasattr(maquina, "estado") else decision.estado,
-            motivo="BUY confirmado para PaperBot.",
-            precio=precio_fill,
-            stop_loss=decision.stop_loss,
-        )
     registro = paper.evaluar({
         "signal_id": f"{snapshot['tramo_actual']}-{snapshot['vela_actual']['cierre']}-{decision.accion}",
         "simbolo": decision.simbolo,
