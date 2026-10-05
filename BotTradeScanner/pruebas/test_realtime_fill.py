@@ -122,3 +122,37 @@ def test_buy_queda_pendiente_hasta_filled():
     assert len(posiciones) == 1
     assert posiciones[0]["simbolo"] == "TEST"
     assert posiciones[0]["precio_entrada"] == 10.01
+
+
+def test_realtime_usa_tamano_de_riesgo_para_la_orden():
+    class Bridge:
+        def sync_results(self, rows):
+            pass
+
+        def snapshot(self, simbolo):
+            return _snap()
+
+    class CapturingExecutor(FakeExecutor):
+        def __init__(self):
+            super().__init__()
+            self.cantidad_enviada = None
+
+        def preparar(self, simbolo, *, ask, bid, cantidad, mercado, client_order_id, sesion):
+            self.cantidad_enviada = cantidad
+            return super().preparar(
+                simbolo, ask=ask, bid=bid, cantidad=cantidad,
+                mercado=mercado, client_order_id=client_order_id, sesion=sesion,
+            )
+
+    bridge = Bridge()
+    executor = CapturingExecutor()
+    cfg = ExecutionConfig.por_defecto()
+    cfg.enabled = True
+    bot = BotLongRealtime(bridge, executor=executor, execution_config=cfg)
+    bot.sync_candidates([{"ticker": "TEST"}])
+
+    bot.evaluar_ahora()
+    bot.evaluar_ahora()
+
+    # Ask=10.01 y stop=10.00: la exposicion maxima de $120 limita la orden a 11 acciones.
+    assert executor.cantidad_enviada == 11
