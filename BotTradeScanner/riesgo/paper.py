@@ -125,6 +125,17 @@ class PaperBot:
         riesgo = cantidad * distancia_stop
         return float(cantidad), float(exposicion), float(riesgo), None
 
+    def validar_entrada(self, precio: float, stop_loss: float | None, posiciones_reservadas: int = 0) -> tuple[float, float, float, str | None]:
+        """Valida una nueva entrada antes de enviar una orden externa."""
+        with self._lock:
+            if self.risk.kill_switch:
+                return 0.0, 0.0, 0.0, "kill_switch"
+            if self._pnl_hoy() <= -self._limite_perdida_diaria():
+                return 0.0, 0.0, 0.0, "daily_loss_limit"
+            if len(self.positions) + max(0, int(posiciones_reservadas)) >= self.risk.max_simultaneous_positions:
+                return 0.0, 0.0, 0.0, "max_simultaneous_positions"
+            return self._calcular_tamano(float(precio), stop_loss)
+
     def tamano_entrada(self, precio: float, stop_loss: float | None) -> tuple[float, float, float, str | None]:
         """Calcula el mismo tamaño que usara PaperBot al abrir una posicion."""
         with self._lock:
