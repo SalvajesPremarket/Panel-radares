@@ -20,18 +20,22 @@ from typing import Iterable
 
 from BotTradeScanner.decision.maquina_decisiones import MaquinaDecisionesLong
 from BotTradeScanner.riesgo.paper import PaperBot
+from BotTradeScanner.ejecucion.configuracion import ExecutionConfig
+from BotTradeScanner.ejecucion.alpaca import preparar_buy
 
 
 class BotLongRealtime:
     """Orquestador del bot LONG sin ejecucion real de ordenes."""
 
-    def __init__(self, motor_bridge, intervalo_segundos: float = 1.0, max_decisiones: int = 1000):
+    def __init__(self, motor_bridge, intervalo_segundos: float = 1.0, max_decisiones: int = 1000, execution_config: ExecutionConfig | None = None):
         self.motor_bridge = motor_bridge
         self.intervalo_segundos = max(0.2, float(intervalo_segundos))
         self.max_decisiones = max(100, int(max_decisiones))
 
         self.decisiones = MaquinaDecisionesLong()
         self.paper = PaperBot()
+        self.execution_config = execution_config or ExecutionConfig.por_defecto()
+        self.execution_config.validar()
         self._candidatos: set[str] = set()
         self._lock = Lock()
         self._detener = Event()
@@ -120,9 +124,37 @@ class BotLongRealtime:
                     "stop_loss": decision_data.get("stop_loss"),
                 }
                 if anterior != comparable or decision_data.get("accion") in {"BUY", "EXIT"}:
+                    ejecucion = None
+                    if decision_data.get("accion") == "BUY":
+                        ask = snap.get("ask")
+                        bid = snap.get("bid")
+                        try:
+                            orden = preparar_buy(
+                                simbolo,
+                                ask=ask,
+                                bid=bid,
+                                cantidad=1,
+                                sesion=self.execution_config.regular,
+                                mercado="regular",
+                                client_order_id=f"paper-{simbolo.lower()}-{int(time.time() * 1000)}",
+                            )
+                            ejecucion = {
+                                "tipo": orden.tipo,
+                                "limit_price": orden.limit_price,
+                                "extended_hours": orden.extended_hours,
+                                "time_in_force": orden.time_in_force,
+                                "client_order_id": orden.client_order_id,
+                            }
+                            decision_data["precio"] = orden.limit_price
+                        except (ValueError, TypeError) as exc:
+                            ejecucion = {"bloqueado": str(exc)}
+                            decision_data["accion"] = "WAIT"
+                            decision_data["motivo"] = f"execution_blocked:{exc}"
+
                     paper = self.paper.evaluar(decision_data)
                     registro = {
                         **decision_data,
+                        "ejecucion": ejecucion,
                         "paper": paper,
                         "ts": time.time(),
                     }
