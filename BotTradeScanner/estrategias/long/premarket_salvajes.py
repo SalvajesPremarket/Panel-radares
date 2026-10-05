@@ -235,6 +235,11 @@ class PreMarketSalvajesLong:
                         stop_loss=self.stop_loss,
                     )
 
+                # Al cerrar la segunda vela, el stop pasa al cierre
+                # de esa vela anterior, igual que en las siguientes.
+                cierre_anterior = snap.get("vela_anterior", {}).get("cierre")
+                if cierre_anterior is not None:
+                    self.stop_loss = float(cierre_anterior)
                 self.estado = EstadoLong.LONG_SIGUIENTES
                 return DecisionLong(
                     "HOLD",
