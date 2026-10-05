@@ -156,3 +156,33 @@ def test_realtime_usa_tamano_de_riesgo_para_la_orden():
 
     # Ask=10.01 y stop=10.00: la exposicion maxima de $120 limita la orden a 11 acciones.
     assert executor.cantidad_enviada == 11
+
+
+def test_realtime_reserva_limite_de_tres_entradas_pendientes():
+    class Bridge:
+        def sync_results(self, rows):
+            pass
+
+        def snapshot(self, simbolo):
+            snap = _snap()
+            snap["simbolo"] = simbolo
+            return snap
+
+    bridge = Bridge()
+    executor = FakeExecutor()
+    cfg = ExecutionConfig.por_defecto()
+    cfg.enabled = True
+    bot = BotLongRealtime(bridge, executor=executor, execution_config=cfg)
+
+    symbols = ["AAA", "BBB", "CCC", "DDD"]
+    bot.sync_candidates([{"ticker": s} for s in symbols])
+
+    first = bot.evaluar_ahora()
+    assert len(first) == 4
+
+    second = bot.evaluar_ahora()
+    submitted = [x for x in second if x.get("motivo") == "buy_order_submitted_waiting_fill"]
+    blocked = [x for x in second if "max_simultaneous_positions" in x.get("motivo", "")]
+    assert len(submitted) == 3
+    assert len(blocked) == 1
+    assert len(bot._ordenes_pendientes) == 3
