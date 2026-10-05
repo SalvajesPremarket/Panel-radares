@@ -110,6 +110,14 @@ class MaquinaDecisionesLong:
                 candidato_scanner=candidato_scanner,
             )
 
+    def confirmar_fill(self, simbolo: str, precio_fill: float) -> None:
+        with self._lock:
+            self._estrategia(simbolo).confirmar_fill(float(precio_fill))
+
+    def cancelar_entrada_pendiente(self, simbolo: str) -> None:
+        with self._lock:
+            self._estrategia(simbolo).cancelar_entrada_pendiente()
+
     def marcar_salida_para_pullback(self, simbolo: str) -> None:
         with self._lock:
             self._estrategia(simbolo).marcar_salida_para_pullback()
