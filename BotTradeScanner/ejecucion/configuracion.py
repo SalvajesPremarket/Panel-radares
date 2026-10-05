@@ -89,15 +89,15 @@ def precio_limit(
     if referencia == "ask":
         return float(ask) if ask is not None and ask > 0 else None
     if referencia == "ask_plus_0_01":
-        return float(ask) + 0.01 if ask is not None and ask > 0 else None
+        return round(float(ask) + 0.01, 4) if ask is not None and ask > 0 else None
     if referencia == "ask_plus_0_02":
-        return float(ask) + 0.02 if ask is not None and ask > 0 else None
+        return round(float(ask) + 0.02, 4) if ask is not None and ask > 0 else None
     if referencia == "bid":
         return float(bid) if bid is not None and bid > 0 else None
     if referencia == "bid_minus_0_01":
-        return float(bid) - 0.01 if bid is not None and bid > 0 else None
+        return round(float(bid) - 0.01, 4) if bid is not None and bid > 0 else None
     if referencia == "bid_minus_0_02":
-        return float(bid) - 0.02 if bid is not None and bid > 0 else None
+        return round(float(bid) - 0.02, 4) if bid is not None and bid > 0 else None
     if referencia == "custom":
         if ask is None or ask <= 0:
             return None
