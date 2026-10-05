@@ -30,6 +30,7 @@ def test_bridge_espera_stream_antes_de_marcar_candidato_como_cargado():
     bridge._subscribe_lock = __import__("threading").Lock()
     bridge._simbolos_solicitados = {"AAPL"}
     bridge._simbolos_cargados = set()
+    bridge._simbolos_deseados = {"AAPL"}
     bridge._ultima_error = None
 
     def levantar_stream():
