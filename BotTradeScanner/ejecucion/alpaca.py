@@ -117,10 +117,10 @@ class AlpacaExecutor:
         self._results: dict[str, ResultadoOrden] = {}
 
     def _get_client(self):
-        if self._client is not None:
-            return self._client
         if not self.config.enabled:
             return None
+        if self._client is not None:
+            return self._client
         # No cargamos credenciales desde el scanner ni desde logs.
         # Para activacion real/paper se inyectara el TradingClient desde la
         # capa de conexion autenticada.
