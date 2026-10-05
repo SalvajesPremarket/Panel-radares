@@ -38,6 +38,7 @@ from typing import Any
 class EstadoLong(str, Enum):
     ESPERANDO_CANDIDATO = "esperando_candidato"
     ESPERANDO_LIBELULA = "esperando_libelula"
+    ORDEN_PENDIENTE = "orden_pendiente"
     LONG_PRIMERA_VELA = "long_primera_vela"
     LONG_SEGUNDA_VELA = "long_segunda_vela"
     LONG_SIGUIENTES = "long_siguientes"
@@ -161,6 +162,9 @@ class PreMarketSalvajesLong:
         libelula = bool(vela.get("es_libelula_en_curso"))
         lapida = bool(vela.get("es_lapida_en_curso"))
         banda_sup = self._numero(snap, "banda_bollinger_superior")
+
+        if self.estado == EstadoLong.ORDEN_PENDIENTE:
+            return DecisionLong("WAIT", self.estado, "BUY enviado; esperando confirmacion de FILLED.")
 
         if self.estado == EstadoLong.ESPERANDO_CANDIDATO:
             valido, motivo = self._candidato_valido(snap)
@@ -303,13 +307,27 @@ class PreMarketSalvajesLong:
         self.cierre_vela_entrada = float(cierre)
         self._minimo_vela_entrada = float(minimo) if minimo is not None else None
         self.stop_loss = float(cierre)
-        self.estado = EstadoLong.LONG_PRIMERA_VELA
+        self.estado = EstadoLong.ORDEN_PENDIENTE
         return DecisionLong(
             "BUY",
             self.estado,
             "Libelula confirmada: vela bajo de apertura y regreso a la apertura.",
             stop_loss=self.stop_loss,
         )
+
+    def confirmar_fill(self, precio_fill: float) -> None:
+        """Confirma la entrada solo despues de recibir FILLED de ejecucion."""
+        if precio_fill <= 0:
+            raise ValueError("precio_fill debe ser positivo")
+        self.precio_entrada = float(precio_fill)
+        self.estado = EstadoLong.LONG_PRIMERA_VELA
+
+    def cancelar_entrada_pendiente(self) -> None:
+        """Libera una BUY pendiente que fue rechazada/cancelada/expirada."""
+        self.estado = EstadoLong.ESPERANDO_LIBELULA
+        self.precio_entrada = None
+        self.cierre_vela_entrada = None
+        self.stop_loss = None
 
     def marcar_salida_para_pullback(self) -> None:
         """Deja el motor en modo de vigilancia de reentrada LONG."""
