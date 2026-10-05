@@ -36,8 +36,13 @@ st.caption(
     "la lógica de compra/venta."
 )
 
-ALPACA_API_KEY = st.secrets["ALPACA_API_KEY"]
-ALPACA_SECRET_KEY = st.secrets["ALPACA_SECRET_KEY"]
+ALPACA_API_KEY = st.secrets.get("ALPACA_API_KEY")
+ALPACA_SECRET_KEY = st.secrets.get("ALPACA_SECRET_KEY")
+
+if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
+    st.error("🔴 Faltan ALPACA_API_KEY y/o ALPACA_SECRET_KEY en Streamlit Secrets.")
+    st.info("Esta página es solo una prueba visual independiente. El robot integrado se aprecia en la página principal del TradeScanner.")
+    st.stop()
 
 
 # ==========================================
