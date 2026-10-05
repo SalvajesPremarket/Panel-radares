@@ -1512,7 +1512,9 @@ if PUBLIC_PREVIEW:
 AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
 LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
 
-# Estado nativo ya inicializado antes del procesamiento del iframe.\n\nif LOGOUT_REQUESTED:
+# Estado nativo ya inicializado antes del procesamiento del iframe.
+
+if LOGOUT_REQUESTED:
     cerrar_sesion()
     st.session_state["mostrar_auth"] = False
     try:
