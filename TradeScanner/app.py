@@ -1456,14 +1456,14 @@ def _ts_aplicar_evento_ui():
         print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
 
 
-# Estado nativo de autenticación se inicializa antes de procesar cualquier
-# evento del iframe. Si el usuario acaba de pulsar REGISTRO/LOGIN, no debemos
-# volver a tocar la URL ni consumir eventos del scanner antes de pintar Auth.
+# Estado nativo de autenticación.
+# IMPORTANTE: la autenticación se resuelve ANTES de construir el scanner/robot.
+# Este era el flujo estable de la versión anterior al montaje del robot y evita
+# intentar insertar Auth dentro del mismo árbol que contiene el iframe del scanner.
 if "mostrar_auth" not in st.session_state:
     st.session_state["mostrar_auth"] = False
 
-# El cierre de sesión se procesa fuera del callback del botón. Así evitamos
-# modificar query_params mientras Streamlit está reconstruyendo el árbol de UI.
+# El cierre de sesión se procesa fuera del callback del botón.
 if st.session_state.pop("_ts_logout_requested", False):
     cerrar_sesion()
     st.session_state.pop("_ts_query_elegida", None)
@@ -1474,8 +1474,32 @@ if st.session_state.pop("_ts_logout_requested", False):
     except Exception:
         pass
 
-# El scanner permanece montado mientras Auth vive en un diálogo nativo.
-# Así abrir/cerrar autenticación no desmonta el iframe ni su estado.
+AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
+LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
+
+if LOGOUT_REQUESTED:
+    cerrar_sesion()
+    st.session_state["mostrar_auth"] = False
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    st.rerun()
+
+if AUTH_REQUESTED:
+    st.session_state["mostrar_auth"] = True
+    try:
+        st.query_params.pop("auth", None)
+    except Exception:
+        pass
+
+# Si Auth está abierta, no procesamos eventos del iframe, sincronización,
+# motor visual ni robot. Solo dibujamos la autenticación y terminamos el run.
+if st.session_state.get("mostrar_auth"):
+    pantalla_autenticacion()
+    st.stop()
+
+# Desde aquí comienza el flujo normal de la aplicación.
 _ts_aplicar_evento_ui()
 
 PUBLIC_PREVIEW = (
@@ -1511,29 +1535,6 @@ if PUBLIC_PREVIEW:
                 st.query_params.update(_qp_limpio_publico)
     except Exception:
         pass
-AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
-LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
-
-# Estado nativo ya inicializado antes del procesamiento del iframe.
-
-if LOGOUT_REQUESTED:
-    cerrar_sesion()
-    st.session_state["mostrar_auth"] = False
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-    st.rerun()
-
-# Si llega ?auth=1 desde una versión anterior, se convierte una sola vez al
-# estado nativo y se elimina el parámetro.
-if AUTH_REQUESTED:
-    st.session_state["mostrar_auth"] = True
-    try:
-        st.query_params.pop("auth", None)
-    except Exception:
-        pass
-
 # Restauración normal de sesión solamente cuando no se está mostrando Auth.
 if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
     _restaurar_sesion_persistente()
@@ -5687,13 +5688,9 @@ def _render_scanner():
             with _n4:
                 st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
-    # IMPORTANTE: la autenticación se pinta DESPUÉS del scanner.
-    # Así el scanner/robot ya están montados cuando el usuario pulsa
-    # REGISTRO / INICIAR SESIÓN. No se reemplaza ni se desmonta la página.
-    if st.session_state.get("mostrar_auth"):
-        pantalla_autenticacion()
-        st.stop()
-
+    # La autenticación ya se resolvió antes de entrar a _render_scanner().
+    # Este bloque solo construye la página normal del scanner/robot.
+    
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
     # perteneciendo visualmente al scanner, pero su estado vive en Streamlit
