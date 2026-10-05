@@ -5722,7 +5722,10 @@ def _render_scanner():
             if _vol:
                 _h_key = _h_key.replace(_vol, "")
         _h_key = _re_ifr.sub(r'"_(?:u|ts)":\s*"\d+"', "", _h_key)
-        _clave_ifr = hashlib.md5((_h_key + datetime.now().strftime("%Y%m%d%H%M")).encode("utf-8", "ignore")).hexdigest()
+        # No invalidar el iframe por el paso del minuto: el reloj y el último
+        # escaneo ya se excluyeron arriba. Solo un cambio real del contenido
+        # debe reconstruir la carátula y su DOM/JavaScript.
+        _clave_ifr = hashlib.md5(_h_key.encode("utf-8", "ignore")).hexdigest()
         if st.session_state.get("_ts_iframe_clave") == _clave_ifr and st.session_state.get("_ts_iframe_html"):
             h = st.session_state["_ts_iframe_html"]
         else:
