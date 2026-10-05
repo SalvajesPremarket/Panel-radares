@@ -1475,6 +1475,12 @@ def _ts_aplicar_evento_ui():
         print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
 
 
+# Restaurar la identidad persistente ANTES de decidir si debemos mostrar Auth.
+# En un F5 Streamlit crea un st.session_state nuevo; auth_session es la clave
+# para recuperar al usuario antes de entrar al flujo público.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+
 # Estado nativo de autenticación.
 # IMPORTANTE: la autenticación se resuelve ANTES de construir el scanner/robot.
 # Este era el flujo estable de la versión anterior al montaje del robot y evita
@@ -1554,13 +1560,10 @@ if PUBLIC_PREVIEW:
                 st.query_params.update(_qp_limpio_publico)
     except Exception:
         pass
-# Restauración normal de sesión solamente cuando no se está mostrando Auth.
-if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
-    _restaurar_sesion_persistente()
-    PUBLIC_PREVIEW = (
-        "token_verificado" not in st.session_state
-        and "usuario_auth" not in st.session_state
-    )
+PUBLIC_PREVIEW = (
+    "token_verificado" not in st.session_state
+    and "usuario_auth" not in st.session_state
+)
 
 # =========================================================
 # IDENTIDAD ACTIVA
