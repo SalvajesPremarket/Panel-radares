@@ -222,6 +222,9 @@ class BotLongRealtime:
                                 "client_order_id": orden.client_order_id,
                             }
                             decision_data["precio"] = orden.limit_price
+                            # Modo sin executor: simulacion local. Aqui el fill se
+                            # considera inmediato para conservar compatibilidad con PaperBot.
+                            self.decisiones.confirmar_fill(simbolo, orden.limit_price)
                         except (ValueError, TypeError) as exc:
                             ejecucion = {"bloqueado": str(exc)}
                             decision_data["accion"] = "WAIT"
