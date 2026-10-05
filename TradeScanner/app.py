@@ -3253,56 +3253,9 @@ class ServicioScanner:
             return None
 
     def _float_yahoo(self, ticker):
-        """Respaldo 1: floatShares de Yahoo Finance (yfinance).
-        Queda serializado y, ante un 401/403/429, se pausa GLOBALMENTE
-        para que nuevas instancias del scanner no vuelvan a martillar Yahoo.
-        """
-        global _YAHOO_FALLBACK_PAUSADO_HASTA, _YAHOO_FALLBACK_ULTIMA_PETICION
-        with _YAHOO_FALLBACK_LOCK:
-            if _YAHOO_FALLBACK_PAUSADO_HASTA > time.time():
-                self._yahoo_estado = "pausado globalmente"
-                return None
-            try:
-                import yfinance as yf
-            except Exception:
-                self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
-                _YAHOO_FALLBACK_PAUSADO_HASTA = time.time() + 3600
-                return None
-            try:
-                espera = _YAHOO_FALLBACK_ULTIMA_PETICION + 0.4 - time.time()
-                if espera > 0:
-                    time.sleep(espera)
-                _YAHOO_FALLBACK_ULTIMA_PETICION = time.time()
-                info = yf.Ticker(ticker).info or {}
-                valor = info.get("floatShares")
-                valor = float(valor) if valor not in (None, "", 0) else None
-                if valor is not None and valor <= 0:
-                    valor = None
-                self._yahoo_fallos = 0
-                self._yahoo_estado = "ok"
-                return valor
-            except Exception as e:
-                txt = str(e)
-                self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
-                self._yahoo_estado = f"error: {txt[:80]}"
-                _txt_lower = txt.lower()
-                _auth_yahoo = (
-                    "401" in _txt_lower
-                    or "403" in _txt_lower
-                    or "invalid crumb" in _txt_lower
-                    or "unable to access this feature" in _txt_lower
-                )
-                if _auth_yahoo:
-                    _YAHOO_FALLBACK_PAUSADO_HASTA = time.time() + 1800
-                    self._yahoo_fallos = 0
-                    self._yahoo_estado = "pausado global 30 min: Yahoo rechazó acceso/crumb"
-                    print(f"⚠️ Yahoo rechazó acceso para {ticker}; respaldo Yahoo pausado GLOBALMENTE 30 min.")
-                elif "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
-                    _YAHOO_FALLBACK_PAUSADO_HASTA = time.time() + 1800
-                    self._yahoo_fallos = 0
-                    self._yahoo_estado = "pausado global 30 min: Yahoo limitó acceso"
-                    print(f"⚠️ Yahoo limitó acceso para {ticker}; respaldo Yahoo pausado GLOBALMENTE 30 min.")
-                return None
+        """Yahoo pausado temporalmente: no realiza peticiones externas."""
+        self._yahoo_estado = "desactivado temporalmente"
+        return None
 
     def _circulacion_finnhub(self, ticker):
         """Respaldo 2: acciones en circulacion (Finnhub). La flotacion nunca es mayor que este numero,
