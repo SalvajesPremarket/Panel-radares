@@ -1194,7 +1194,7 @@ def pantalla_autenticacion():
     st.button(
         "← Volver al scanner",
         key="ts_volver_auth",
-        on_click=lambda: st.session_state.update(mostrar_auth=False),
+        on_click=_ts_cerrar_auth,
     )
     tab_login, tab_registro, tab_admin = st.tabs(
         ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
@@ -1414,7 +1414,28 @@ def pantalla_autenticacion():
                 else:
                     st.error("❌ Token no válido. Acceso denegado.")
 
-    st.stop()
+    return
+
+
+def _ts_cerrar_auth():
+    """Cierra el diálogo de autenticación y vuelve al scanner sin desmontarlo."""
+    st.session_state["mostrar_auth"] = False
+    st.rerun()
+
+
+def _ts_auth_dismiss():
+    """Limpia el estado al cerrar el diálogo con X, ESC o fuera del modal."""
+    st.session_state["mostrar_auth"] = False
+
+
+@st.dialog(
+    "TRADE SCANNER — ACCESO",
+    width="large",
+    dismissible=True,
+    on_dismiss=_ts_auth_dismiss,
+)
+def _ts_auth_dialog():
+    pantalla_autenticacion()
 
 
 # =========================================================
@@ -1468,12 +1489,8 @@ if st.session_state.pop("_ts_logout_requested", False):
     except Exception:
         pass
 
-# Puerta de autenticación: se ejecuta antes de procesar eventos del iframe.
-# La carga pública normal mantiene exactamente el flujo anterior.
-if st.session_state.get("mostrar_auth"):
-    pantalla_autenticacion()
-    st.stop()
-
+# El scanner permanece montado mientras Auth vive en un diálogo nativo.
+# Así abrir/cerrar autenticación no desmonta el iframe ni su estado.
 _ts_aplicar_evento_ui()
 
 PUBLIC_PREVIEW = (
@@ -5684,6 +5701,11 @@ def _render_scanner():
                 st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
             with _n4:
                 st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
+
+    # Auth se abre después de dibujar la barra, manteniendo scanner y robot
+    # montados durante toda la interacción con el modal.
+    if st.session_state.get("mostrar_auth"):
+        _ts_auth_dialog()
 
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
