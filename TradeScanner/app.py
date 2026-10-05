@@ -1192,7 +1192,7 @@ def pantalla_autenticacion():
     # requiere el token secreto configurado en Streamlit Secrets.
     # No se utiliza una segunda URL ni un parámetro especial de administrador.
     st.markdown(
-        f'<a href="{_safe_text(_ts_auth_href("volver"))}" target="_self" '
+        f'<a href="/" target="_top" '
         'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
         'color:#e5e9ee;text-decoration:none;background:#20252c;font-size:11px;">← Volver al scanner</a>',
         unsafe_allow_html=True,
