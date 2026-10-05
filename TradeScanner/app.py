@@ -1452,6 +1452,13 @@ def _ts_aplicar_evento_ui():
 
 _ts_aplicar_evento_ui()
 
+# La autenticación se atiende inmediatamente después del evento del usuario.
+# No debe pasar por la limpieza de query params del modo público: esa limpieza
+# puede provocar otro rerun justo cuando el usuario pulsa REGISTRO/LOGIN.
+if st.session_state.get("mostrar_auth"):
+    pantalla_autenticacion()
+    st.stop()
+
 PUBLIC_PREVIEW = (
     "token_verificado" not in st.session_state
     and "usuario_auth" not in st.session_state
@@ -1510,15 +1517,6 @@ if AUTH_REQUESTED:
         st.query_params.pop("auth", None)
     except Exception:
         pass
-
-# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
-# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
-# Cuando el usuario pide explícitamente REGISTRO / LOGIN, la pantalla de
-# autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
-# Esto evita que la restauración automática bloquee el botón de acceso.
-if st.session_state.get("mostrar_auth"):
-    pantalla_autenticacion()
-    st.stop()
 
 # Restauración normal de sesión solamente cuando no se está mostrando Auth.
 if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
