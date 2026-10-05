@@ -139,7 +139,7 @@ class BotLongRealtime:
                     del self._ordenes_pendientes[simbolo]
             except Exception as exc:
                 self._ultimo_error = f"{simbolo}: error consultando orden: {exc}"
-        return novedades
+        return novedades, fills_confirmados
 
     def evaluar_ahora(self) -> list[dict]:
         with self._lock:
