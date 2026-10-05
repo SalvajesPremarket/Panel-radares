@@ -28,7 +28,6 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
-from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
@@ -2468,10 +2467,18 @@ class ServicioScanner:
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
         self.motor_velas = MotorVelasBridge(api_key, secret_key)
-        # Bot LONG: evalua snapshots continuamente, independiente del refresh visual.
-        # En esta fase solo genera decisiones/señales; NO envia ordenes reales.
-        self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
-        self.bot_long.iniciar()
+
+        # Bot LONG: se carga de forma tolerante para que un fallo del componente
+        # experimental del robot NO derribe la pagina completa del scanner.
+        self.bot_long = None
+        self.bot_long_error = None
+        try:
+            from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
+            self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
+            self.bot_long.iniciar()
+        except Exception as exc:
+            self.bot_long_error = str(exc)
+            print(f"⚠️ Bot LONG no pudo iniciar: {exc}")
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
@@ -2583,9 +2590,50 @@ class ServicioScanner:
         try:
             # BotLongRealtime sincroniza a su vez el puente de market-data.
             # Asi evitamos suscribir/procesar los mismos candidatos dos veces.
-            self.bot_long.sync_candidates(resultados)
+            if self.bot_long is not None:
+                self.bot_long.sync_candidates(resultados)
         except Exception as exc:
-            print(f"⚠️ Puente motor de velas: {exc}")
+            self.bot_long_error = str(exc)
+            print(f"⚠️ Puente motor/bot LONG: {exc}")
+
+    def estado_bot_long(self):
+        """Estado publico/visual del bot LONG; no expone credenciales."""
+        try:
+            if self.bot_long is None:
+                return {
+                    "disponible": False,
+                    "hilo_vivo": False,
+                    "error": self.bot_long_error or "Bot LONG no inicializado",
+                    "candidatos": [],
+                    "ciclos": 0,
+                    "posiciones_paper": [],
+                    "posiciones_observadas": [],
+                    "decisiones_guardadas": 0,
+                }
+            estado = dict(self.bot_long.status())
+            estado["disponible"] = True
+            if self.bot_long_error and not estado.get("ultimo_error"):
+                estado["ultimo_error"] = self.bot_long_error
+            return estado
+        except Exception as exc:
+            return {
+                "disponible": False,
+                "hilo_vivo": False,
+                "error": str(exc),
+                "candidatos": [],
+                "ciclos": 0,
+                "posiciones_paper": [],
+                "posiciones_observadas": [],
+                "decisiones_guardadas": 0,
+            }
+
+    def decisiones_bot_long(self, limite=20):
+        try:
+            if self.bot_long is None:
+                return []
+            return self.bot_long.decisiones_recientes(limite)
+        except Exception:
+            return []
 
     def snapshot_motor_velas(self, ticker):
         try:
@@ -5625,6 +5673,50 @@ def _render_scanner():
         _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
     else:
         st.iframe(h, height=900)
+
+    # ================================================================
+    # 🤖 PANEL VISIBLE DEL ROBOT LONG
+    # El robot trabaja en segundo plano cada ~1 s, independiente del
+    # refresh visual del scanner. Esta sección permite verlo en la misma
+    # página y comprobar qué está haciendo sin exponer claves.
+    # ================================================================
+    try:
+        _rb = servicio.estado_bot_long()
+        st.markdown("### 🤖 Robot LONG — tiempo real")
+        if _rb.get("hilo_vivo"):
+            st.success("🟢 Robot activo y evaluando continuamente")
+        elif _rb.get("disponible"):
+            st.warning("🟡 Robot cargado, pero su hilo no está activo")
+        else:
+            st.error("🔴 Robot no disponible")
+            if _rb.get("error"):
+                st.caption(f"Error del robot: {_rb.get('error')}")
+
+        _rp1, _rp2, _rp3, _rp4, _rp5 = st.columns(5)
+        _rp1.metric("Ciclos", _rb.get("ciclos", 0))
+        _rp2.metric("Candidatos", len(_rb.get("candidatos", []) or []))
+        _rp3.metric("Posiciones", len(_rb.get("posiciones_paper", []) or []))
+        _rp4.metric("Observadas", len(_rb.get("posiciones_observadas", []) or []))
+        _rp5.metric("Decisiones", _rb.get("decisiones_guardadas", 0))
+
+        _dec = servicio.decisiones_bot_long(20)
+        if _dec:
+            _filas_bot = []
+            for _d in reversed(_dec):
+                _filas_bot.append({
+                    "Hora": datetime.fromtimestamp(float(_d.get("ts", time.time())), tz=ET).strftime("%H:%M:%S"),
+                    "Ticker": _d.get("simbolo", ""),
+                    "Acción": _d.get("accion", ""),
+                    "Estado": _d.get("estado", ""),
+                    "Motivo": _d.get("motivo", ""),
+                    "Precio": _d.get("precio", ""),
+                    "Stop": _d.get("stop_loss", ""),
+                })
+            st.dataframe(pd.DataFrame(_filas_bot), use_container_width=True, hide_index=True)
+        else:
+            st.info("El robot está encendido pero todavía no tiene decisiones para mostrar.")
+    except Exception as _e_robot_ui:
+        st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
