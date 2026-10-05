@@ -163,7 +163,26 @@ class PreMarketSalvajesLong:
         banda_sup = self._numero(snap, "banda_bollinger_superior")
 
         if self.estado == EstadoLong.ESPERANDO_CANDIDATO:
-            return self.evaluar_candidato(snap)
+            valido, motivo = self._candidato_valido(snap)
+            if not valido:
+                return DecisionLong("WAIT", self.estado, motivo, candidato_valido=False)
+
+            self.simbolo = str(snap.get("simbolo", "")).upper() or self.simbolo
+            self.estado = EstadoLong.ESPERANDO_LIBELULA
+
+            # Si el candidato y la libelula llegan en el mismo snapshot,
+            # la estrategia puede confirmar la entrada inmediatamente.
+            # La MaquinaDecisionesLong conserva deliberadamente el paso
+            # candidato -> WATCH para separar el scanner de la entrada.
+            if snap.get("tramo_actual") == 1 and bool(vela.get("es_libelula_en_curso")):
+                return self._entrar_long(vela)
+
+            return DecisionLong(
+                "WATCH",
+                self.estado,
+                "Candidato valido; esperar libelula en tramo 1.",
+                candidato_valido=True,
+            )
 
         if self.estado == EstadoLong.ESPERANDO_LIBELULA:
             # La entrada solo puede ocurrir en el primer tramo.
@@ -174,17 +193,7 @@ class PreMarketSalvajesLong:
                 return DecisionLong("WAIT", self.estado, "La vela formo lapida; no entrar.")
 
             if libelula:
-                self.precio_entrada = cierre
-                self.cierre_vela_entrada = cierre
-                self._minimo_vela_entrada = minimo
-                self.stop_loss = cierre
-                self.estado = EstadoLong.LONG_PRIMERA_VELA
-                return DecisionLong(
-                    "BUY",
-                    self.estado,
-                    "Libelula confirmada: vela bajo de apertura y regreso a la apertura.",
-                    stop_loss=self.stop_loss,
-                )
+                return self._entrar_long(vela)
 
             return DecisionLong("WATCH", self.estado, "Esperando libelula.")
 
@@ -279,6 +288,23 @@ class PreMarketSalvajesLong:
             return DecisionLong("WAIT", self.estado, "Ciclo cerrado; buscar nuevo candidato.")
 
         return DecisionLong("WAIT", self.estado, "Estado no accionable.")
+
+    def _entrar_long(self, vela: dict[str, Any]) -> DecisionLong:
+        cierre = vela.get("cierre")
+        minimo = vela.get("minimo")
+        if cierre is None:
+            return DecisionLong("WAIT", self.estado, "Libelula sin precio de cierre.")
+        self.precio_entrada = float(cierre)
+        self.cierre_vela_entrada = float(cierre)
+        self._minimo_vela_entrada = float(minimo) if minimo is not None else None
+        self.stop_loss = float(cierre)
+        self.estado = EstadoLong.LONG_PRIMERA_VELA
+        return DecisionLong(
+            "BUY",
+            self.estado,
+            "Libelula confirmada: vela bajo de apertura y regreso a la apertura.",
+            stop_loss=self.stop_loss,
+        )
 
     def marcar_salida_para_pullback(self) -> None:
         """Deja el motor en modo de vigilancia de reentrada LONG."""
