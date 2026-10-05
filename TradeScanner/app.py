@@ -3195,7 +3195,21 @@ class ServicioScanner:
             txt = str(e)
             self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
             self._yahoo_estado = f"error: {txt[:80]}"
-            if "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
+            # Yahoo puede rechazar el endpoint .info con 401/403 por
+            # autenticación/crumb. No insistir en cada ciclo: es un respaldo
+            # opcional y FMP/Finnhub deben tener oportunidad de continuar.
+            _txt_lower = txt.lower()
+            _auth_yahoo = (
+                "401" in _txt_lower
+                or "403" in _txt_lower
+                or "invalid crumb" in _txt_lower
+                or "unable to access this feature" in _txt_lower
+            )
+            if _auth_yahoo:
+                self._yahoo_pausado_hasta = time.time() + 1800
+                self._yahoo_fallos = 0
+                self._yahoo_estado = "pausado 30 min: Yahoo rechazó acceso/crumb"
+            elif "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
                 self._yahoo_pausado_hasta = time.time() + 1800
                 self._yahoo_fallos = 0
             return None
