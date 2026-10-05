@@ -31,6 +31,7 @@ def test_entry_requires_candidate_then_dragonfly():
 def test_first_candle_returns_to_open_in_third_segment_exits():
     s = PreMarketSalvajesLong()
     s.evaluar(snap(tramo=1, apertura=10, maximo=10, minimo=9.7, cierre=10, libelula=True))
+    s.confirmar_fill(10.0)
     d = s.evaluar(snap(tramo=3, apertura=10, maximo=10.4, minimo=9.7, cierre=10, positiva=False, regreso=True))
     assert d.accion == "EXIT"
 
@@ -38,6 +39,7 @@ def test_first_candle_returns_to_open_in_third_segment_exits():
 def test_bollinger_touch_without_gravestone_does_not_exit():
     s = PreMarketSalvajesLong()
     s.evaluar(snap(tramo=1, apertura=10, maximo=10, minimo=9.7, cierre=10, libelula=True))
+    s.confirmar_fill(10.0)
     s.evaluar(snap(tramo=3, apertura=10, maximo=10.4, minimo=9.7, cierre=10.3, positiva=True))
     s.evaluar(snap(tramo=1, apertura=10.3, maximo=10.5, minimo=10.0, cierre=10.4, positiva=True, anterior_min=9.9))
     d = s.evaluar(snap(tramo=3, apertura=10.4, maximo=12.1, minimo=10.3, cierre=11.9, positiva=True, anterior_min=10.0, anterior_max=10.5))
@@ -53,8 +55,9 @@ def test_full_long_sequence_moves_stop_and_exits_on_bollinger_gravestone():
         cierre=10.0, libelula=True,
     ))
     assert d.accion == "BUY"
-    assert d.estado.value == "long_primera_vela"
+    assert d.estado.value == "orden_pendiente"
     assert d.stop_loss == 10.0
+    s.confirmar_fill(10.01)
 
     # 2) Primera vela continua positiva en tramo 2.
     d = s.evaluar(snap(
