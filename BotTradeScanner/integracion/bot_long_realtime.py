@@ -21,13 +21,13 @@ from typing import Iterable
 from BotTradeScanner.decision.maquina_decisiones import MaquinaDecisionesLong
 from BotTradeScanner.riesgo.paper import PaperBot
 from BotTradeScanner.ejecucion.configuracion import ExecutionConfig
-from BotTradeScanner.ejecucion.alpaca import preparar_buy
+from BotTradeScanner.ejecucion.alpaca import AlpacaExecutor, preparar_buy, ESTADOS_TERMINALES
 
 
 class BotLongRealtime:
     """Orquestador del bot LONG sin ejecucion real de ordenes."""
 
-    def __init__(self, motor_bridge, intervalo_segundos: float = 1.0, max_decisiones: int = 1000, execution_config: ExecutionConfig | None = None):
+    def __init__(self, motor_bridge, intervalo_segundos: float = 1.0, max_decisiones: int = 1000, execution_config: ExecutionConfig | None = None, executor: AlpacaExecutor | None = None):
         self.motor_bridge = motor_bridge
         self.intervalo_segundos = max(0.2, float(intervalo_segundos))
         self.max_decisiones = max(100, int(max_decisiones))
@@ -36,6 +36,8 @@ class BotLongRealtime:
         self.paper = PaperBot()
         self.execution_config = execution_config or ExecutionConfig.por_defecto()
         self.execution_config.validar()
+        self.executor = executor
+        self._ordenes_pendientes: dict[str, dict] = {}
         self._candidatos: set[str] = set()
         self._lock = Lock()
         self._detener = Event()
@@ -91,6 +93,47 @@ class BotLongRealtime:
         observados = candidatos | activos
         self.motor_bridge.sync_results([{"ticker": s} for s in sorted(observados)])
 
+    def _procesar_ordenes_pendientes(self) -> list[dict]:
+        """Consulta fills/rechazos antes de evaluar nuevas entradas."""
+        novedades = []
+        for simbolo, info in list(self._ordenes_pendientes.items()):
+            cid = info["client_order_id"]
+            try:
+                result = self.executor.consultar(cid) if self.executor else None
+                if result is None:
+                    continue
+                if result.status == "filled" and result.filled_avg_price is not None and result.filled_qty > 0:
+                    self.decisiones.confirmar_fill(simbolo, result.filled_avg_price)
+                    estado = self.decisiones.estado(simbolo)
+                    signal = {
+                        "simbolo": simbolo,
+                        "accion": "BUY",
+                        "estado": estado["estado"],
+                        "motivo": "BUY confirmado por FILLED Alpaca Paper",
+                        "precio": result.filled_avg_price,
+                        "cantidad_ejecutada": result.filled_qty,
+                        "stop_loss": estado["stop_loss"],
+                        "estrategia": "PreMarketSalvajes LONG",
+                        "signal_id": cid,
+                    }
+                    paper = self.paper.evaluar(signal)
+                    novedades.append({**signal, "ejecucion": asdict(result), "paper": paper, "ts": time.time()})
+                    del self._ordenes_pendientes[simbolo]
+                elif result.status in ESTADOS_TERMINALES and result.status != "filled":
+                    self.decisiones.cancelar_entrada_pendiente(simbolo)
+                    novedades.append({
+                        "simbolo": simbolo,
+                        "accion": "WAIT",
+                        "estado": "esperando_libelula",
+                        "motivo": f"orden_{result.status}",
+                        "ejecucion": asdict(result),
+                        "ts": time.time(),
+                    })
+                    del self._ordenes_pendientes[simbolo]
+            except Exception as exc:
+                self._ultimo_error = f"{simbolo}: error consultando orden: {exc}"
+        return novedades
+
     def evaluar_ahora(self) -> list[dict]:
         with self._lock:
             candidatos = set(self._candidatos)
@@ -107,7 +150,7 @@ class BotLongRealtime:
             }:
                 simbolos.add(simbolo)
 
-        nuevas = []
+        nuevas = self._procesar_ordenes_pendientes()
         for simbolo in sorted(simbolos):
             try:
                 snap = self.motor_bridge.snapshot(simbolo)
@@ -126,7 +169,40 @@ class BotLongRealtime:
                 if anterior != comparable or decision_data.get("accion") in {"BUY", "EXIT"}:
                     ejecucion = None
                     if decision_data.get("accion") == "BUY":
-                        ask = snap.get("ask")
+                        if self.executor is not None:
+                            ask = snap.get("ask")
+                            bid = snap.get("bid")
+                            try:
+                                orden = self.executor.preparar(
+                                    simbolo, ask=ask, bid=bid, cantidad=1,
+                                    mercado="regular",
+                                    client_order_id=f"paper-{simbolo.lower()}-{int(time.time() * 1000)}",
+                                    sesion=self.execution_config.regular,
+                                )
+                                resultado_envio = self.executor.enviar_buy(orden)
+                                ejecucion = asdict(resultado_envio)
+                                if resultado_envio.enviada and resultado_envio.status not in ESTADOS_TERMINALES:
+                                    self._ordenes_pendientes[simbolo] = {
+                                        "client_order_id": orden.client_order_id,
+                                        "simbolo": simbolo,
+                                    }
+                                    decision_data["accion"] = "WAIT"
+                                    decision_data["motivo"] = "buy_order_submitted_waiting_fill"
+                                elif resultado_envio.status == "filled" and resultado_envio.filled_avg_price is not None:
+                                    self.decisiones.confirmar_fill(simbolo, resultado_envio.filled_avg_price)
+                                    decision_data["precio"] = resultado_envio.filled_avg_price
+                                    decision_data["cantidad_ejecutada"] = resultado_envio.filled_qty
+                                else:
+                                    self.decisiones.cancelar_entrada_pendiente(simbolo)
+                                    decision_data["accion"] = "WAIT"
+                                    decision_data["motivo"] = f"execution_{resultado_envio.status}"
+                            except (ValueError, TypeError) as exc:
+                                self.decisiones.cancelar_entrada_pendiente(simbolo)
+                                ejecucion = {"bloqueado": str(exc)}
+                                decision_data["accion"] = "WAIT"
+                                decision_data["motivo"] = f"execution_blocked:{exc}"
+                        else:
+                            ask = snap.get("ask")
                         bid = snap.get("bid")
                         try:
                             orden = preparar_buy(
