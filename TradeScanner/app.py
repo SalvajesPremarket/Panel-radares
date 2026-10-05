@@ -3685,6 +3685,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Filtros de ESTA temporalidad (precio, gap, volumen, float...). Se toman una vez
         # al inicio para que todo el ciclo use un conjunto coherente.
         filtros_tf = self._filtros_para(tf)
+        # Inicializar siempre la duración para que las métricas no comparen
+        # None contra float en ciclos donde el universo ya está cargado.
+        self.duracion_ciclo = time.monotonic() - inicio
         if es_principal:
             self.ultimo_error = None
 
