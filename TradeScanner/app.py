@@ -1612,20 +1612,29 @@ def _restaurar_ultima_configuracion_servidor():
         pass
     if not isinstance(guardada, dict) or not guardada:
         return False
-    cambio = False
+    # Preparar toda la restauración antes de tocar st.query_params.
+    # Una sola actualización evita una cascada de cambios de URL durante
+    # el arranque de un refresh completo.
+    _restaurados = {}
     for clave in _CONFIG_USUARIO_KEYS:
         if clave in guardada and str(st.query_params.get(clave, "")) == "":
-            # Sesión y horario son globales/fijos; los demás filtros sí son personales.
             if clave == "market_session":
-                st.query_params[clave] = "TODO EL MERCADO"
+                _restaurados[clave] = "TODO EL MERCADO"
             elif clave == "c_start":
-                st.query_params[clave] = "04:00"
+                _restaurados[clave] = "04:00"
             elif clave == "c_end":
-                st.query_params[clave] = "20:00"
+                _restaurados[clave] = "20:00"
             else:
-                st.query_params[clave] = str(guardada[clave])
-            cambio = True
-    return cambio
+                _restaurados[clave] = str(guardada[clave])
+    if _restaurados:
+        try:
+            st.query_params.update(_restaurados)
+        except Exception:
+            # Compatibilidad con versiones donde update no esté disponible.
+            for _k, _v in _restaurados.items():
+                st.query_params[_k] = _v
+        return True
+    return False
 
 def _guardar_ultima_configuracion_servidor():
     if not USUARIO_AUTENTICADO:
