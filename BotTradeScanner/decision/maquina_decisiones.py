@@ -92,6 +92,11 @@ class MaquinaDecisionesLong:
                     estrategia.estado,
                     "El simbolo no fue entregado como candidato por TradeScanner.",
                 )
+            elif estrategia.estado == EstadoLong.ESPERANDO_CANDIDATO:
+                # Primer contacto: registrar el candidato sin convertir una
+                # libelula simultanea en BUY. La siguiente evaluacion procesa
+                # la entrada, manteniendo separado el scanner de la estrategia.
+                decision = estrategia.evaluar_candidato(snap)
             else:
                 decision = estrategia.evaluar(snap)
 
