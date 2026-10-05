@@ -1418,24 +1418,9 @@ def pantalla_autenticacion():
 
 
 def _ts_cerrar_auth():
-    """Cierra el diálogo de autenticación y vuelve al scanner sin desmontarlo."""
+    """Cierra la autenticación y vuelve al scanner."""
     st.session_state["mostrar_auth"] = False
     st.rerun()
-
-
-def _ts_auth_dismiss():
-    """Limpia el estado al cerrar el diálogo con X, ESC o fuera del modal."""
-    st.session_state["mostrar_auth"] = False
-
-
-@st.dialog(
-    "TRADE SCANNER — ACCESO",
-    width="large",
-    dismissible=True,
-    on_dismiss=_ts_auth_dismiss,
-)
-def _ts_auth_dialog():
-    pantalla_autenticacion()
 
 
 # =========================================================
@@ -5702,10 +5687,12 @@ def _render_scanner():
             with _n4:
                 st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
-    # Auth se abre después de dibujar la barra, manteniendo scanner y robot
-    # montados durante toda la interacción con el modal.
+    # IMPORTANTE: la autenticación se pinta DESPUÉS del scanner.
+    # Así el scanner/robot ya están montados cuando el usuario pulsa
+    # REGISTRO / INICIAR SESIÓN. No se reemplaza ni se desmonta la página.
     if st.session_state.get("mostrar_auth"):
-        _ts_auth_dialog()
+        pantalla_autenticacion()
+        st.stop()
 
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
