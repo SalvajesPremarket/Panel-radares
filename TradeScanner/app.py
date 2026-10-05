@@ -5722,12 +5722,35 @@ def _render_scanner():
             if _rb.get("error"):
                 st.caption(f"Error del robot: {_rb.get('error')}")
 
-        _rp1, _rp2, _rp3, _rp4, _rp5 = st.columns(5)
-        _rp1.metric("Ciclos", _rb.get("ciclos", 0))
-        _rp2.metric("Candidatos", len(_rb.get("candidatos", []) or []))
-        _rp3.metric("Posiciones", len(_rb.get("posiciones_paper", []) or []))
-        _rp4.metric("Observadas", len(_rb.get("posiciones_observadas", []) or []))
-        _rp5.metric("Decisiones", _rb.get("decisiones_guardadas", 0))
+        # Tarjetas de estado del robot: alto contraste y lectura clara en PC/móvil.
+        # Solo cambia la presentación; no modifica ninguna variable del motor.
+        _ciclos = _rb.get("ciclos", 0)
+        _candidatos = len(_rb.get("candidatos", []) or [])
+        _posiciones = len(_rb.get("posiciones_paper", []) or [])
+        _observadas = len(_rb.get("posiciones_observadas", []) or [])
+        _decisiones = _rb.get("decisiones_guardadas", 0)
+        st.markdown("""
+        <style>
+        .ts-robot-panel{background:#1b2027;border:1px solid #3b4652;border-radius:12px;padding:14px 14px 10px;margin:4px 0 14px 0;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+        .ts-robot-title{font-size:1.15rem;font-weight:700;color:#f2f5f8;margin-bottom:12px}
+        .ts-robot-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+        .ts-robot-card{background:#252c35;border:1px solid #4a5663;border-radius:9px;padding:10px 8px;text-align:center;min-height:68px}
+        .ts-robot-label{font-size:.76rem;color:#b9c3ce;text-transform:uppercase;letter-spacing:.03em}
+        .ts-robot-value{font-size:1.45rem;font-weight:800;color:#ffffff;line-height:1.35;margin-top:2px}
+        @media(max-width:800px){.ts-robot-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+        @media(max-width:520px){.ts-robot-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.ts-robot-value{font-size:1.25rem;}}
+        </style>
+        <div class="ts-robot-panel">
+          <div class="ts-robot-title">📊 Estado del robot</div>
+          <div class="ts-robot-grid">
+            <div class="ts-robot-card"><div class="ts-robot-label">Ciclos</div><div class="ts-robot-value">""" + str(_ciclos) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Candidatos</div><div class="ts-robot-value">""" + str(_candidatos) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Posiciones</div><div class="ts-robot-value">""" + str(_posiciones) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Observadas</div><div class="ts-robot-value">""" + str(_observadas) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Decisiones</div><div class="ts-robot-value">""" + str(_decisiones) + """</div></div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
 
         _dec = servicio.decisiones_bot_long(20)
         if _dec:
