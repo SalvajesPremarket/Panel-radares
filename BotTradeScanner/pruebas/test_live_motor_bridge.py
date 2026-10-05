@@ -38,7 +38,7 @@ def test_bridge_espera_stream_antes_de_marcar_candidato_como_cargado():
 
     Thread(target=levantar_stream, daemon=True).start()
 
-    bridge._preparar_y_suscribir(["AAPL"])
+    bridge._actualizar_suscripciones([], ["AAPL"])
 
     assert motor.precargados == [(["AAPL"], 300)]
     assert motor.suscritos == ["AAPL"]
