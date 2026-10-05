@@ -6124,24 +6124,18 @@ def _sincronizar_query_con_sesion():
 
 _sincronizar_query_con_sesion()
 
-if True:  # el visitante también se refresca (cada 3 min); el usuario registrado elige su intervalo
+if True:  # el visitante también se refresca; el usuario registrado elige su intervalo
     _st_fragment = getattr(st, "fragment", None)
     if _st_fragment is not None:
         @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
         def _refresco_nativo_scanner():
-            # La primera ejecución del fragmento ocurre inmediatamente al cargar
-            # la página. No debemos hacer rerun en ese instante porque produciría
-            # un ciclo de reruns. Las siguientes ejecuciones llegan por run_every.
-            if not st.session_state.get("_ts_refresh_fragment_started", False):
-                st.session_state["_ts_refresh_fragment_started"] = True
-                return
-            # run_every vuelve a ejecutar solamente este fragmento; st.rerun()
-            # (sin scope) solicita un rerun completo de la aplicación.
-            st.session_state["_ts_refresh_fragment_started"] = False
-            # Marca este rerun como AUTOMÁTICO: así _sincronizar_query_con_sesion()
-            # vuelve a imponer la temporalidad/filtros que el usuario eligió.
-            st.session_state["_ts_rerun_auto"] = True
-            st.rerun()
-        _refresco_nativo_scanner()
+            # El refresh automático debe volver a ejecutar SOLO el contenido
+            # del scanner. No hacemos st.rerun() completo: reconstruir toda la
+            # aplicación mientras el componente iframe/websocket está activo
+            # puede dejar la página blanca.
+            _render_scanner()
 
-_render_scanner()
+        _refresco_nativo_scanner()
+    else:
+        # Compatibilidad con versiones de Streamlit sin st.fragment.
+        _render_scanner()
