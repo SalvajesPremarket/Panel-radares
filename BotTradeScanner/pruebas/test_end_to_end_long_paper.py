@@ -61,7 +61,7 @@ def enviar(maquina, paper, snapshot, candidato_scanner=True):
     # Esta prueba simula un FILLED inmediato para ejercitar el flujo PaperBot.
     if decision.accion == "BUY":
         precio_fill = snapshot["vela_actual"]["cierre"]
-        maquina.confirmar_fill(precio_fill)
+        maquina.confirmar_fill(snapshot["simbolo"], precio_fill)
     registro = paper.evaluar({
         "signal_id": f"{snapshot['tramo_actual']}-{snapshot['vela_actual']['cierre']}-{decision.accion}",
         "simbolo": decision.simbolo,
