@@ -93,9 +93,15 @@ class BotLongRealtime:
         observados = candidatos | activos
         self.motor_bridge.sync_results([{"ticker": s} for s in sorted(observados)])
 
-    def _procesar_ordenes_pendientes(self) -> list[dict]:
-        """Consulta fills/rechazos antes de evaluar nuevas entradas."""
+    def _procesar_ordenes_pendientes(self) -> tuple[list[dict], set[str]]:
+        """Consulta fills/rechazos antes de evaluar nuevas entradas.
+
+        Devuelve tambien los simbolos que acaban de recibir FILLED para no
+        reevaluar el mismo snapshot en este ciclo y disparar un stop inmediato
+        contra el precio que produjo la confirmacion.
+        """
         novedades = []
+        fills_confirmados: set[str] = set()
         for simbolo, info in list(self._ordenes_pendientes.items()):
             cid = info["client_order_id"]
             try:
@@ -118,6 +124,7 @@ class BotLongRealtime:
                     }
                     paper = self.paper.evaluar(signal)
                     novedades.append({**signal, "ejecucion": asdict(result), "paper": paper, "ts": time.time()})
+                    fills_confirmados.add(simbolo)
                     del self._ordenes_pendientes[simbolo]
                 elif result.status in ESTADOS_TERMINALES and result.status != "filled":
                     self.decisiones.cancelar_entrada_pendiente(simbolo)
@@ -150,8 +157,10 @@ class BotLongRealtime:
             }:
                 simbolos.add(simbolo)
 
-        nuevas = self._procesar_ordenes_pendientes()
+        nuevas, fills_confirmados = self._procesar_ordenes_pendientes()
         for simbolo in sorted(simbolos):
+            if simbolo in fills_confirmados:
+                continue
             try:
                 snap = self.motor_bridge.snapshot(simbolo)
                 candidato = simbolo in candidatos
