@@ -28,7 +28,14 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
-from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
+try:
+    from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
+    _MOTOR_VELAS_IMPORT_ERROR = None
+except Exception as _e_motor_import:
+    # Si el módulo no se encuentra, el scanner igual debe abrir (sin motor de velas).
+    MotorVelasBridge = None
+    _MOTOR_VELAS_IMPORT_ERROR = f"{type(_e_motor_import).__name__}: {_e_motor_import}"
+    print(f"⚠️ No se pudo importar MotorVelasBridge: {_MOTOR_VELAS_IMPORT_ERROR}")
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
@@ -2531,13 +2538,20 @@ class ServicioScanner:
 
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
-        self.motor_velas = MotorVelasBridge(api_key, secret_key)
+        self.motor_velas = None
+        if MotorVelasBridge is not None:
+            try:
+                self.motor_velas = MotorVelasBridge(api_key, secret_key)
+            except Exception as _e_mv:
+                print(f"⚠️ Motor de velas no pudo iniciar: {_e_mv}")
 
         # Bot LONG: se carga de forma tolerante para que un fallo del componente
         # experimental del robot NO derribe la pagina completa del scanner.
         self.bot_long = None
         self.bot_long_error = None
         try:
+            if self.motor_velas is None:
+                raise RuntimeError("motor de velas no disponible")
             from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
             self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
             self.bot_long.iniciar()
@@ -5882,7 +5896,16 @@ def _render_scanner():
         except Exception as _e_ts_nav:
             print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
-        st.iframe(h, height=900)
+        try:
+            st.iframe(h, height=900)
+        except Exception as _e_ifr:
+            # st.iframe solo existe en versiones recientes de Streamlit.
+            print(f"⚠️ st.iframe no disponible, uso components.html: {_e_ifr}")
+            try:
+                import streamlit.components.v1 as _stc_fb
+                _stc_fb.html(h, height=900, scrolling=True)
+            except Exception as _e_ifr2:
+                st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
