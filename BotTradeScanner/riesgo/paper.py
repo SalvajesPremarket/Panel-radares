@@ -213,7 +213,7 @@ class PaperBot:
 
         pnl = None
         if precio is not None and position.cantidad is not None:
-            pnl = (precio - position.precio_entrada) * position.cantidad
+            pnl = round((precio - position.precio_entrada) * position.cantidad, 2)
 
         trade = {
             "position_id": position.position_id,
