@@ -57,7 +57,7 @@ def _snap():
         "ask": 10.01,
         "vela_actual": {
             "apertura": 10.0,
-            "maximo": 10.0,
+            "maximo": 10.1,
             "minimo": 9.7,
             "cierre": 10.0,
             "es_positiva": False,
