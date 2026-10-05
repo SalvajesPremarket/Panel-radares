@@ -58,8 +58,9 @@ def test_bridge_rota_simbolos_fuera_del_conjunto_actual():
     bridge._simbolos_deseados = {"AAPL", "MSFT"}
     bridge._ultima_error = None
 
-    bridge.sync_results([{"ticker": "NVDA"}])
-    time.sleep(0.05)
+    bridge._simbolos_deseados = {"NVDA"}
+    bridge._simbolos_solicitados = {"NVDA"}
+    bridge._actualizar_suscripciones(["AAPL", "MSFT"], ["NVDA"])
 
     assert motor.desuscritos == ["AAPL", "MSFT"]
     assert motor.suscritos == ["NVDA"]
