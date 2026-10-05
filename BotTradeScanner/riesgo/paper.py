@@ -104,7 +104,7 @@ class PaperBot:
             return 0.0, 0.0, 0.0, "missing_long_stop"
 
         distancia_stop = precio - stop_loss
-        if distancia_stop <= 0:
+        if distancia_stop < 0:
             return 0.0, 0.0, 0.0, "invalid_long_stop"
 
         riesgo_maximo = self.risk.initial_capital * self.risk.max_risk_per_trade
