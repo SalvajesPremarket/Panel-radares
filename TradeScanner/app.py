@@ -1415,6 +1415,37 @@ def pantalla_autenticacion():
 # =========================================================
 # auth_session solo es respaldo de recarga completa; durante un rerun normal
 # la identidad permanece en st.session_state.
+#
+# IMPORTANTE: la pantalla de autenticación se resuelve ANTES de procesar
+# cualquier evento del iframe o limpiar query params. Así un clic en
+# REGISTRO / INICIAR SESIÓN no puede quedar atrapado en un rerun del scanner.
+AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
+LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
+if "mostrar_auth" not in st.session_state:
+    st.session_state["mostrar_auth"] = False
+
+if LOGOUT_REQUESTED:
+    cerrar_sesion()
+    st.session_state["mostrar_auth"] = False
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    st.rerun()
+
+if AUTH_REQUESTED:
+    st.session_state["mostrar_auth"] = True
+    try:
+        st.query_params.pop("auth", None)
+    except Exception:
+        pass
+
+# Puerta temprana: si el usuario pidió autenticación, no se ejecuta el
+# scanner, el iframe, la sincronización de filtros ni la limpieza pública.
+if st.session_state.get("mostrar_auth"):
+    pantalla_autenticacion()
+    st.stop()
+
 def _ts_aplicar_evento_ui():
     """Recibe lo que hizo el usuario en el cuadro gris (filtros, EMAs, idioma, refresh...)
     y lo escribe en los parametros de la sesion ANTES de calcular nada."""
@@ -1478,40 +1509,6 @@ if PUBLIC_PREVIEW:
                 st.query_params.update(_qp_limpio_publico)
     except Exception:
         pass
-AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
-LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
-
-# Estado nativo de Streamlit: no depende de iframe, target, window.open ni
-# navegación del navegador.
-if "mostrar_auth" not in st.session_state:
-    st.session_state["mostrar_auth"] = False
-
-if LOGOUT_REQUESTED:
-    cerrar_sesion()
-    st.session_state["mostrar_auth"] = False
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-    st.rerun()
-
-# Si llega ?auth=1 desde una versión anterior, se convierte una sola vez al
-# estado nativo y se elimina el parámetro.
-if AUTH_REQUESTED:
-    st.session_state["mostrar_auth"] = True
-    try:
-        st.query_params.pop("auth", None)
-    except Exception:
-        pass
-
-# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
-# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
-# Cuando el usuario pide explícitamente REGISTRO / LOGIN, la pantalla de
-# autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
-# Esto evita que la restauración automática bloquee el botón de acceso.
-if st.session_state.get("mostrar_auth"):
-    pantalla_autenticacion()
-    st.stop()
 
 # Restauración normal de sesión solamente cuando no se está mostrando Auth.
 if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
