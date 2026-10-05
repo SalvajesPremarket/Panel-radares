@@ -1452,6 +1452,18 @@ def _ts_aplicar_evento_ui():
 
 _ts_aplicar_evento_ui()
 
+# El cierre de sesión se procesa fuera del callback del botón. Así evitamos
+# modificar query_params mientras Streamlit está reconstruyendo el árbol de UI.
+if st.session_state.pop("_ts_logout_requested", False):
+    cerrar_sesion()
+    st.session_state.pop("_ts_query_elegida", None)
+    st.session_state.pop("_ts_u_visto", None)
+    st.session_state["mostrar_auth"] = False
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+
 # La autenticación se atiende inmediatamente después del evento del usuario.
 # No debe pasar por la limpieza de query params del modo público: esa limpieza
 # puede provocar otro rerun justo cuando el usuario pulsa REGISTRO/LOGIN.
@@ -5612,14 +5624,10 @@ def _render_scanner():
         st.session_state["mostrar_auth"] = True
 
     def _ts_salir():
-        cerrar_sesion()
-        st.session_state.pop("_ts_query_elegida", None)
-        st.session_state.pop("_ts_u_visto", None)
-        st.session_state["mostrar_auth"] = False
-        try:
-            st.query_params.clear()
-        except Exception:
-            pass
+        # No tocar query_params ni limpiar la sesión dentro del callback.
+        # El callback solo marca la intención; el ciclo principal lo procesa
+        # después del rerun normal de Streamlit.
+        st.session_state["_ts_logout_requested"] = True
 
     def _ts_cambiar_refresh():
         try:
