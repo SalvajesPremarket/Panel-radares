@@ -6197,18 +6197,11 @@ def _sincronizar_query_con_sesion():
 
 _sincronizar_query_con_sesion()
 
-if True:  # el visitante también se refresca; el usuario registrado elige su intervalo
-    _st_fragment = getattr(st, "fragment", None)
-    if _st_fragment is not None:
-        @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
-        def _refresco_nativo_scanner():
-            # El refresh automático debe volver a ejecutar SOLO el contenido
-            # del scanner. No hacemos st.rerun() completo: reconstruir toda la
-            # aplicación mientras el componente iframe/websocket está activo
-            # puede dejar la página blanca.
-            _render_scanner()
-
-        _refresco_nativo_scanner()
-    else:
-        # Compatibilidad con versiones de Streamlit sin st.fragment.
-        _render_scanner()
+# ESTABILIZACIÓN: el scanner usa un componente iframe (Components V1).
+# No lo ejecutamos dentro de st.fragment/run_every: en esta arquitectura el
+# ciclo fragmentado puede desmontar/recrear el iframe mientras el componente
+# está enviando navegación a Python y dejar la página en blanco.
+# El motor de mercado sigue trabajando en segundo plano; la actualización de
+# configuración se produce por setComponentValue y el usuario puede refrescar
+# la vista sin reconstruir un iframe activo dentro de un fragmento.
+_render_scanner()
