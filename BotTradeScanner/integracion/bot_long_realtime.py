@@ -182,8 +182,15 @@ class BotLongRealtime:
                             ask = snap.get("ask")
                             bid = snap.get("bid")
                             try:
+                                precio_orden = ask if ask is not None else bid
+                                stop_para_riesgo = decision_data.get("stop_loss")
+                                if precio_orden is None:
+                                    raise ValueError("quote_sin_precio")
+                                cantidad, _, _, error_tamano = self.paper.tamano_entrada(precio_orden, stop_para_riesgo)
+                                if error_tamano:
+                                    raise ValueError(error_tamano)
                                 orden = self.executor.preparar(
-                                    simbolo, ask=ask, bid=bid, cantidad=1,
+                                    simbolo, ask=ask, bid=bid, cantidad=cantidad,
                                     mercado="regular",
                                     client_order_id=f"paper-{simbolo.lower()}-{int(time.time() * 1000)}",
                                     sesion=self.execution_config.regular,
@@ -214,11 +221,18 @@ class BotLongRealtime:
                             ask = snap.get("ask")
                             bid = snap.get("bid")
                             try:
+                                precio_orden = ask if ask is not None else bid
+                                stop_para_riesgo = decision_data.get("stop_loss")
+                                if precio_orden is None:
+                                    raise ValueError("quote_sin_precio")
+                                cantidad, _, _, error_tamano = self.paper.tamano_entrada(precio_orden, stop_para_riesgo)
+                                if error_tamano:
+                                    raise ValueError(error_tamano)
                                 orden = preparar_buy(
                                     simbolo,
                                     ask=ask,
                                     bid=bid,
-                                    cantidad=1,
+                                    cantidad=cantidad,
                                     sesion=self.execution_config.regular,
                                     mercado="regular",
                                     client_order_id=f"paper-{simbolo.lower()}-{int(time.time() * 1000)}",
