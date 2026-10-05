@@ -3484,6 +3484,12 @@ class ServicioScanner:
 
     # ---------- Telegram ----------
     def _enviar_telegram(self, texto_tabla):
+        """Telegram pausado temporalmente para estabilizar el scanner.
+        No realiza ninguna petición externa mientras esté desactivado.
+        """
+        self.telegram_estado = "PAUSADO TEMPORALMENTE"
+        self.telegram_ultimo_error = None
+        return
         """Envía/actualiza la señal en el grupo de Telegram.
         El token y el chat_id nunca se muestran en la interfaz.
         """
