@@ -14,6 +14,7 @@ def test_realtime_conserva_posicion_fuera_del_radar_y_la_cierra():
     def s(**kw):
         base = {
             "simbolo": "TEST", "sin_datos": False, "tramo_actual": 1,
+            "bid": 9.99, "ask": 10.01,
             "vela_actual": {"apertura": 10.0, "maximo": 10.0, "minimo": 9.7,
                             "cierre": 10.0, "es_positiva": False,
                             "es_libelula_en_curso": False,
