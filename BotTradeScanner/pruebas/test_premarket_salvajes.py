@@ -132,6 +132,7 @@ def test_stop_is_not_percentage_trailing_stop():
         tramo=1, apertura=10.0, maximo=10.0, minimo=9.7,
         cierre=10.0, libelula=True,
     ))
+    s.confirmar_fill(10.0)
     s.evaluar(snap(
         tramo=3, apertura=10.0, maximo=10.5, minimo=9.8,
         cierre=10.4, positiva=True,
@@ -168,6 +169,7 @@ def test_decision_machine_enforces_strategy_stop():
         cierre=10.0, libelula=True,
     ))
     assert d.accion == "BUY"
+    m.confirmar_fill("TEST", 10.0)
 
     # El precio cae al stop vigente de 10.0: la maquina debe producir EXIT
     # aunque la estrategia todavía no haya evaluado una regla de vela.
