@@ -1450,7 +1450,11 @@ def _ts_aplicar_evento_ui():
         print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
 
 
-_ts_aplicar_evento_ui()
+# Estado nativo de autenticación se inicializa antes de procesar cualquier
+# evento del iframe. Si el usuario acaba de pulsar REGISTRO/LOGIN, no debemos
+# volver a tocar la URL ni consumir eventos del scanner antes de pintar Auth.
+if "mostrar_auth" not in st.session_state:
+    st.session_state["mostrar_auth"] = False
 
 # El cierre de sesión se procesa fuera del callback del botón. Así evitamos
 # modificar query_params mientras Streamlit está reconstruyendo el árbol de UI.
@@ -1464,12 +1468,13 @@ if st.session_state.pop("_ts_logout_requested", False):
     except Exception:
         pass
 
-# La autenticación se atiende inmediatamente después del evento del usuario.
-# No debe pasar por la limpieza de query params del modo público: esa limpieza
-# puede provocar otro rerun justo cuando el usuario pulsa REGISTRO/LOGIN.
+# Puerta de autenticación: se ejecuta antes de procesar eventos del iframe.
+# La carga pública normal mantiene exactamente el flujo anterior.
 if st.session_state.get("mostrar_auth"):
     pantalla_autenticacion()
     st.stop()
+
+_ts_aplicar_evento_ui()
 
 PUBLIC_PREVIEW = (
     "token_verificado" not in st.session_state
@@ -1507,12 +1512,7 @@ if PUBLIC_PREVIEW:
 AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
 LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
 
-# Estado nativo de Streamlit: no depende de iframe, target, window.open ni
-# navegación del navegador.
-if "mostrar_auth" not in st.session_state:
-    st.session_state["mostrar_auth"] = False
-
-if LOGOUT_REQUESTED:
+# Estado nativo ya inicializado antes del procesamiento del iframe.\n\nif LOGOUT_REQUESTED:
     cerrar_sesion()
     st.session_state["mostrar_auth"] = False
     try:
