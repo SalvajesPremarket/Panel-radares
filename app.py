@@ -3702,6 +3702,32 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "actualizado": snap.latest_trade.timestamp,
             })
 
+        # Si ya existe precio vivo, sustituimos el último snapshot por ese valor.
+        # Esto permite que los siguientes ciclos trabajen con el WebSocket sin cambiar la UI.
+        for c in base:
+            try:
+                live = self.live_stream.cache.trade(c["ticker"])
+                live_price = live.get("price") if live else None
+                if live_price is None:
+                    q = self.live_stream.cache.quote(c["ticker"])
+                    bid = q.get("bid") if q else None
+                    ask = q.get("ask") if q else None
+                    if bid is not None and ask is not None:
+                        live_price = (float(bid) + float(ask)) / 2.0
+                live_price = float(live_price) if live_price is not None else None
+                if live_price is not None and live_price > 0:
+                    c["precio"] = live_price
+                    prev = float(c.get("precio") or live_price)
+                    # El cambio relativo se recalcula contra el cierre previo
+                    # que ya fue obtenido por REST.
+                    if c.get("cambio_pct") is not None and prev > 0:
+                        # Recuperamos el cierre implícito del snapshot original.
+                        c["cambio_pct"] = float(c["cambio_pct"]) + (
+                            (live_price - prev) / prev * 100.0
+                        )
+            except Exception:
+                pass
+
         # Primero aplicamos SOLO los filtros baratos y disponibles en Alpaca.
         # IMPORTANTE: NO pedimos FLOAT aquí. FMP solo entrega aproximadamente
         # un ticker por intervalo y pedirlo antes de EMA/MACD hacía que casi
