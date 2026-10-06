@@ -5682,7 +5682,8 @@ def _render_scanner():
     except Exception:
         pass
     if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
+        _ts_qkey = hashlib.md5(str(sorted([(str(k), str(v)) for k, v in st.query_params.items()])).encode("utf-8", "ignore")).hexdigest()[:12]
+        _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui_" + _ts_qkey, default=None)
     else:
         st.iframe(h, height=900)
 
