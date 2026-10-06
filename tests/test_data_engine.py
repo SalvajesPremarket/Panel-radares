@@ -43,3 +43,63 @@ def test_data_health_reports_live_events():
     assert snap["quotes"] == 1
     assert snap["trades"] == 1
     assert snap["symbols_seen"] == 1
+
+
+def test_alpaca_market_stream_start_update_and_stop(monkeypatch):
+    import threading
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.quotes = set()
+            self.trades = set()
+            self.stopped = False
+            self.ready = threading.Event()
+            FakeStream.instances.append(self)
+
+        def subscribe_quotes(self, callback, *symbols):
+            self.quotes.update(symbols)
+
+        def subscribe_trades(self, callback, *symbols):
+            self.trades.update(symbols)
+
+        def unsubscribe_quotes(self, *symbols):
+            self.quotes.difference_update(symbols)
+
+        def unsubscribe_trades(self, *symbols):
+            self.trades.difference_update(symbols)
+
+        def run(self):
+            self.ready.set()
+            while not self.stopped:
+                time.sleep(0.01)
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(module, "StockDataStream", FakeStream)
+
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream.start(["aapl", "msft"])
+
+    deadline = time.time() + 2
+    while not FakeStream.instances and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert FakeStream.instances
+    fake = FakeStream.instances[0]
+    assert fake.ready.wait(timeout=2)
+    assert fake.quotes == {"AAPL", "MSFT"}
+    assert fake.trades == {"AAPL", "MSFT"}
+
+    stream.update_symbols(["MSFT", "NVDA"])
+    assert fake.quotes == {"MSFT", "NVDA"}
+    assert fake.trades == {"MSFT", "NVDA"}
+
+    stream.stop()
+    assert fake.stopped is True
+    assert stream.health_snapshot()["errors"] == 0
