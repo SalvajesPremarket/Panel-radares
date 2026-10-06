@@ -37,13 +37,18 @@ class MotorVelasBridge:
         self._simbolos_cargados = set()
         self._simbolos_deseados = set()
         self._ultima_error = None
+        self._proximo_reintento_ts = 0.0
+        self._cooldown_reconexion_seg = 120.0
 
-        self._arrancar_stream()
+        # El websocket es LAZY: no se abre mientras no existan candidatos.
 
     def _arrancar_stream(self):
         with self._lock:
             if self._arrancado:
-                return
+                return True
+            ahora = time.monotonic()
+            if ahora < self._proximo_reintento_ts:
+                return False
             self._arrancado = True
 
         def _run():
@@ -55,6 +60,7 @@ class MotorVelasBridge:
                 self._ultima_error = str(exc)
                 with self._lock:
                     self._arrancado = False
+                    self._proximo_reintento_ts = time.monotonic() + self._cooldown_reconexion_seg
 
         self._hilo_inicio = Thread(
             target=_run,
@@ -75,6 +81,8 @@ class MotorVelasBridge:
                 candidatos.append(ticker)
 
         deseados = set(candidatos)
+        if deseados:
+            self._arrancar_stream()
         with self._lock:
             self._simbolos_deseados = deseados
 
