@@ -5792,19 +5792,22 @@ def _render_scanner():
     )
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
-    # Todo el scanner se dibuja directamente en un unico iframe.
-    # Importante durante el diagnostico: NO reutilizamos HTML cacheado entre reruns.
-    # Asi, despues de un refresh Streamlit siempre recibe un documento nuevo y
-    # no puede quedarse con una instancia visual vacia anterior.
+    # Render estable del Scanner: usamos el componente V1 que ya existe en este
+    # archivo y que fue diseñado especificamente para recibir HTML completo.
+    # NO toca el motor, autenticacion, proveedores ni la logica de resultados.
     _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
-    _ts_log("dibujando iframe del scanner")
+    _ts_log("dibujando componente HTML del scanner")
     try:
-        st.iframe(h, height=900)
-    except Exception as _e_ifr:
-        print(f"⚠️ st.iframe no pudo dibujar el scanner: {_e_ifr}", flush=True)
-        try:
+        if _ts_scanner_ui is not None:
+            _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui")
+        else:
             import streamlit.components.v1 as _stc_render
             _stc_render.html(h, height=900, scrolling=True)
+    except Exception as _e_comp_render:
+        print(f"⚠️ componente del scanner no pudo dibujar: {_e_comp_render}", flush=True)
+        try:
+            import streamlit.components.v1 as _stc_render_fb
+            _stc_render_fb.html(h, height=900, scrolling=True)
         except Exception as _e_ifr2:
             print(f"⚠️ components.html tampoco pudo dibujar el scanner: {_e_ifr2}", flush=True)
             st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
