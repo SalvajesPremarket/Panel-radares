@@ -5440,7 +5440,7 @@ def _render_scanner():
     # aparecía vacío. Ahora todo comparte el mismo DOM y CSS.
     _h_a = h + "</div></body></html>"
 
-    h = _head_html + "<div class='main-container'><div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div></div>" + _status_line_html
+    h = _head_html
     # El diagnóstico del embudo permanece interno en el motor.
     # No se muestra como texto fijo antes de RESULTADOS.
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
@@ -5605,7 +5605,7 @@ def _render_scanner():
     .st-key-ts_filter_native [data-testid="stNumberInput"] input{width:100% !important;max-width:none !important;min-width:0 !important;height:25px !important;font-size:10px !important;}
     .st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:8px !important;line-height:1 !important;margin:0 !important;white-space:nowrap !important;}
     .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div{flex:0 0 auto !important;min-width:0 !important;}
-    @media(max-width:640px){.st-key-ts_filter_native > div{top:112px !important;}.st-key-ts_filter_native [data-testid="stNumberInput"]{width:54px !important;min-width:54px !important;}.st-key-ts_filter_native [data-testid="stNumberInput"] input{height:21px !important;font-size:8px !important;padding:1px 2px !important;}.st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:6px !important;}}
+    @media(max-width:640px){.st-key-ts_filter_native{display:none !important;}}
     </style>""", unsafe_allow_html=True)
     if _USAR_FILTROS_NATIVOS and not PUBLIC_PREVIEW:
         with st.container(key="ts_filter_native"):
