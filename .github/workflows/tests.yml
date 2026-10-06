@@ -32,6 +32,10 @@ jobs:
         run: |
           pytest BotTradeScanner/pruebas -q
 
+      - name: Run TradeScanner data engine tests
+        run: |
+          pytest tests/test_data_engine.py -q
+
       - name: Smoke check Streamlit entrypoints
         run: |
           python -m py_compile app.py TradeScanner/app.py BotTradeScanner/pruebas/pagina_prueba_motor.py
