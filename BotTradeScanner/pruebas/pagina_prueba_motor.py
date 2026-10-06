@@ -137,7 +137,7 @@ if st.session_state.ticker_conectado:
             f"Esperando la primera operación de {st.session_state.ticker_conectado}... "
             "si el mercado está cerrado, esto puede tardar."
         )
-        else:
+    else:
         va = snap.get("vela_actual")
         vp = snap.get("vela_anterior")
 
