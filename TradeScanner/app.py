@@ -6317,4 +6317,9 @@ _sincronizar_query_con_sesion()
 # El motor de mercado sigue trabajando en segundo plano; la actualización de
 # configuración se produce por setComponentValue y el usuario puede refrescar
 # la vista sin reconstruir un iframe activo dentro de un fragmento.
-_render_scanner()
+try:
+    _render_scanner()
+except Exception as _e_scanner_top:
+    st.error("ERROR AL CARGAR EL SCANNER")
+    st.exception(_e_scanner_top)
+    print(f"ERROR AL CARGAR EL SCANNER: {type(_e_scanner_top).__name__}: {_e_scanner_top}")
