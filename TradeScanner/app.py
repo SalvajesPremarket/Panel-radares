@@ -1,21 +1,22 @@
+import sys
+from pathlib import Path
+
+import streamlit as st
+
+st.set_page_config(page_title="Scanner Pre Market", layout="wide")
+st.markdown('<div style="padding:6px 10px;background:#243447;border:1px solid #5b7ea3;border-radius:6px;color:#e8f1f8;font-size:12px;">SCANNER: arranque del modulo OK</div>', unsafe_allow_html=True)
+
 # ── PUNTOS DE CONTROL TEMPORALES (diagnóstico de pantalla en blanco) ──
-# Abrir la app con ?test=N muestra un título y se detiene en ese punto.
-import streamlit as _st_cp
-
-
 def _ts_checkpoint(n, msg):
     _quiere = False
     try:
-        _quiere = str(_st_cp.query_params.get("test", "")).strip() == str(n)
+        _quiere = str(st.query_params.get("test", "")).strip() == str(n)
     except Exception:
         pass
     if _quiere:
-        _st_cp.title(f"✅ Punto {n}: {msg}")
-        _st_cp.write("Si ves esto, el script llegó hasta aquí.")
-        _st_cp.stop()
-
-
-
+        st.title(f"✅ Punto {n}: {msg}")
+        st.write("Si ves esto, el script llegó hasta aquí.")
+        st.stop()
 
 def _ts_log(msg):
     """Línea de log con hora para seguir el flujo en 'Manage app' (sin datos personales)."""
@@ -26,13 +27,6 @@ def _ts_log(msg):
         pass
 
 _ts_checkpoint(1, "inicio del archivo (antes de importar nada pesado)")
-
-import sys
-from pathlib import Path
-
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 import os
 import json
@@ -50,7 +44,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import requests
-import streamlit as st
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -67,8 +60,6 @@ except Exception as _e_motor_import:
     print(f"⚠️ No se pudo importar MotorVelasBridge: {_MOTOR_VELAS_IMPORT_ERROR}")
 
 _ts_checkpoint(2, "importaciones terminadas (alpaca, BotTradeScanner)")
-
-st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 # Modo diagnóstico (temporal): se activa abriendo la app con ?diag=1 y no se ve para nadie más.
 try:
@@ -2597,20 +2588,12 @@ class ServicioScanner:
                 self.motor_velas = MotorVelasBridge(api_key, secret_key)
             except Exception as _e_mv:
                 print(f"⚠️ Motor de velas no pudo iniciar: {_e_mv}")
-
-        # Bot LONG: se carga de forma tolerante para que un fallo del componente
-        # experimental del robot NO derribe la pagina completa del scanner.
+        # ROBOT LONG/SHORT SEPARADO:
+        # El scanner principal NO importa, crea ni arranca BotLongRealtime.
+        # El robot tiene su propia página/proceso para no poder bloquear
+        # la carátula del scanner.
         self.bot_long = None
-        self.bot_long_error = None
-        try:
-            if self.motor_velas is None:
-                raise RuntimeError("motor de velas no disponible")
-            from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
-            self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
-            self.bot_long.iniciar()
-        except Exception as exc:
-            self.bot_long_error = str(exc)
-            print(f"⚠️ Bot LONG no pudo iniciar: {exc}")
+        self.bot_long_error = "Robot LONG separado de la pagina principal"
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
