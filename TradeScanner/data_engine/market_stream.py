@@ -41,6 +41,7 @@ class AlpacaMarketStream:
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()
         self._symbols: set[str] = set()
+        self._symbols_lock = threading.RLock()
 
     def _feed(self):
         if self.feed_name == "sip":
@@ -78,8 +79,9 @@ class AlpacaMarketStream:
                 self.secret_key,
                 feed=self._feed(),
             )
-            if self._symbols:
+            with self._symbols_lock:
                 symbols = sorted(self._symbols)
+            if symbols:
                 self._stream.subscribe_quotes(self._quote, *symbols)
                 self._stream.subscribe_trades(self._trade, *symbols)
             # StockDataStream.run() realiza la conexión/autenticación real.
@@ -97,8 +99,10 @@ class AlpacaMarketStream:
             for symbol in (symbols or [])
             if str(symbol).strip()
         }
-        self._symbols = requested
+        with self._symbols_lock:
+            self._symbols = requested
         if self._thread and self._thread.is_alive():
+            self._update_running_subscriptions(requested)
             return
         self._stop.clear()
         self._thread = threading.Thread(
@@ -107,6 +111,40 @@ class AlpacaMarketStream:
             daemon=True,
         )
         self._thread.start()
+
+
+    def _update_running_subscriptions(self, requested: set[str]) -> None:
+        stream = self._stream
+        if stream is None:
+            return
+        with self._symbols_lock:
+            old = set(self._symbols)
+            self._symbols = set(requested)
+        add = requested - old
+        remove = old - requested
+        try:
+            if add:
+                symbols = sorted(add)
+                stream.subscribe_quotes(self._quote, *symbols)
+                stream.subscribe_trades(self._trade, *symbols)
+            if remove:
+                symbols = sorted(remove)
+                stream.unsubscribe_quotes(*symbols)
+                stream.unsubscribe_trades(*symbols)
+        except Exception as exc:
+            self.health.mark_error(exc)
+
+    def update_symbols(self, symbols: Iterable[str]) -> None:
+        requested = {
+            str(symbol).strip().upper()
+            for symbol in (symbols or [])
+            if str(symbol).strip()
+        }
+        if self._thread and self._thread.is_alive():
+            self._update_running_subscriptions(requested)
+        else:
+            with self._symbols_lock:
+                self._symbols = requested
 
     def stop(self) -> None:
         self._stop.set()
