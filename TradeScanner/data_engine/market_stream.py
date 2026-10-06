@@ -78,15 +78,14 @@ class AlpacaMarketStream:
                 self.api_key,
                 self.secret_key,
                 feed=self._feed(),
+                data_timeout=60,
             )
             with self._symbols_lock:
                 symbols = sorted(self._symbols)
             if symbols:
                 self._stream.subscribe_quotes(self._quote, *symbols)
                 self._stream.subscribe_trades(self._trade, *symbols)
-            # StockDataStream.run() realiza la conexión/autenticación real.
-            # No reportamos "connected" antes de que el SDK entre en ejecución.
-            self.health.mark_connected()
+            # La conexión real se confirma al recibir el primer evento.
             self._stream.run()
         except Exception as exc:
             self.health.mark_error(exc)
