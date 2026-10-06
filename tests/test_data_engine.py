@@ -20,15 +20,18 @@ def test_live_bar_builder_builds_20s_and_60s_bars():
     builder.on_trade("AAPL", 10, 2, ts)
     bars = builder.on_trade("AAPL", 12, 3, datetime.fromtimestamp(139.9, tz=timezone.utc))
 
-    bars20 = [bar for bar in bars if bar.start_ts == 120]
-    bars60 = [bar for bar in bars if bar.start_ts == 120]
-    assert len(bars20) == 1
-    assert len(bars60) == 1
-    assert bars20[0].open == 10
-    assert bars20[0].high == 12
-    assert bars20[0].close == 12
-    assert bars20[0].volume == 5
-    assert bars20[0].trades == 2
+    assert len(bars) == 2
+    bar20 = builder.get("AAPL", 20)
+    bar60 = builder.get("AAPL", 60)
+    assert bar20 is not None
+    assert bar60 is not None
+    for bar in (bar20, bar60):
+        assert bar.start_ts == 120
+        assert bar.open == 10
+        assert bar.high == 12
+        assert bar.close == 12
+        assert bar.volume == 5
+        assert bar.trades == 2
 
 
 def test_data_health_reports_live_events():
