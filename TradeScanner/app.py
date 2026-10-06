@@ -2589,19 +2589,12 @@ class ServicioScanner:
             except Exception as _e_mv:
                 print(f"⚠️ Motor de velas no pudo iniciar: {_e_mv}")
 
-        # Bot LONG: se carga de forma tolerante para que un fallo del componente
-        # experimental del robot NO derribe la pagina completa del scanner.
+        # ROBOT LONG/SHORT SEPARADO:
+        # El scanner principal NO inicializa ni arranca BotLongRealtime.
+        # El robot tiene su propia pagina/proceso para no poder dejar la caratula
+        # del scanner en blanco si el componente experimental falla o se bloquea.
         self.bot_long = None
-        self.bot_long_error = None
-        try:
-            if self.motor_velas is None:
-                raise RuntimeError("motor de velas no disponible")
-            from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
-            self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
-            self.bot_long.iniciar()
-        except Exception as exc:
-            self.bot_long_error = str(exc)
-            print(f"⚠️ Bot LONG no pudo iniciar: {exc}")
+        self.bot_long_error = "Robot LONG separado de la pagina principal";
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
