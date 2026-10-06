@@ -2678,7 +2678,25 @@ class ServicioScanner:
                 lista.append(tf)
         # Liberar memoria de temporalidades que nadie usa desde hace rato.
         for tf in list(self.tfs_activos.keys()):
-            if tf not in lista and ahora - self.tfs_activos.get(tf, 0) > VIGENCIA_TIMEFRAME_ACTIVO:
+            # Una temporalidad vieja/corrupta no debe abortar el ciclo completo.
+            # En versiones anteriores el timestamp podía quedar en None y producir:
+            # "'>' not supported between instances of 'NoneType' and 'float'".
+            _ts_tf = self.tfs_activos.get(tf)
+            if _ts_tf is None:
+                self.tfs_activos.pop(tf, None)
+                self.resultados_por_tf.pop(tf, None)
+                self.diag_por_tf.pop(tf, None)
+                self.cache_tecnico_por_tf.pop(tf, None)
+                self.cache_ema_extra_por_tf.pop(tf, None)
+                self._raw_prev_por_tf.pop(tf, None)
+                self.filtros_por_tf.pop(tf, None)
+                continue
+            try:
+                _ts_tf = float(_ts_tf)
+            except (TypeError, ValueError):
+                self.tfs_activos.pop(tf, None)
+                continue
+            if tf not in lista and ahora - _ts_tf > VIGENCIA_TIMEFRAME_ACTIVO:
                 self.tfs_activos.pop(tf, None)
                 self.resultados_por_tf.pop(tf, None)
                 self.diag_por_tf.pop(tf, None)
