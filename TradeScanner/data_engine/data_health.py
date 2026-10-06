@@ -33,6 +33,7 @@ class DataHealth:
 
     def mark_quote(self, symbol: str) -> None:
         with self._lock:
+            self.connected = True
             self.quotes += 1
             self.last_event_ts = time.time()
             if symbol:
@@ -40,6 +41,7 @@ class DataHealth:
 
     def mark_trade(self, symbol: str) -> None:
         with self._lock:
+            self.connected = True
             self.trades += 1
             self.last_event_ts = time.time()
             if symbol:
