@@ -5102,7 +5102,12 @@ def _render_scanner():
     h += "@media(max-width:640px){.main-container{width:100%;padding:0 3px 8px;}.topbar{display:flex;flex-direction:column;min-height:78px;padding:7px 6px;}.brand{width:100%;text-align:center;font-size:18px;}.top-actions{width:100%;justify-content:center;}.status-line{width:100%;}.tabs{height:auto;overflow-x:auto;}.tab{min-width:82px;}.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.filtro-item{height:32px;min-height:32px;}.table-wrapper{overflow-x:auto;}.table-wrapper table{min-width:930px;}}";
     h += "</style>";
     h += "</style>"
-    h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
+    h += "@media(max-width:1100px){.main-container{width:calc(100% - 24px);}.filtros-grid{grid-template-columns:repeat(4,minmax(0,1fr));}.tab{min-width:82px;padding-left:7px;padding-right:7px;}}";
+    h += "@media(max-width:900px){.main-container{width:100%;padding:0 3px 8px;}.filtros-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.brand{font-size:18px;}}";
+    h += "@media(max-width:640px){.main-container{width:100%;padding:0 3px 8px;}.topbar{display:flex;flex-direction:column;min-height:78px;padding:7px 6px;}.brand{width:100%;text-align:center;font-size:18px;}.top-actions{width:100%;justify-content:center;}.status-line{width:100%;}.tabs{height:auto;overflow-x:auto;}.tab{min-width:82px;}.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.filtro-item{height:32px;min-height:32px;}.table-wrapper{overflow-x:auto;}.table-wrapper table{min-width:930px;}}";
+    h += "</style>";
+    h += "</style>"
+    h += "<script>window.addEventListener('load',function(){try{window.scrollTo(0,0);window.parent.scrollTo(0,0);}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
     h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
     h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
