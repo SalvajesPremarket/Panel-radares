@@ -5316,7 +5316,6 @@ def _render_scanner():
                f"<b>Tiempo real:</b> {'🟢 CONECTADO' if (_m1.get('live_data') or {}).get('connected') else '🔴 SIN EVENTOS'} · <b>Feed:</b> {_safe_text((_m1.get('live_data') or {}).get('feed','')) or '—'} · <b>Quotes:</b> {int((_m1.get('live_data') or {}).get('quotes',0))} · <b>Trades:</b> {int((_m1.get('live_data') or {}).get('trades',0))} · <b>Símbolos:</b> {int((_m1.get('live_data') or {}).get('symbols_seen',0))} · <b>Errores WS:</b> {int((_m1.get('live_data') or {}).get('errors',0))}</div></div>")
 
     h += "<div class='filtros-grid'>"
-    h += "<div class='logo'>TRADE SCANNER</div>"
     # (El selector de REFRESH vive solo en la barra nativa superior; antes estaba duplicado aqui.)
     if PUBLIC_PREVIEW:
         h += "<div class='filtro-item'><label>MOTOR</label><select disabled><option>👀 SOLO LECTURA</option></select></div>"
@@ -5598,7 +5597,7 @@ def _render_scanner():
                 st.session_state[_k_nat] = _obj
 
     st.markdown("""<style>
-    .st-key-ts_filter_native{position:relative !important;height:0 !important;min-height:0 !important;z-index:80 !important;pointer-events:none !important;}
+    .st-key-ts_filter_native{display:none !important;}
     .st-key-ts_filter_native > div{position:relative !important;top:82px !important;pointer-events:auto !important;margin:0 !important;}
     .st-key-ts_filter_native [data-testid="stHorizontalBlock"]{justify-content:center !important;align-items:center !important;gap:4px !important;flex-wrap:nowrap !important;}
     .st-key-ts_filter_native [data-testid="stNumberInput"]{width:72px !important;min-width:72px !important;}
