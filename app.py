@@ -2469,7 +2469,7 @@ class ServicioScanner:
         self.hora_inicio_auto_min, self.hora_fin_auto_min = cargar_horario_guardado()
         self.resultados = []
         self.ultima_actualizacion = None
-        self.duracion_ciclo = None
+        self.duracion_ciclo = 0.0
         self.ultimo_error = None
         self.n_radar_base = 0
         self.universo = []
@@ -3071,7 +3071,7 @@ class ServicioScanner:
 
     def _float_yahoo(self, ticker):
         """Respaldo 1: floatShares de Yahoo Finance (yfinance). No es oficial: puede fallar o limitar."""
-        if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
+        if float(getattr(self, "_yahoo_pausado_hasta", 0) or 0) > time.time():
             return None
         try:
             import yfinance as yf
@@ -3107,7 +3107,7 @@ class ServicioScanner:
         clave = getattr(self, "finnhub_api_key", None)
         if not clave:
             return None
-        if getattr(self, "_finnhub_pausado_hasta", 0) > time.time():
+        if float(getattr(self, "_finnhub_pausado_hasta", 0) or 0) > time.time():
             return None
         try:
             espera = getattr(self, "_finnhub_ultima", 0.0) + 1.1 - time.time()
@@ -5654,75 +5654,6 @@ def _render_scanner():
         _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
     else:
         st.iframe(h, height=900)
-
-    # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
-    # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
-    try:
-        _dg = dict(getattr(servicio, "diagnostico_filtros", {}) or {})
-        with st.expander("🔎 Diagnóstico del escaneo (embudo)", expanded=False):
-            if not _dg:
-                st.caption("Aún no hay un ciclo de escaneo completado.")
-            else:
-                _etiquetas = [
-                    ("radar_base", "1. Acciones en el radar base (precio/volumen del mercado)"),
-                    ("enviados_tecnico", "2. Enviadas a análisis técnico"),
-                    ("con_40_barras", "3. Con suficientes velas (40+) para calcular"),
-                    ("ema_calculable", "4. EMA calculable"),
-                    ("macd_calculable", "5. MACD calculable"),
-                    ("tras_float", "6. Después del filtro de flotación"),
-                    ("float_sin_dato", "   · descartadas por flotación sin dato"),
-                    ("float_excede", "   · descartadas por flotación mayor al máximo"),
-                    ("tras_gap_volumen", "7. Después de gap / volumen relativo"),
-                    ("ema_arriba", "8. Con EMA en la condición pedida"),
-                    ("macd_positivo", "9. Con MACD positivo"),
-                    ("ema_y_macd", "10. Cumplen EMA y MACD a la vez"),
-                    ("resultados", "RESULTADO FINAL (lo que ves en la tabla)"),
-                ]
-                _filas = [{"Paso": _t, "Cantidad": _dg.get(_k, "—")} for _k, _t in _etiquetas if _k in _dg]
-                st.table(_filas)
-                st.caption(
-                    f"Temporalidad: {_dg.get('timeframe', '—')} · Sesión: {_dg.get('sesion', '—')} · "
-                    f"Gap aplicado: {_dg.get('gap_min', '—')}% a {_dg.get('gap_max', '—')}%"
-                )
-                try:
-                    _cf = list(getattr(servicio, "cache_fund", {}).items())
-                    _meta_f = dict(getattr(servicio, "cache_fund", {}).get("__bulk_meta__", {}) or {})
-                    _con_float = sum(1 for _k, _v in _cf if not str(_k).startswith("__") and isinstance(_v, dict) and _v.get("float") is not None)
-                    _hace = (time.time() - float(_meta_f.get("ts", 0))) / 60 if _meta_f.get("ts") else None
-                    _pausa = float(getattr(servicio, "fmp_pausado_hasta", 0) or 0) - time.time()
-                    st.caption(
-                        f"FMP (flotación): clave configurada: {'sí' if getattr(servicio, 'fmp_api_key', None) else 'NO'} · "
-                        f"tickers con flotación en caché: {_con_float} · "
-                        f"última carga masiva: {'nunca' if _hace is None else f'hace {_hace:.0f} min'} "
-                        f"(páginas: {_meta_f.get('paginas', '—')}, encontrados: {_meta_f.get('encontrados', '—')}) · "
-                        f"pausa por límite: {'sí, ' + str(int(_pausa)) + ' s' if _pausa > 0 else 'no'}"
-                    )
-                    _fuentes = {}
-                    _solo_circ = 0
-                    for _k, _v in _cf:
-                        if str(_k).startswith("__") or not isinstance(_v, dict):
-                            continue
-                        if _v.get("float") is not None:
-                            _s = str(_v.get("float_source", "FMP"))
-                            _fuentes[_s] = _fuentes.get(_s, 0) + 1
-                        elif _v.get("outstanding") is not None:
-                            _solo_circ += 1
-                    st.caption(
-                        "Flotación por fuente: "
-                        + (" · ".join(f"{k}: {n}" for k, n in sorted(_fuentes.items())) or "ninguna aún")
-                        + f" · solo acciones en circulación (Finnhub): {_solo_circ}"
-                        + f" · Yahoo: {getattr(servicio, '_yahoo_estado', 'sin usar')}"
-                        + f" · Finnhub: {'clave sí' if getattr(servicio, 'finnhub_api_key', None) else 'SIN clave'}"
-                        + (f" ({getattr(servicio, '_finnhub_estado', '')})" if getattr(servicio, '_finnhub_estado', '') else "")
-                    )
-                except Exception as _e_fmp:
-                    st.caption(f"FMP: estado no disponible ({_e_fmp})")
-                _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
-                if _err:
-                    st.warning(f"Último error del motor: {_err}")
-    except Exception as _e_dg:
-        print(f"⚠️ Panel de diagnóstico no disponible: {_e_dg}")
-
 
 # El temporizador se mantiene FUERA del iframe.
 # No navega el navegador ni modifica window.location desde el iframe.
