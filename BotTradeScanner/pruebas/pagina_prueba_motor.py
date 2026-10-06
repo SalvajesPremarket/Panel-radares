@@ -24,6 +24,9 @@ import streamlit as st
 from threading import Thread
 from datetime import datetime, timezone
 import time
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from BotTradeScanner.motor_velas.motor_velas import MotorVelas
 
 st.set_page_config(page_title="Prueba - Motor de Velas", layout="wide")
