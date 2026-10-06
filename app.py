@@ -5133,8 +5133,6 @@ def _render_scanner():
     h += ".logo{height:auto!important;min-height:34px!important;}";
     h += "}";
     h += "</style>";
-    h += "<style>";
-
     h += "<script>window.addEventListener('load',function(){try{window.scrollTo(0,0);window.parent.scrollTo(0,0);}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
     h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
