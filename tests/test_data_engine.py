@@ -102,4 +102,5 @@ def test_alpaca_market_stream_start_update_and_stop(monkeypatch):
 
     stream.stop()
     assert fake.stopped is True
+    assert stream.health_snapshot()["feed"] == "iex"
     assert stream.health_snapshot()["errors"] == 0
