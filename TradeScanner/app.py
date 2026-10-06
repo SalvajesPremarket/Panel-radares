@@ -5795,25 +5795,17 @@ def _render_scanner():
     )
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
-    # Render estable del Scanner: usamos el componente V1 que ya existe en este
-    # archivo y que fue diseñado especificamente para recibir HTML completo.
-    # NO toca el motor, autenticacion, proveedores ni la logica de resultados.
+    # Render directo del documento HTML del Scanner.
+    # El componente V1 queda fuera del camino para evitar el contenedor
+    # intermedio que está dejando la pantalla en blanco.
     _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
-    _ts_log("dibujando componente HTML del scanner")
+    _ts_log("dibujando HTML directo del scanner")
     try:
-        if _ts_scanner_ui is not None:
-            _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui")
-        else:
-            import streamlit.components.v1 as _stc_render
-            _stc_render.html(h, height=900, scrolling=True)
-    except Exception as _e_comp_render:
-        print(f"⚠️ componente del scanner no pudo dibujar: {_e_comp_render}", flush=True)
-        try:
-            import streamlit.components.v1 as _stc_render_fb
-            _stc_render_fb.html(h, height=900, scrolling=True)
-        except Exception as _e_ifr2:
-            print(f"⚠️ components.html tampoco pudo dibujar el scanner: {_e_ifr2}", flush=True)
-            st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
+        import streamlit.components.v1 as _stc_render
+        _stc_render.html(h, height=900, scrolling=True)
+    except Exception as _e_render:
+        print(f"⚠️ render HTML directo fallo: {_e_render}", flush=True)
+        st.error(f"No se pudo dibujar el scanner: {_e_render}")
 
     # ================================================================
 # El temporizador se mantiene FUERA del iframe.
