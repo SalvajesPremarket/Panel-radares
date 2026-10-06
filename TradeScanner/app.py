@@ -5815,6 +5815,18 @@ def _render_scanner():
             st.session_state["_ts_iframe_html"] = h
     except Exception:
         pass
+    _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
+    _ts_log("dibujando iframe del scanner")
+    try:
+        st.iframe(h, height=900)
+    except Exception as _e_ifr:
+        print(f"⚠️ st.iframe no disponible, uso components.html: {_e_ifr}")
+        try:
+            import streamlit.components.v1 as _stc_fb
+            _stc_fb.html(h, height=900, scrolling=True)
+        except Exception as _e_ifr2:
+            st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
+
     # ================================================================
 # El temporizador se mantiene FUERA del iframe.
 # No navega el navegador ni modifica window.location desde el iframe.
