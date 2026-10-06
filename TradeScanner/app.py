@@ -15,6 +15,16 @@ def _ts_checkpoint(n, msg):
         _st_cp.stop()
 
 
+
+
+def _ts_log(msg):
+    """Línea de log con hora para seguir el flujo en 'Manage app' (sin datos personales)."""
+    try:
+        import time as _tm
+        print(f"[TS {_tm.strftime('%H:%M:%S')}] {msg}", flush=True)
+    except Exception:
+        pass
+
 _ts_checkpoint(1, "inicio del archivo (antes de importar nada pesado)")
 
 import sys
@@ -1378,7 +1388,9 @@ def pantalla_autenticacion():
             if nueva_password != repetir_password:
                 st.error("❌ Las contraseñas no coinciden.")
             else:
+                _ts_log("registro: llamando a Supabase")
                 data, error = registrar_usuario(nuevo_email, nueva_password)
+                _ts_log(f"registro: respuesta recibida (error={bool(error)})")
 
                 if error:
                     st.error(f"❌ {error}")
@@ -1545,6 +1557,7 @@ if AUTH_REQUESTED:
 # autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
 # Esto evita que la restauración automática bloquee el botón de acceso.
 if st.session_state.get("mostrar_auth"):
+    _ts_log("mostrando pantalla de autenticación")
     pantalla_autenticacion()
     st.stop()
 
@@ -5640,9 +5653,11 @@ def _render_scanner():
 
     # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
     def _ts_abrir_auth():
+        _ts_log("botón REGISTRO / INICIAR SESIÓN pulsado")
         st.session_state["mostrar_auth"] = True
 
     def _ts_salir():
+        _ts_log("botón SALIR pulsado")
         cerrar_sesion()
         st.session_state.pop("_ts_query_elegida", None)
         st.session_state.pop("_ts_u_visto", None)
@@ -6359,4 +6374,6 @@ _sincronizar_query_con_sesion()
 # configuración se produce por setComponentValue y el usuario puede refrescar
 # la vista sin reconstruir un iframe activo dentro de un fragmento.
 _ts_checkpoint(4, "listo para dibujar el scanner")
+_ts_log("inicio render del scanner")
 _render_scanner()
+_ts_log("fin render del scanner")
