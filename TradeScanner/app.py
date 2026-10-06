@@ -1,3 +1,32 @@
+# ── PUNTOS DE CONTROL TEMPORALES (diagnóstico de pantalla en blanco) ──
+# Abrir la app con ?test=N muestra un título y se detiene en ese punto.
+import streamlit as _st_cp
+
+
+def _ts_checkpoint(n, msg):
+    _quiere = False
+    try:
+        _quiere = str(_st_cp.query_params.get("test", "")).strip() == str(n)
+    except Exception:
+        pass
+    if _quiere:
+        _st_cp.title(f"✅ Punto {n}: {msg}")
+        _st_cp.write("Si ves esto, el script llegó hasta aquí.")
+        _st_cp.stop()
+
+
+
+
+def _ts_log(msg):
+    """Línea de log con hora para seguir el flujo en 'Manage app' (sin datos personales)."""
+    try:
+        import time as _tm
+        print(f"[TS {_tm.strftime('%H:%M:%S')}] {msg}", flush=True)
+    except Exception:
+        pass
+
+_ts_checkpoint(1, "inicio del archivo (antes de importar nada pesado)")
+
 import sys
 from pathlib import Path
 
@@ -37,7 +66,16 @@ except Exception as _e_motor_import:
     _MOTOR_VELAS_IMPORT_ERROR = f"{type(_e_motor_import).__name__}: {_e_motor_import}"
     print(f"⚠️ No se pudo importar MotorVelasBridge: {_MOTOR_VELAS_IMPORT_ERROR}")
 
+_ts_checkpoint(2, "importaciones terminadas (alpaca, BotTradeScanner)")
+
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
+
+# Modo diagnóstico (temporal): se activa abriendo la app con ?diag=1 y no se ve para nadie más.
+try:
+    if str(st.query_params.get("diag", "")).strip() == "1":
+        st.session_state["_ts_diag"] = True
+except Exception:
+    pass
 
 # Precio y gap viven DENTRO del cuadro gris (iframe). Los controles nativos de afuera quedan apagados.
 _USAR_FILTROS_NATIVOS = False
@@ -1191,11 +1229,10 @@ def pantalla_autenticacion():
     # El acceso de administrador está dentro de la misma pantalla y
     # requiere el token secreto configurado en Streamlit Secrets.
     # No se utiliza una segunda URL ni un parámetro especial de administrador.
-    st.markdown(
-        f'<a href="/" target="_top" '
-        'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-        'color:#e5e9ee;text-decoration:none;background:#20252c;font-size:11px;">← Volver al scanner</a>',
-        unsafe_allow_html=True,
+    st.button(
+        "← Volver al scanner",
+        key="ts_volver_auth",
+        on_click=lambda: st.session_state.update(mostrar_auth=False),
     )
     tab_login, tab_registro, tab_admin = st.tabs(
         ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
@@ -1351,7 +1388,9 @@ def pantalla_autenticacion():
             if nueva_password != repetir_password:
                 st.error("❌ Las contraseñas no coinciden.")
             else:
+                _ts_log("registro: llamando a Supabase")
                 data, error = registrar_usuario(nuevo_email, nueva_password)
+                _ts_log(f"registro: respuesta recibida (error={bool(error)})")
 
                 if error:
                     st.error(f"❌ {error}")
@@ -1415,31 +1454,7 @@ def pantalla_autenticacion():
                 else:
                     st.error("❌ Token no válido. Acceso denegado.")
 
-    return
-
-
-def _ts_auth_href(modo="abrir"):
-    """Construye una navegación de la misma página sin usar callbacks de Streamlit.
-    Se usa para aislar Auth del rerun que desmonta el iframe del scanner.
-    """
-    try:
-        from urllib.parse import urlencode
-        pares = {}
-        for _k, _v in st.query_params.items():
-            if isinstance(_v, list):
-                if _v:
-                    pares[str(_k)] = str(_v[0])
-            elif _v is not None:
-                pares[str(_k)] = str(_v)
-        pares.pop("logout", None)
-        if modo == "abrir":
-            pares["auth"] = "1"
-        else:
-            pares.pop("auth", None)
-        _qs = urlencode(pares)
-        return "?" + _qs if _qs else "/"
-    except Exception:
-        return "/?auth=1" if modo == "abrir" else "/"
+    st.stop()
 
 
 # =========================================================
@@ -1475,56 +1490,6 @@ def _ts_aplicar_evento_ui():
         print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
 
 
-# Restaurar la identidad persistente ANTES de decidir si debemos mostrar Auth.
-# En un F5 Streamlit crea un st.session_state nuevo; auth_session es la clave
-# para recuperar al usuario antes de entrar al flujo público.
-if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
-    _restaurar_sesion_persistente()
-
-# Estado nativo de autenticación.
-# IMPORTANTE: la autenticación se resuelve ANTES de construir el scanner/robot.
-# Este era el flujo estable de la versión anterior al montaje del robot y evita
-# intentar insertar Auth dentro del mismo árbol que contiene el iframe del scanner.
-if "mostrar_auth" not in st.session_state:
-    st.session_state["mostrar_auth"] = False
-
-# El cierre de sesión se procesa fuera del callback del botón.
-if st.session_state.pop("_ts_logout_requested", False):
-    cerrar_sesion()
-    st.session_state.pop("_ts_query_elegida", None)
-    st.session_state.pop("_ts_u_visto", None)
-    st.session_state["mostrar_auth"] = False
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-
-AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
-LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
-
-if LOGOUT_REQUESTED:
-    cerrar_sesion()
-    st.session_state["mostrar_auth"] = False
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-    st.rerun()
-
-if AUTH_REQUESTED:
-    st.session_state["mostrar_auth"] = True
-    try:
-        st.query_params.pop("auth", None)
-    except Exception:
-        pass
-
-# Si Auth está abierta, no procesamos eventos del iframe, sincronización,
-# motor visual ni robot. Solo dibujamos la autenticación y terminamos el run.
-if st.session_state.get("mostrar_auth"):
-    pantalla_autenticacion()
-    st.stop()
-
-# Desde aquí comienza el flujo normal de la aplicación.
 _ts_aplicar_evento_ui()
 
 PUBLIC_PREVIEW = (
@@ -1560,10 +1525,49 @@ if PUBLIC_PREVIEW:
                 st.query_params.update(_qp_limpio_publico)
     except Exception:
         pass
-PUBLIC_PREVIEW = (
-    "token_verificado" not in st.session_state
-    and "usuario_auth" not in st.session_state
-)
+AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
+LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
+
+# Estado nativo de Streamlit: no depende de iframe, target, window.open ni
+# navegación del navegador.
+if "mostrar_auth" not in st.session_state:
+    st.session_state["mostrar_auth"] = False
+
+if LOGOUT_REQUESTED:
+    cerrar_sesion()
+    st.session_state["mostrar_auth"] = False
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    st.rerun()
+
+# Si llega ?auth=1 desde una versión anterior, se convierte una sola vez al
+# estado nativo y se elimina el parámetro.
+if AUTH_REQUESTED:
+    st.session_state["mostrar_auth"] = True
+    try:
+        st.query_params.pop("auth", None)
+    except Exception:
+        pass
+
+# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
+# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
+# Cuando el usuario pide explícitamente REGISTRO / LOGIN, la pantalla de
+# autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
+# Esto evita que la restauración automática bloquee el botón de acceso.
+if st.session_state.get("mostrar_auth"):
+    _ts_log("mostrando pantalla de autenticación")
+    pantalla_autenticacion()
+    st.stop()
+
+# Restauración normal de sesión solamente cuando no se está mostrando Auth.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+    PUBLIC_PREVIEW = (
+        "token_verificado" not in st.session_state
+        and "usuario_auth" not in st.session_state
+    )
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -2555,13 +2559,6 @@ def filtrar_eventos(eventos, p):
     return salida
 
 
-# Yahoo Finance es solo respaldo. Estos controles son GLOBALES al proceso
-# para que una recreación de ServicioScanner no vuelva a golpear Yahoo después
-# de un 401/403/429 ya detectado.
-_YAHOO_FALLBACK_LOCK = threading.Lock()
-_YAHOO_FALLBACK_PAUSADO_HASTA = 0.0
-_YAHOO_FALLBACK_ULTIMA_PETICION = 0.0
-
 # ==========================================
 # ⚡️ MOTOR COMPARTIDO (un solo hilo para TODOS los usuarios)
 # ==========================================
@@ -2583,18 +2580,37 @@ class ServicioScanner:
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
         self.motor_velas = None
-        if MotorVelasBridge is not None:
+        # Interruptor de prueba: con TS_SIN_MOTOR_VELAS="1" en los Secrets de Streamlit
+        # no se abre la conexión en vivo de Alpaca (útil si da "connection limit exceeded").
+        _sin_motor_velas = False
+        try:
+            _sin_motor_velas = (
+                str(os.environ.get("TS_SIN_MOTOR_VELAS", "")).strip() == "1"
+                or str(st.secrets.get("TS_SIN_MOTOR_VELAS", "")).strip() == "1"
+            )
+        except Exception:
+            pass
+        if _sin_motor_velas:
+            print("[TS] motor de velas en vivo DESACTIVADO por TS_SIN_MOTOR_VELAS=1", flush=True)
+        if MotorVelasBridge is not None and not _sin_motor_velas:
             try:
                 self.motor_velas = MotorVelasBridge(api_key, secret_key)
             except Exception as _e_mv:
                 print(f"⚠️ Motor de velas no pudo iniciar: {_e_mv}")
 
-        # ROBOT LONG/SHORT SEPARADO:
-        # El scanner principal NO inicializa ni arranca BotLongRealtime.
-        # El robot tiene su propia pagina/proceso para no poder dejar la caratula
-        # del scanner en blanco si el componente experimental falla o se bloquea.
+        # Bot LONG: se carga de forma tolerante para que un fallo del componente
+        # experimental del robot NO derribe la pagina completa del scanner.
         self.bot_long = None
-        self.bot_long_error = "Robot LONG separado de la pagina principal";
+        self.bot_long_error = None
+        try:
+            if self.motor_velas is None:
+                raise RuntimeError("motor de velas no disponible")
+            from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
+            self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
+            self.bot_long.iniciar()
+        except Exception as exc:
+            self.bot_long_error = str(exc)
+            print(f"⚠️ Bot LONG no pudo iniciar: {exc}")
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
@@ -3246,9 +3262,53 @@ class ServicioScanner:
             return None
 
     def _float_yahoo(self, ticker):
-        """Yahoo pausado temporalmente: no realiza peticiones externas."""
-        self._yahoo_estado = "desactivado temporalmente"
-        return None
+        """Respaldo 1: floatShares de Yahoo Finance (yfinance).
+        Es opcional y queda serializado para que un 401/crumb no provoque
+        una ráfaga de consultas concurrentes.
+        """
+        with self._lock_yahoo:
+            if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
+                return None
+            try:
+                import yfinance as yf
+            except Exception:
+                self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
+                self._yahoo_pausado_hasta = time.time() + 3600
+                return None
+            try:
+                espera = getattr(self, "_yahoo_ultima", 0.0) + 0.4 - time.time()
+                if espera > 0:
+                    time.sleep(espera)
+                self._yahoo_ultima = time.time()
+                info = yf.Ticker(ticker).info or {}
+                valor = info.get("floatShares")
+                valor = float(valor) if valor not in (None, "", 0) else None
+                if valor is not None and valor <= 0:
+                    valor = None
+                self._yahoo_fallos = 0
+                self._yahoo_estado = "ok"
+                return valor
+            except Exception as e:
+                txt = str(e)
+                self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
+                self._yahoo_estado = f"error: {txt[:80]}"
+                _txt_lower = txt.lower()
+                _auth_yahoo = (
+                    "401" in _txt_lower
+                    or "403" in _txt_lower
+                    or "invalid crumb" in _txt_lower
+                    or "unable to access this feature" in _txt_lower
+                )
+                if _auth_yahoo:
+                    self._yahoo_pausado_hasta = time.time() + 1800
+                    self._yahoo_fallos = 0
+                    self._yahoo_estado = "pausado 30 min: Yahoo rechazó acceso/crumb"
+                    print(f"⚠️ Yahoo rechazó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
+                elif "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
+                    self._yahoo_pausado_hasta = time.time() + 1800
+                    self._yahoo_fallos = 0
+                    print(f"⚠️ Yahoo limitó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
+                return None
 
     def _circulacion_finnhub(self, ticker):
         """Respaldo 2: acciones en circulacion (Finnhub). La flotacion nunca es mayor que este numero,
@@ -3452,12 +3512,6 @@ class ServicioScanner:
 
     # ---------- Telegram ----------
     def _enviar_telegram(self, texto_tabla):
-        """Telegram pausado temporalmente para estabilizar el scanner.
-        No realiza ninguna petición externa mientras esté desactivado.
-        """
-        self.telegram_estado = "PAUSADO TEMPORALMENTE"
-        self.telegram_ultimo_error = None
-        return
         """Envía/actualiza la señal en el grupo de Telegram.
         El token y el chat_id nunca se muestran en la interfaz.
         """
@@ -4175,6 +4229,7 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
+_ts_checkpoint(3, "motor del scanner creado")
 
 # CONTROL EXCLUSIVO DEL MOTOR CENTRAL: solo una orden proveniente de una sesión
 # que ya fue identificada como ADMIN puede cambiar el motor compartido.
@@ -4224,14 +4279,18 @@ except Exception:
 # Los usuarios normales tienen su propia ventana de visualización.
 servicio.sesion = "TODO EL MERCADO"
 
-# Vigilancia del hilo: solo reiniciar si el hilo realmente murió.
-# No reiniciamos por "stale" durante un F5/rerun: una demora temporal de Alpaca/FMP
-# no significa que el hilo esté muerto y reiniciar aquí puede crear reconexiones,
-# duplicar trabajo y elevar el consumo de CPU de Streamlit Cloud.
+# Vigilancia del hilo: si el hilo se detuvo, la siguiente ejecución lo vuelve a levantar.
 try:
     _hilo_ok = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
-    if not _hilo_ok:
-        print("⚠️ Watchdog: reiniciando hilo del scanner porque está detenido.")
+    _ultima = getattr(servicio, "ultima_actualizacion", None)
+    _stale = False
+    if _ultima is not None:
+        try:
+            _stale = (datetime.now(ET) - _ultima).total_seconds() > 45
+        except Exception:
+            _stale = False
+    if (not _hilo_ok) or (_ultima is not None and _stale and not getattr(servicio, "ultimo_error", None)):
+        print("⚠️ Watchdog: reiniciando hilo del scanner por detención o falta de actualización.")
         servicio.reiniciar_scanner()
 except Exception as _watchdog_error:
     print(f"⚠️ Watchdog del scanner: {_watchdog_error}")
@@ -4722,7 +4781,6 @@ window.addEventListener('load',function(){try{var mc=document.querySelector('.ma
 
 
 def _render_scanner():
-    st.markdown('<div style="padding:6px 10px;background:#20252c;border:1px solid #4a5663;border-radius:6px;color:#cfd6dd;font-size:12px;">SCANNER: render Python activo</div>', unsafe_allow_html=True)
     try:
         servicio._esta_en_horario_automatico()
     except Exception:
@@ -5235,7 +5293,7 @@ def _render_scanner():
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
     h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
-    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.history.replaceState(null,'','/?'+q.toString());}catch(e){}window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;/* Puente nativo: st.iframe con HTML permite acceso same-origin al documento padre. Actualizamos la URL y pulsamos el boton oculto para provocar un rerun de la MISMA sesion. No usamos location.replace como respaldo porque puede volver a montar la app dentro de un iframe o generar la pantalla blanca. */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(brErr){}try{console.warn('TS: no se pudo activar el puente nativo',brErr);}catch(_e){} }catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.history.replaceState(null,'','/?'+q.toString());}catch(e){}window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;try{if(window.parent&&window.parent!==window){var _pb=window.parent.document.querySelectorAll('button');for(var _k=0;_k<_pb.length;_k++){if((_pb[_k].textContent||'').indexOf('TSNAVBRIDGE')>=0){P=window.parent;break;}}}}catch(_ep){}try{u=(P.location.pathname||'/')+'?'+q.toString();}catch(_eu){}/* Puente nativo: st.iframe con HTML permite acceso same-origin al documento padre. Actualizamos la URL y pulsamos el boton oculto para provocar un rerun de la MISMA sesion. No usamos location.replace como respaldo porque puede volver a montar la app dentro de un iframe o generar la pantalla blanca. */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(brErr){}try{console.warn('TS: no se pudo activar el puente nativo');}catch(_e){} }catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
     h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));_guardarUltimaConfiguracion(q);_goto(q);}"
@@ -5605,14 +5663,21 @@ def _render_scanner():
     # segundo marco blanco debajo.
     h = _panel_final
 
-    # ── Controles de cuenta y refresh ──
-    # Auth/Logout usan navegación normal de la misma página. Esto evita que
-    # un callback de Streamlit intente desmontar el iframe grande del scanner
-    # en el mismo rerun que abre/cierra autenticación.
+    # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
+    def _ts_abrir_auth():
+        _ts_log("botón REGISTRO / INICIAR SESIÓN pulsado")
+        st.session_state["mostrar_auth"] = True
+
     def _ts_salir():
-        # Se conserva solo para compatibilidad con sesiones antiguas; el control
-        # visible de SALIR usa un enlace normal y no este callback.
-        st.session_state["_ts_logout_requested"] = True
+        _ts_log("botón SALIR pulsado")
+        cerrar_sesion()
+        st.session_state.pop("_ts_query_elegida", None)
+        st.session_state.pop("_ts_u_visto", None)
+        st.session_state["mostrar_auth"] = False
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
 
     def _ts_cambiar_refresh():
         try:
@@ -5648,37 +5713,16 @@ def _render_scanner():
     )
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
-            st.markdown(
-                f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
-                'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-                'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
-                '📝 REGISTRO / INICIAR SESIÓN</a>',
-                unsafe_allow_html=True,
-            )
+            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
         else:
             _n1, _n3, _n4 = st.columns([1.3, 1, 1])
             with _n1:
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
             with _n3:
-                st.markdown(
-                    f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
-                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
-                    'CUENTA / REGISTRO</a>',
-                    unsafe_allow_html=True,
-                )
+                st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
             with _n4:
-                st.markdown(
-                    '<a href="/?logout=1" target="_top" '
-                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
-                    'SALIR</a>',
-                    unsafe_allow_html=True,
-                )
+                st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
-    # La autenticación se resuelve mediante navegación normal (?auth=1).
-    # Este bloque solo construye la página normal del scanner/robot.
-    
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
     # perteneciendo visualmente al scanner, pero su estado vive en Streamlit
@@ -5860,6 +5904,7 @@ def _render_scanner():
     # normaliza, se guarda en Session State + query params + persistencia por
     # usuario, y solo después se repinta ESTE fragmento. Así el auto-refresh
     # nunca puede resucitar una configuración anterior.
+    _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
     if _TS_COMP_OK and _ts_scanner_ui is not None:
         _ts_nav_result = _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
         try:
@@ -5908,14 +5953,43 @@ def _render_scanner():
         except Exception as _e_ts_nav:
             print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
-        # Renderizado estable del scanner: components.html recibe HTML real.
-        # st.iframe espera una URL y puede dejar la pantalla en blanco cuando
-        # se le entrega directamente el documento HTML completo.
         try:
-            import streamlit.components.v1 as _stc_fb
-            _stc_fb.html(h, height=900, scrolling=True)
-        except Exception as _e_ifr2:
-            st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
+            st.iframe(h, height=900)
+        except Exception as _e_ifr:
+            # st.iframe solo existe en versiones recientes de Streamlit.
+            print(f"⚠️ st.iframe no disponible, uso components.html: {_e_ifr}")
+            try:
+                import streamlit.components.v1 as _stc_fb
+                _stc_fb.html(h, height=900, scrolling=True)
+            except Exception as _e_ifr2:
+                st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
+
+    # ── DIAGNÓSTICO TEMPORAL (solo con ?diag=1) ──
+    if st.session_state.get("_ts_diag"):
+        try:
+            import re as _re_dg
+            st.success("✅ Python llegó hasta el render del scanner.")
+            _h_dbg = _re_dg.sub(r'("auth_session"\s*:\s*)"[^"]*"', r'\1"REDACTADO"', str(h))
+            _h_dbg = _re_dg.sub(r'(var TS_AUTH_SESSION=)"[^"]*"', r'\1"REDACTADO"', _h_dbg)
+            with st.expander("🛠 Diagnóstico del scanner (temporal)", expanded=True):
+                st.write({
+                    "streamlit": getattr(st, "__version__", "?"),
+                    "tiene st.iframe": hasattr(st, "iframe"),
+                    "largo del HTML (caracteres)": len(str(h)),
+                    "componente V1 activo": bool(_TS_COMP_OK),
+                    "error import MotorVelasBridge": _MOTOR_VELAS_IMPORT_ERROR,
+                    "motor de velas creado": getattr(servicio, "motor_velas", None) is not None,
+                    "PUBLIC_PREVIEW": bool(PUBLIC_PREVIEW),
+                })
+                st.download_button(
+                    "⬇️ Descargar HTML del scanner (sin sesión)",
+                    data=_h_dbg.encode("utf-8", "ignore"),
+                    file_name="scanner_debug.html",
+                    mime="text/html",
+                    key="ts_diag_dl",
+                )
+        except Exception as _e_diag:
+            st.warning(f"Diagnóstico no disponible: {_e_diag}")
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
@@ -6311,9 +6385,7 @@ _sincronizar_query_con_sesion()
 # El motor de mercado sigue trabajando en segundo plano; la actualización de
 # configuración se produce por setComponentValue y el usuario puede refrescar
 # la vista sin reconstruir un iframe activo dentro de un fragmento.
-try:
-    _render_scanner()
-except Exception as _e_scanner_top:
-    st.error("ERROR AL CARGAR EL SCANNER")
-    st.exception(_e_scanner_top)
-    print(f"ERROR AL CARGAR EL SCANNER: {type(_e_scanner_top).__name__}: {_e_scanner_top}")
+_ts_checkpoint(4, "listo para dibujar el scanner")
+_ts_log("inicio render del scanner")
+_render_scanner()
+_ts_log("fin render del scanner")
