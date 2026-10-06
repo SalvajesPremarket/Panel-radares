@@ -20,6 +20,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
+from TradeScanner.data_engine import AlpacaMarketStream
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
@@ -2455,6 +2456,12 @@ class ServicioScanner:
 
         self.trading = TradingClient(api_key, secret_key)
         self.data = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
+        _live_feed = str(os.getenv("TS_ALPACA_FEED", "iex") or "iex").strip().lower()
+        try:
+            self._live_max_symbols = max(1, int(os.getenv("TS_WS_MAX_SYMBOLS", "30")))
+        except Exception:
+            self._live_max_symbols = 30
+        self.live_stream = AlpacaMarketStream(api_key, secret_key, feed=_live_feed)
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
@@ -2572,6 +2579,10 @@ class ServicioScanner:
         m["uptime_segundos"] = max(0.0, time.time() - float(m.get("inicio", time.time())))
         m["ciclo_promedio"] = m["duracion_ciclo_total"] / m["ciclos"] if m.get("ciclos") else 0.0
         m["fmp_total"] = m.get("fmp_bulk", 0) + m.get("fmp_individual", 0)
+        try:
+            m["live_data"] = self.live_stream.health_snapshot()
+        except Exception:
+            m["live_data"] = {"connected": False, "errors": 0}
         return m
 
     # ---------- utilidades ----------
@@ -2678,7 +2689,25 @@ class ServicioScanner:
                 lista.append(tf)
         # Liberar memoria de temporalidades que nadie usa desde hace rato.
         for tf in list(self.tfs_activos.keys()):
-            if tf not in lista and ahora - self.tfs_activos.get(tf, 0) > VIGENCIA_TIMEFRAME_ACTIVO:
+            # Una temporalidad vieja/corrupta no debe abortar el ciclo completo.
+            # En versiones anteriores el timestamp podía quedar en None y producir:
+            # "'>' not supported between instances of 'NoneType' and 'float'".
+            _ts_tf = self.tfs_activos.get(tf)
+            if _ts_tf is None:
+                self.tfs_activos.pop(tf, None)
+                self.resultados_por_tf.pop(tf, None)
+                self.diag_por_tf.pop(tf, None)
+                self.cache_tecnico_por_tf.pop(tf, None)
+                self.cache_ema_extra_por_tf.pop(tf, None)
+                self._raw_prev_por_tf.pop(tf, None)
+                self.filtros_por_tf.pop(tf, None)
+                continue
+            try:
+                _ts_tf = float(_ts_tf)
+            except (TypeError, ValueError):
+                self.tfs_activos.pop(tf, None)
+                continue
+            if tf not in lista and ahora - _ts_tf > VIGENCIA_TIMEFRAME_ACTIVO:
                 self.tfs_activos.pop(tf, None)
                 self.resultados_por_tf.pop(tf, None)
                 self.diag_por_tf.pop(tf, None)
@@ -2739,6 +2768,10 @@ class ServicioScanner:
         with self._lock_reinicio:
             hilo_anterior = self._hilo
             self._detener_hilo.set()
+            try:
+                self.live_stream.stop()
+            except Exception:
+                pass
 
             # Espera brevemente a que el hilo anterior termine su ciclo actual.
             if hilo_anterior is not None and hilo_anterior.is_alive() and hilo_anterior is not threading.current_thread():
@@ -3542,6 +3575,24 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         except Exception as ex:
             print(f"⚠️ Error en PRUEBA 6: {ex}")
 
+    def _actualizar_stream_tiempo_real(self, tickers):
+        """Mantiene una sola conexión viva y sigue solo candidatos relevantes."""
+        try:
+            candidatos = []
+            vistos = set()
+            for ticker in tickers or []:
+                t = str(ticker or "").strip().upper()
+                if t and t not in vistos:
+                    vistos.add(t)
+                    candidatos.append(t)
+                if len(candidatos) >= self._live_max_symbols:
+                    break
+            if candidatos:
+                self.live_stream.start(candidatos)
+        except Exception as exc:
+            self.ultimo_error = f"Alpaca WebSocket: {exc}"
+            print(f"⚠️ Error actualizando stream Alpaca: {exc}")
+
     # ---------- ciclo principal ----------
     def _ciclo(self, tf=None, snapshots_pre=None):
         inicio = time.monotonic(); self._metrica_sumar("ciclos")
@@ -3647,9 +3698,31 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "precio": precio,
                 "cambio_pct": cambio,
                 "gap_pct": gap_pct,
+                "_cierre_prev": cierre_prev,
                 "volumen_dia": volumen_dia,
                 "actualizado": snap.latest_trade.timestamp,
             })
+
+        # Si ya existe precio vivo, sustituimos el último snapshot por ese valor.
+        # Esto permite que los siguientes ciclos trabajen con el WebSocket sin cambiar la UI.
+        for c in base:
+            try:
+                live = self.live_stream.cache.trade(c["ticker"])
+                live_price = live.get("price") if live else None
+                if live_price is None:
+                    q = self.live_stream.cache.quote(c["ticker"])
+                    bid = q.get("bid") if q else None
+                    ask = q.get("ask") if q else None
+                    if bid is not None and ask is not None:
+                        live_price = (float(bid) + float(ask)) / 2.0
+                live_price = float(live_price) if live_price is not None else None
+                if live_price is not None and live_price > 0:
+                    c["precio"] = live_price
+                    cierre_ref = c.get("_cierre_prev")
+                    if cierre_ref is not None and float(cierre_ref) > 0:
+                        c["cambio_pct"] = ((live_price - float(cierre_ref)) / float(cierre_ref)) * 100.0
+            except Exception:
+                pass
 
         # Primero aplicamos SOLO los filtros baratos y disponibles en Alpaca.
         # IMPORTANTE: NO pedimos FLOAT aquí. FMP solo entrega aproximadamente
@@ -3684,6 +3757,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # EMA/MACD se calculan ANTES del float. Así FMP se usa únicamente
         # sobre candidatos técnicos reales y no sobre cientos de tickers.
         tickers_enr = [c["ticker"] for c in radar_gap]
+        self._actualizar_stream_tiempo_real(tickers_enr)
         self._asegurar_tecnico(tickers_enr, tf)
 
         for c in radar_gap:
