@@ -5849,16 +5849,13 @@ def _render_scanner():
         except Exception as _e_ts_nav:
             print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
+        # Render estable del scanner: h es HTML, no una URL. st.iframe(h) lo
+        # interpreta como src y puede dejar la pantalla completamente blanca.
         try:
-            st.iframe(h, height=900)
+            import streamlit.components.v1 as _stc_fb
+            _stc_fb.html(h, height=900, scrolling=True)
         except Exception as _e_ifr:
-            # st.iframe solo existe en versiones recientes de Streamlit.
-            print(f"⚠️ st.iframe no disponible, uso components.html: {_e_ifr}")
-            try:
-                import streamlit.components.v1 as _stc_fb
-                _stc_fb.html(h, height=900, scrolling=True)
-            except Exception as _e_ifr2:
-                st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
+            st.error(f"No se pudo dibujar el scanner: {_e_ifr}")
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
