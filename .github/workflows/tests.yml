@@ -34,7 +34,7 @@ jobs:
 
       - name: Run TradeScanner data engine tests
         run: |
-          pytest tests/test_data_engine.py -q
+          pytest tests/test_data_engine.py -vv --tb=long
 
       - name: Smoke check Streamlit entrypoints
         run: |
