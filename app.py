@@ -3698,6 +3698,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "precio": precio,
                 "cambio_pct": cambio,
                 "gap_pct": gap_pct,
+                "_cierre_prev": cierre_prev,
                 "volumen_dia": volumen_dia,
                 "actualizado": snap.latest_trade.timestamp,
             })
@@ -3717,14 +3718,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 live_price = float(live_price) if live_price is not None else None
                 if live_price is not None and live_price > 0:
                     c["precio"] = live_price
-                    prev = float(c.get("precio") or live_price)
-                    # El cambio relativo se recalcula contra el cierre previo
-                    # que ya fue obtenido por REST.
-                    if c.get("cambio_pct") is not None and prev > 0:
-                        # Recuperamos el cierre implícito del snapshot original.
-                        c["cambio_pct"] = float(c["cambio_pct"]) + (
-                            (live_price - prev) / prev * 100.0
-                        )
+                    cierre_ref = c.get("_cierre_prev")
+                    if cierre_ref is not None and float(cierre_ref) > 0:
+                        c["cambio_pct"] = ((live_price - float(cierre_ref)) / float(cierre_ref)) * 100.0
             except Exception:
                 pass
 
