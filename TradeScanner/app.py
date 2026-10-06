@@ -2580,7 +2580,19 @@ class ServicioScanner:
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
         self.motor_velas = None
-        if MotorVelasBridge is not None:
+        # Interruptor de prueba: con TS_SIN_MOTOR_VELAS="1" en los Secrets de Streamlit
+        # no se abre la conexión en vivo de Alpaca (útil si da "connection limit exceeded").
+        _sin_motor_velas = False
+        try:
+            _sin_motor_velas = (
+                str(os.environ.get("TS_SIN_MOTOR_VELAS", "")).strip() == "1"
+                or str(st.secrets.get("TS_SIN_MOTOR_VELAS", "")).strip() == "1"
+            )
+        except Exception:
+            pass
+        if _sin_motor_velas:
+            print("[TS] motor de velas en vivo DESACTIVADO por TS_SIN_MOTOR_VELAS=1", flush=True)
+        if MotorVelasBridge is not None and not _sin_motor_velas:
             try:
                 self.motor_velas = MotorVelasBridge(api_key, secret_key)
             except Exception as _e_mv:
