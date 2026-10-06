@@ -39,12 +39,16 @@ st.caption(
     "la lógica de compra/venta."
 )
 
-ALPACA_API_KEY = st.secrets.get("ALPACA_API_KEY")
-ALPACA_SECRET_KEY = st.secrets.get("ALPACA_SECRET_KEY")
+# Esta app de prueba NO debe compartir las llaves del scanner principal.
+# Alpaca Basic normalmente permite una sola conexión WebSocket por cuenta.
+# Para evitar que la página de prueba robe la conexión del TradeScanner,
+# requiere llaves separadas explícitas.
+ALPACA_API_KEY = st.secrets.get("ALPACA_TEST_API_KEY")
+ALPACA_SECRET_KEY = st.secrets.get("ALPACA_TEST_SECRET_KEY")
 
 if not ALPACA_API_KEY or not ALPACA_SECRET_KEY:
-    st.error("🔴 Faltan ALPACA_API_KEY y/o ALPACA_SECRET_KEY en Streamlit Secrets.")
-    st.info("Esta página es solo una prueba visual independiente. El robot integrado se aprecia en la página principal del TradeScanner.")
+    st.warning("🟡 Prueba del motor desactivada: configura ALPACA_TEST_API_KEY y ALPACA_TEST_SECRET_KEY si quieres usar esta página de forma independiente.")
+    st.info("El motor integrado del TradeScanner usa las llaves principales y debe conservar la única conexión de market-data.")
     st.stop()
 
 
