@@ -5447,7 +5447,7 @@ def _render_scanner():
     # aparecía vacío. Ahora todo comparte el mismo DOM y CSS.
     _h_a = h + "</div></body></html>"
 
-    h = _head_html + "<div class='main-container'>" + _status_line_html
+    h = _head_html + "<div class='main-container'><div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div></div>" + _status_line_html
     # El diagnóstico del embudo permanece interno en el motor.
     # No se muestra como texto fijo antes de RESULTADOS.
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
