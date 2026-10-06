@@ -115,10 +115,13 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
     // componente y puede actualizar el mismo iframe sin pantalla blanca.
     if(!current){
       var f=document.createElement('iframe');
-      f.__html=lastHtml;
       try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
       current=f;
       wrap.appendChild(f);
+      f.__html=lastHtml;
+      try{f.srcdoc=lastHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(lastHtml);}
+      f.style.visibility='visible';
+      return;
     }
     if(current.__html===lastHtml){
       current.style.visibility='visible';
