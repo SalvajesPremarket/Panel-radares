@@ -5792,41 +5792,21 @@ def _render_scanner():
     )
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
-    # Todo el scanner se renderiza en un único iframe.
-    # st.iframe es el reemplazo actual de components.v1.html y conserva
-    # HTML/JavaScript inline con acceso same-origin, que este puente necesita.
-    # Anti-parpadeo: si lo unico que cambio es el reloj o el "ultimo escaneo", se reutiliza el
-    # mismo HTML y el iframe NO se recarga. Si cambian filtros o resultados, se actualiza normal.
-    try:
-        import re as _re_ifr
-        _h_key = h
-        for _vol in (str(fecha_hora_actual), str(_ultima_scan_txt)):
-            if _vol:
-                _h_key = _h_key.replace(_vol, "")
-        _h_key = _re_ifr.sub(r'"_(?:u|ts)":\s*"\d+"', "", _h_key)
-        # No invalidar el iframe por el paso del minuto: el reloj y el último
-        # escaneo ya se excluyeron arriba. Solo un cambio real del contenido
-        # debe reconstruir la carátula y su DOM/JavaScript.
-        _clave_ifr = hashlib.md5(_h_key.encode("utf-8", "ignore")).hexdigest()
-        if st.session_state.get("_ts_iframe_clave") == _clave_ifr and st.session_state.get("_ts_iframe_html"):
-            h = st.session_state["_ts_iframe_html"]
-        else:
-            st.session_state["_ts_iframe_clave"] = _clave_ifr
-            st.session_state["_ts_iframe_html"] = h
-    except Exception:
-        pass
+    # Todo el scanner se dibuja directamente en un unico iframe.
+    # Importante durante el diagnostico: NO reutilizamos HTML cacheado entre reruns.
+    # Asi, despues de un refresh Streamlit siempre recibe un documento nuevo y
+    # no puede quedarse con una instancia visual vacia anterior.
     _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
     _ts_log("dibujando iframe del scanner")
     try:
-        # Render estable del cuadro principal. components.html se usa como
-        # contenedor primario para evitar que un refresh deje st.iframe en blanco.
-        import streamlit.components.v1 as _stc_render
-        _stc_render.html(h, height=900, scrolling=True)
+        st.iframe(h, height=900)
     except Exception as _e_ifr:
-        print(f"⚠️ components.html no pudo dibujar el scanner: {_e_ifr}")
+        print(f"⚠️ st.iframe no pudo dibujar el scanner: {_e_ifr}", flush=True)
         try:
-            st.iframe(h, height=900)
+            import streamlit.components.v1 as _stc_render
+            _stc_render.html(h, height=900, scrolling=True)
         except Exception as _e_ifr2:
+            print(f"⚠️ components.html tampoco pudo dibujar el scanner: {_e_ifr2}", flush=True)
             st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
 
     # ================================================================
