@@ -4729,6 +4729,7 @@ window.addEventListener('load',function(){try{var mc=document.querySelector('.ma
 
 
 def _render_scanner():
+    st.markdown('<div style="padding:6px 10px;background:#20252c;border:1px solid #4a5663;border-radius:6px;color:#cfd6dd;font-size:12px;">SCANNER: render Python activo</div>', unsafe_allow_html=True)
     try:
         servicio._esta_en_horario_automatico()
     except Exception:
