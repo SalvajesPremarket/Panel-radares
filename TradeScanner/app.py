@@ -1,3 +1,22 @@
+# ── PUNTOS DE CONTROL TEMPORALES (diagnóstico de pantalla en blanco) ──
+# Abrir la app con ?test=N muestra un título y se detiene en ese punto.
+import streamlit as _st_cp
+
+
+def _ts_checkpoint(n, msg):
+    _quiere = False
+    try:
+        _quiere = str(_st_cp.query_params.get("test", "")).strip() == str(n)
+    except Exception:
+        pass
+    if _quiere:
+        _st_cp.title(f"✅ Punto {n}: {msg}")
+        _st_cp.write("Si ves esto, el script llegó hasta aquí.")
+        _st_cp.stop()
+
+
+_ts_checkpoint(1, "inicio del archivo (antes de importar nada pesado)")
+
 import sys
 from pathlib import Path
 
@@ -36,6 +55,8 @@ except Exception as _e_motor_import:
     MotorVelasBridge = None
     _MOTOR_VELAS_IMPORT_ERROR = f"{type(_e_motor_import).__name__}: {_e_motor_import}"
     print(f"⚠️ No se pudo importar MotorVelasBridge: {_MOTOR_VELAS_IMPORT_ERROR}")
+
+_ts_checkpoint(2, "importaciones terminadas (alpaca, BotTradeScanner)")
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
@@ -4183,6 +4204,7 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
+_ts_checkpoint(3, "motor del scanner creado")
 
 # CONTROL EXCLUSIVO DEL MOTOR CENTRAL: solo una orden proveniente de una sesión
 # que ya fue identificada como ADMIN puede cambiar el motor compartido.
@@ -5855,6 +5877,7 @@ def _render_scanner():
     # normaliza, se guarda en Session State + query params + persistencia por
     # usuario, y solo después se repinta ESTE fragmento. Así el auto-refresh
     # nunca puede resucitar una configuración anterior.
+    _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
     if _TS_COMP_OK and _ts_scanner_ui is not None:
         _ts_nav_result = _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
         try:
@@ -6335,4 +6358,5 @@ _sincronizar_query_con_sesion()
 # El motor de mercado sigue trabajando en segundo plano; la actualización de
 # configuración se produce por setComponentValue y el usuario puede refrescar
 # la vista sin reconstruir un iframe activo dentro de un fragmento.
+_ts_checkpoint(4, "listo para dibujar el scanner")
 _render_scanner()
