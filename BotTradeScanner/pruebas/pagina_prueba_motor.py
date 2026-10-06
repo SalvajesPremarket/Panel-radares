@@ -137,9 +137,15 @@ if st.session_state.ticker_conectado:
             f"Esperando la primera operación de {st.session_state.ticker_conectado}... "
             "si el mercado está cerrado, esto puede tardar."
         )
-    else:
-        va = snap["vela_actual"]
-        vp = snap["vela_anterior"]
+        else:
+        va = snap.get("vela_actual")
+        vp = snap.get("vela_anterior")
+
+        if va is None:
+            st.info(
+                f"Esperando la primera operación de {st.session_state.ticker_conectado}..."
+            )
+            st.stop()
 
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Tramo actual", f"{snap['tramo_actual']} de 3")
