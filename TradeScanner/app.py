@@ -1,32 +1,9 @@
 import sys
 from pathlib import Path
 
-import streamlit as st
-
-st.set_page_config(page_title="Scanner Pre Market", layout="wide")
-st.markdown('<div style="padding:6px 10px;background:#243447;border:1px solid #5b7ea3;border-radius:6px;color:#e8f1f8;font-size:12px;">SCANNER: arranque del modulo OK</div>', unsafe_allow_html=True)
-
-# ── PUNTOS DE CONTROL TEMPORALES (diagnóstico de pantalla en blanco) ──
-def _ts_checkpoint(n, msg):
-    _quiere = False
-    try:
-        _quiere = str(st.query_params.get("test", "")).strip() == str(n)
-    except Exception:
-        pass
-    if _quiere:
-        st.title(f"✅ Punto {n}: {msg}")
-        st.write("Si ves esto, el script llegó hasta aquí.")
-        st.stop()
-
-def _ts_log(msg):
-    """Línea de log con hora para seguir el flujo en 'Manage app' (sin datos personales)."""
-    try:
-        import time as _tm
-        print(f"[TS {_tm.strftime('%H:%M:%S')}] {msg}", flush=True)
-    except Exception:
-        pass
-
-_ts_checkpoint(1, "inicio del archivo (antes de importar nada pesado)")
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import os
 import json
@@ -44,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import requests
+import streamlit as st
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockSnapshotRequest, StockBarsRequest
 from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -59,14 +37,7 @@ except Exception as _e_motor_import:
     _MOTOR_VELAS_IMPORT_ERROR = f"{type(_e_motor_import).__name__}: {_e_motor_import}"
     print(f"⚠️ No se pudo importar MotorVelasBridge: {_MOTOR_VELAS_IMPORT_ERROR}")
 
-_ts_checkpoint(2, "importaciones terminadas (alpaca, BotTradeScanner)")
-
-# Modo diagnóstico (temporal): se activa abriendo la app con ?diag=1 y no se ve para nadie más.
-try:
-    if str(st.query_params.get("diag", "")).strip() == "1":
-        st.session_state["_ts_diag"] = True
-except Exception:
-    pass
+st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 # Precio y gap viven DENTRO del cuadro gris (iframe). Los controles nativos de afuera quedan apagados.
 _USAR_FILTROS_NATIVOS = False
@@ -115,13 +86,10 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
     // componente y puede actualizar el mismo iframe sin pantalla blanca.
     if(!current){
       var f=document.createElement('iframe');
+      f.__html=lastHtml;
       try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
       current=f;
       wrap.appendChild(f);
-      f.__html=lastHtml;
-      try{f.srcdoc=lastHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(lastHtml);}
-      f.style.visibility='visible';
-      return;
     }
     if(current.__html===lastHtml){
       current.style.visibility='visible';
@@ -1223,10 +1191,11 @@ def pantalla_autenticacion():
     # El acceso de administrador está dentro de la misma pantalla y
     # requiere el token secreto configurado en Streamlit Secrets.
     # No se utiliza una segunda URL ni un parámetro especial de administrador.
-    st.button(
-        "← Volver al scanner",
-        key="ts_volver_auth",
-        on_click=lambda: st.session_state.update(mostrar_auth=False),
+    st.markdown(
+        f'<a href="/" target="_top" '
+        'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+        'color:#e5e9ee;text-decoration:none;background:#20252c;font-size:11px;">← Volver al scanner</a>',
+        unsafe_allow_html=True,
     )
     tab_login, tab_registro, tab_admin = st.tabs(
         ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
@@ -1382,9 +1351,7 @@ def pantalla_autenticacion():
             if nueva_password != repetir_password:
                 st.error("❌ Las contraseñas no coinciden.")
             else:
-                _ts_log("registro: llamando a Supabase")
                 data, error = registrar_usuario(nuevo_email, nueva_password)
-                _ts_log(f"registro: respuesta recibida (error={bool(error)})")
 
                 if error:
                     st.error(f"❌ {error}")
@@ -1448,7 +1415,31 @@ def pantalla_autenticacion():
                 else:
                     st.error("❌ Token no válido. Acceso denegado.")
 
-    st.stop()
+    return
+
+
+def _ts_auth_href(modo="abrir"):
+    """Construye una navegación de la misma página sin usar callbacks de Streamlit.
+    Se usa para aislar Auth del rerun que desmonta el iframe del scanner.
+    """
+    try:
+        from urllib.parse import urlencode
+        pares = {}
+        for _k, _v in st.query_params.items():
+            if isinstance(_v, list):
+                if _v:
+                    pares[str(_k)] = str(_v[0])
+            elif _v is not None:
+                pares[str(_k)] = str(_v)
+        pares.pop("logout", None)
+        if modo == "abrir":
+            pares["auth"] = "1"
+        else:
+            pares.pop("auth", None)
+        _qs = urlencode(pares)
+        return "?" + _qs if _qs else "/"
+    except Exception:
+        return "/?auth=1" if modo == "abrir" else "/"
 
 
 # =========================================================
@@ -1484,6 +1475,56 @@ def _ts_aplicar_evento_ui():
         print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
 
 
+# Restaurar la identidad persistente ANTES de decidir si debemos mostrar Auth.
+# En un F5 Streamlit crea un st.session_state nuevo; auth_session es la clave
+# para recuperar al usuario antes de entrar al flujo público.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+
+# Estado nativo de autenticación.
+# IMPORTANTE: la autenticación se resuelve ANTES de construir el scanner/robot.
+# Este era el flujo estable de la versión anterior al montaje del robot y evita
+# intentar insertar Auth dentro del mismo árbol que contiene el iframe del scanner.
+if "mostrar_auth" not in st.session_state:
+    st.session_state["mostrar_auth"] = False
+
+# El cierre de sesión se procesa fuera del callback del botón.
+if st.session_state.pop("_ts_logout_requested", False):
+    cerrar_sesion()
+    st.session_state.pop("_ts_query_elegida", None)
+    st.session_state.pop("_ts_u_visto", None)
+    st.session_state["mostrar_auth"] = False
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+
+AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
+LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
+
+if LOGOUT_REQUESTED:
+    cerrar_sesion()
+    st.session_state["mostrar_auth"] = False
+    try:
+        st.query_params.clear()
+    except Exception:
+        pass
+    st.rerun()
+
+if AUTH_REQUESTED:
+    st.session_state["mostrar_auth"] = True
+    try:
+        st.query_params.pop("auth", None)
+    except Exception:
+        pass
+
+# Si Auth está abierta, no procesamos eventos del iframe, sincronización,
+# motor visual ni robot. Solo dibujamos la autenticación y terminamos el run.
+if st.session_state.get("mostrar_auth"):
+    pantalla_autenticacion()
+    st.stop()
+
+# Desde aquí comienza el flujo normal de la aplicación.
 _ts_aplicar_evento_ui()
 
 PUBLIC_PREVIEW = (
@@ -1519,49 +1560,10 @@ if PUBLIC_PREVIEW:
                 st.query_params.update(_qp_limpio_publico)
     except Exception:
         pass
-AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
-LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
-
-# Estado nativo de Streamlit: no depende de iframe, target, window.open ni
-# navegación del navegador.
-if "mostrar_auth" not in st.session_state:
-    st.session_state["mostrar_auth"] = False
-
-if LOGOUT_REQUESTED:
-    cerrar_sesion()
-    st.session_state["mostrar_auth"] = False
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-    st.rerun()
-
-# Si llega ?auth=1 desde una versión anterior, se convierte una sola vez al
-# estado nativo y se elimina el parámetro.
-if AUTH_REQUESTED:
-    st.session_state["mostrar_auth"] = True
-    try:
-        st.query_params.pop("auth", None)
-    except Exception:
-        pass
-
-# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
-# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
-# Cuando el usuario pide explícitamente REGISTRO / LOGIN, la pantalla de
-# autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
-# Esto evita que la restauración automática bloquee el botón de acceso.
-if st.session_state.get("mostrar_auth"):
-    _ts_log("mostrando pantalla de autenticación")
-    pantalla_autenticacion()
-    st.stop()
-
-# Restauración normal de sesión solamente cuando no se está mostrando Auth.
-if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
-    _restaurar_sesion_persistente()
-    PUBLIC_PREVIEW = (
-        "token_verificado" not in st.session_state
-        and "usuario_auth" not in st.session_state
-    )
+PUBLIC_PREVIEW = (
+    "token_verificado" not in st.session_state
+    and "usuario_auth" not in st.session_state
+)
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -2553,6 +2555,13 @@ def filtrar_eventos(eventos, p):
     return salida
 
 
+# Yahoo Finance es solo respaldo. Estos controles son GLOBALES al proceso
+# para que una recreación de ServicioScanner no vuelva a golpear Yahoo después
+# de un 401/403/429 ya detectado.
+_YAHOO_FALLBACK_LOCK = threading.Lock()
+_YAHOO_FALLBACK_PAUSADO_HASTA = 0.0
+_YAHOO_FALLBACK_ULTIMA_PETICION = 0.0
+
 # ==========================================
 # ⚡️ MOTOR COMPARTIDO (un solo hilo para TODOS los usuarios)
 # ==========================================
@@ -2574,29 +2583,25 @@ class ServicioScanner:
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
         self.motor_velas = None
-        # Interruptor de prueba: con TS_SIN_MOTOR_VELAS="1" en los Secrets de Streamlit
-        # no se abre la conexión en vivo de Alpaca (útil si da "connection limit exceeded").
-        _sin_motor_velas = False
-        try:
-            _sin_motor_velas = (
-                str(os.environ.get("TS_SIN_MOTOR_VELAS", "")).strip() == "1"
-                or str(st.secrets.get("TS_SIN_MOTOR_VELAS", "")).strip() == "1"
-            )
-        except Exception:
-            pass
-        if _sin_motor_velas:
-            print("[TS] motor de velas en vivo DESACTIVADO por TS_SIN_MOTOR_VELAS=1", flush=True)
-        if MotorVelasBridge is not None and not _sin_motor_velas:
+        if MotorVelasBridge is not None:
             try:
                 self.motor_velas = MotorVelasBridge(api_key, secret_key)
             except Exception as _e_mv:
                 print(f"⚠️ Motor de velas no pudo iniciar: {_e_mv}")
-        # ROBOT LONG/SHORT SEPARADO:
-        # El scanner principal NO importa, crea ni arranca BotLongRealtime.
-        # El robot tiene su propia página/proceso para no poder bloquear
-        # la carátula del scanner.
+
+        # Bot LONG: se carga de forma tolerante para que un fallo del componente
+        # experimental del robot NO derribe la pagina completa del scanner.
         self.bot_long = None
-        self.bot_long_error = "Robot LONG separado de la pagina principal"
+        self.bot_long_error = None
+        try:
+            if self.motor_velas is None:
+                raise RuntimeError("motor de velas no disponible")
+            from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
+            self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
+            self.bot_long.iniciar()
+        except Exception as exc:
+            self.bot_long_error = str(exc)
+            print(f"⚠️ Bot LONG no pudo iniciar: {exc}")
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
@@ -3248,53 +3253,9 @@ class ServicioScanner:
             return None
 
     def _float_yahoo(self, ticker):
-        """Respaldo 1: floatShares de Yahoo Finance (yfinance).
-        Es opcional y queda serializado para que un 401/crumb no provoque
-        una ráfaga de consultas concurrentes.
-        """
-        with self._lock_yahoo:
-            if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
-                return None
-            try:
-                import yfinance as yf
-            except Exception:
-                self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
-                self._yahoo_pausado_hasta = time.time() + 3600
-                return None
-            try:
-                espera = getattr(self, "_yahoo_ultima", 0.0) + 0.4 - time.time()
-                if espera > 0:
-                    time.sleep(espera)
-                self._yahoo_ultima = time.time()
-                info = yf.Ticker(ticker).info or {}
-                valor = info.get("floatShares")
-                valor = float(valor) if valor not in (None, "", 0) else None
-                if valor is not None and valor <= 0:
-                    valor = None
-                self._yahoo_fallos = 0
-                self._yahoo_estado = "ok"
-                return valor
-            except Exception as e:
-                txt = str(e)
-                self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
-                self._yahoo_estado = f"error: {txt[:80]}"
-                _txt_lower = txt.lower()
-                _auth_yahoo = (
-                    "401" in _txt_lower
-                    or "403" in _txt_lower
-                    or "invalid crumb" in _txt_lower
-                    or "unable to access this feature" in _txt_lower
-                )
-                if _auth_yahoo:
-                    self._yahoo_pausado_hasta = time.time() + 1800
-                    self._yahoo_fallos = 0
-                    self._yahoo_estado = "pausado 30 min: Yahoo rechazó acceso/crumb"
-                    print(f"⚠️ Yahoo rechazó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
-                elif "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
-                    self._yahoo_pausado_hasta = time.time() + 1800
-                    self._yahoo_fallos = 0
-                    print(f"⚠️ Yahoo limitó acceso para {ticker}; respaldo Yahoo pausado 30 min.")
-                return None
+        """Yahoo pausado temporalmente: no realiza peticiones externas."""
+        self._yahoo_estado = "desactivado temporalmente"
+        return None
 
     def _circulacion_finnhub(self, ticker):
         """Respaldo 2: acciones en circulacion (Finnhub). La flotacion nunca es mayor que este numero,
@@ -3498,6 +3459,12 @@ class ServicioScanner:
 
     # ---------- Telegram ----------
     def _enviar_telegram(self, texto_tabla):
+        """Telegram pausado temporalmente para estabilizar el scanner.
+        No realiza ninguna petición externa mientras esté desactivado.
+        """
+        self.telegram_estado = "PAUSADO TEMPORALMENTE"
+        self.telegram_ultimo_error = None
+        return
         """Envía/actualiza la señal en el grupo de Telegram.
         El token y el chat_id nunca se muestran en la interfaz.
         """
@@ -4215,7 +4182,6 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
-_ts_checkpoint(3, "motor del scanner creado")
 
 # CONTROL EXCLUSIVO DEL MOTOR CENTRAL: solo una orden proveniente de una sesión
 # que ya fue identificada como ADMIN puede cambiar el motor compartido.
@@ -4265,18 +4231,14 @@ except Exception:
 # Los usuarios normales tienen su propia ventana de visualización.
 servicio.sesion = "TODO EL MERCADO"
 
-# Vigilancia del hilo: si el hilo se detuvo, la siguiente ejecución lo vuelve a levantar.
+# Vigilancia del hilo: solo reiniciar si el hilo realmente murió.
+# No reiniciamos por "stale" durante un F5/rerun: una demora temporal de Alpaca/FMP
+# no significa que el hilo esté muerto y reiniciar aquí puede crear reconexiones,
+# duplicar trabajo y elevar el consumo de CPU de Streamlit Cloud.
 try:
     _hilo_ok = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
-    _ultima = getattr(servicio, "ultima_actualizacion", None)
-    _stale = False
-    if _ultima is not None:
-        try:
-            _stale = (datetime.now(ET) - _ultima).total_seconds() > 45
-        except Exception:
-            _stale = False
-    if (not _hilo_ok) or (_ultima is not None and _stale and not getattr(servicio, "ultimo_error", None)):
-        print("⚠️ Watchdog: reiniciando hilo del scanner por detención o falta de actualización.")
+    if not _hilo_ok:
+        print("⚠️ Watchdog: reiniciando hilo del scanner porque está detenido.")
         servicio.reiniciar_scanner()
 except Exception as _watchdog_error:
     print(f"⚠️ Watchdog del scanner: {_watchdog_error}")
@@ -5276,10 +5238,11 @@ def _render_scanner():
     h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
     h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
     h += "function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_BASE_QUERY||{});return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
+    h += "function abrirRobotLong(){try{var q=_qtop();q.set('robot','1');var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);window.top.location.href='/?'+q.toString();}catch(e){try{window.top.location.href='/?robot=1'}catch(_e){}}}"
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
     h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
-    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.history.replaceState(null,'','/?'+q.toString());}catch(e){}window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;try{if(window.parent&&window.parent!==window){var _pb=window.parent.document.querySelectorAll('button');for(var _k=0;_k<_pb.length;_k++){if((_pb[_k].textContent||'').indexOf('TSNAVBRIDGE')>=0){P=window.parent;break;}}}}catch(_ep){}try{u=(P.location.pathname||'/')+'?'+q.toString();}catch(_eu){}/* Puente nativo: st.iframe con HTML permite acceso same-origin al documento padre. Actualizamos la URL y pulsamos el boton oculto para provocar un rerun de la MISMA sesion. No usamos location.replace como respaldo porque puede volver a montar la app dentro de un iframe o generar la pantalla blanca. */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(brErr){}try{console.warn('TS: no se pudo activar el puente nativo');}catch(_e){} }catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.history.replaceState(null,'','/?'+q.toString());}catch(e){}window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;/* Puente nativo: st.iframe con HTML permite acceso same-origin al documento padre. Actualizamos la URL y pulsamos el boton oculto para provocar un rerun de la MISMA sesion. No usamos location.replace como respaldo porque puede volver a montar la app dentro de un iframe o generar la pantalla blanca. */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(brErr){}try{console.warn('TS: no se pudo activar el puente nativo',brErr);}catch(_e){} }catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
     h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));_guardarUltimaConfiguracion(q);_goto(q);}"
@@ -5324,6 +5287,7 @@ def _render_scanner():
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
+    h += "<a href='#' onclick='abrirRobotLong();return false;' style='display:inline-flex;align-items:center;justify-content:center;height:25px;padding:0 9px;margin-right:5px;border:1px solid #555;background:#252a31;color:#fff;border-radius:4px;text-decoration:none;font-size:10px;font-weight:700;'>🤖 ROBOT LONG</a>"
     # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
@@ -5649,21 +5613,14 @@ def _render_scanner():
     # segundo marco blanco debajo.
     h = _panel_final
 
-    # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
-    def _ts_abrir_auth():
-        _ts_log("botón REGISTRO / INICIAR SESIÓN pulsado")
-        st.session_state["mostrar_auth"] = True
-
+    # ── Controles de cuenta y refresh ──
+    # Auth/Logout usan navegación normal de la misma página. Esto evita que
+    # un callback de Streamlit intente desmontar el iframe grande del scanner
+    # en el mismo rerun que abre/cierra autenticación.
     def _ts_salir():
-        _ts_log("botón SALIR pulsado")
-        cerrar_sesion()
-        st.session_state.pop("_ts_query_elegida", None)
-        st.session_state.pop("_ts_u_visto", None)
-        st.session_state["mostrar_auth"] = False
-        try:
-            st.query_params.clear()
-        except Exception:
-            pass
+        # Se conserva solo para compatibilidad con sesiones antiguas; el control
+        # visible de SALIR usa un enlace normal y no este callback.
+        st.session_state["_ts_logout_requested"] = True
 
     def _ts_cambiar_refresh():
         try:
@@ -5699,16 +5656,37 @@ def _render_scanner():
     )
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
-            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
+            st.markdown(
+                f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
+                'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+                'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
+                '📝 REGISTRO / INICIAR SESIÓN</a>',
+                unsafe_allow_html=True,
+            )
         else:
             _n1, _n3, _n4 = st.columns([1.3, 1, 1])
             with _n1:
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
             with _n3:
-                st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
+                st.markdown(
+                    f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
+                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
+                    'CUENTA / REGISTRO</a>',
+                    unsafe_allow_html=True,
+                )
             with _n4:
-                st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
+                st.markdown(
+                    '<a href="/?logout=1" target="_top" '
+                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
+                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
+                    'SALIR</a>',
+                    unsafe_allow_html=True,
+                )
 
+    # La autenticación se resuelve mediante navegación normal (?auth=1).
+    # Este bloque solo construye la página normal del scanner/robot.
+    
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
     # perteneciendo visualmente al scanner, pero su estado vive en Streamlit
@@ -5795,22 +5773,177 @@ def _render_scanner():
     )
     st.button("TSNAVBRIDGE", key="ts_nav_bridge")
 
-    # Render del documento HTML completo. Este fue el contenedor que llego a
-    # mostrar la caratula del Scanner antes de introducir el componente V1.
-    _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
-    _ts_log("dibujando iframe del scanner")
+    # Todo el scanner se renderiza en un único iframe.
+    # st.iframe es el reemplazo actual de components.v1.html y conserva
+    # HTML/JavaScript inline con acceso same-origin, que este puente necesita.
+    # Anti-parpadeo: si lo unico que cambio es el reloj o el "ultimo escaneo", se reutiliza el
+    # mismo HTML y el iframe NO se recarga. Si cambian filtros o resultados, se actualiza normal.
     try:
-        st.iframe(h, height=900)
-    except Exception as _e_ifr:
-        print(f"⚠️ st.iframe no pudo dibujar el scanner: {_e_ifr}", flush=True)
+        import re as _re_ifr
+        _h_key = h
+        for _vol in (str(fecha_hora_actual), str(_ultima_scan_txt)):
+            if _vol:
+                _h_key = _h_key.replace(_vol, "")
+        _h_key = _re_ifr.sub(r'"_(?:u|ts)":\s*"\d+"', "", _h_key)
+        # No invalidar el iframe por el paso del minuto: el reloj y el último
+        # escaneo ya se excluyeron arriba. Solo un cambio real del contenido
+        # debe reconstruir la carátula y su DOM/JavaScript.
+        _clave_ifr = hashlib.md5(_h_key.encode("utf-8", "ignore")).hexdigest()
+        if st.session_state.get("_ts_iframe_clave") == _clave_ifr and st.session_state.get("_ts_iframe_html"):
+            h = st.session_state["_ts_iframe_html"]
+        else:
+            st.session_state["_ts_iframe_clave"] = _clave_ifr
+            st.session_state["_ts_iframe_html"] = h
+    except Exception:
+        pass
+    # El componente devuelve al servidor la configuración que el usuario acaba
+    # de cambiar. Ese retorno es la fuente de verdad de la interacción: se
+    # normaliza, se guarda en Session State + query params + persistencia por
+    # usuario, y solo después se repinta ESTE fragmento. Así el auto-refresh
+    # nunca puede resucitar una configuración anterior.
+    if _TS_COMP_OK and _ts_scanner_ui is not None:
+        _ts_nav_result = _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
         try:
-            import streamlit.components.v1 as _stc_render
-            _stc_render.html(h, height=900, scrolling=True)
-        except Exception as _e_render:
-            print(f"⚠️ fallback HTML fallo: {_e_render}", flush=True)
-            st.error(f"No se pudo dibujar el scanner: {_e_render}")
+            if isinstance(_ts_nav_result, dict):
+                _ts_q_raw = str(_ts_nav_result.get("q", "") or "")
+                if _ts_q_raw:
+                    from urllib.parse import parse_qsl
+                    _ts_q_new = dict(parse_qsl(_ts_q_raw, keep_blank_values=True))
+                    _ts_cambios = {}
+                    for _ts_k in _CONFIG_USUARIO_KEYS:
+                        if _ts_k in _ts_q_new and str(_ts_q_new[_ts_k]) != "":
+                            _ts_cambios[_ts_k] = str(_ts_q_new[_ts_k])
+                    if _ts_cambios:
+                        # Mantener siempre la sesión de autenticación actual.
+                        _ts_auth_sid = str(st.query_params.get("auth_session", "") or "").strip()
+                        if _ts_auth_sid:
+                            _ts_cambios["auth_session"] = _ts_auth_sid
+                        _ts_prev_cfg = st.session_state.get("_ts_query_elegida")
+                        if not isinstance(_ts_prev_cfg, dict):
+                            _ts_prev_cfg = {}
+                        _ts_changed = any(
+                            str(_ts_prev_cfg.get(_k, "")) != str(_ts_v)
+                            for _ts_k, _ts_v in _ts_cambios.items()
+                            for _ts_k in [_ts_k]
+                        )
+                        # Comparar también contra lo que realmente está en la URL.
+                        _ts_changed = _ts_changed or any(
+                            str(_qp_valor(_ts_k) or "") != str(_ts_v)
+                            for _ts_k, _ts_v in _ts_cambios.items()
+                            if _ts_k != "auth_session"
+                        )
+                        if _ts_changed:
+                            _ts_prev_cfg.update(_ts_cambios)
+                            st.session_state["_ts_query_elegida"] = _ts_prev_cfg
+                            for _ts_k, _ts_v in _ts_cambios.items():
+                                if _ts_k != "auth_session":
+                                    st.query_params[_ts_k] = str(_ts_v)
+                            try:
+                                _guardar_ultima_configuracion_servidor()
+                            except Exception:
+                                pass
+                            # Streamlit Components v1 ya provocan el rerun de
+                            # Python cuando llaman setComponentValue(). No hacemos
+                            # un segundo rerun manual: evita duplicar trabajo y
+                            # reduce CPU, además de eliminar una carrera de estado.
+        except Exception as _e_ts_nav:
+            print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
+    else:
+        try:
+            st.iframe(h, height=900)
+        except Exception as _e_ifr:
+            # st.iframe solo existe en versiones recientes de Streamlit.
+            print(f"⚠️ st.iframe no disponible, uso components.html: {_e_ifr}")
+            try:
+                import streamlit.components.v1 as _stc_fb
+                _stc_fb.html(h, height=900, scrolling=True)
+            except Exception as _e_ifr2:
+                st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
 
-    # ================================================================
+    # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
+    # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
+    try:
+        _dg = dict(getattr(servicio, "diagnostico_filtros", {}) or {})
+        with st.expander("🔎 Diagnóstico del escaneo (embudo)", expanded=False):
+            if not _dg:
+                st.caption("Aún no hay un ciclo de escaneo completado.")
+            else:
+                _etiquetas = [
+                    ("radar_base", "1. Acciones en el radar base (precio/volumen del mercado)"),
+                    ("enviados_tecnico", "2. Enviadas a análisis técnico"),
+                    ("con_40_barras", "3. Con suficientes velas (40+) para calcular"),
+                    ("ema_calculable", "4. EMA calculable"),
+                    ("macd_calculable", "5. MACD calculable"),
+                    ("tras_float", "6. Después del filtro de flotación"),
+                    ("float_sin_dato", "   · descartadas por flotación sin dato"),
+                    ("float_excede", "   · descartadas por flotación mayor al máximo"),
+                    ("tras_gap_volumen", "7. Después de gap / volumen relativo"),
+                    ("ema_arriba", "8. Con EMA en la condición pedida"),
+                    ("macd_positivo", "9. Con MACD positivo"),
+                    ("ema_y_macd", "10. Cumplen EMA y MACD a la vez"),
+                    ("resultados", "RESULTADO FINAL (lo que ves en la tabla)"),
+                ]
+                _filas = [{"Paso": _t, "Cantidad": _dg.get(_k, "—")} for _k, _t in _etiquetas if _k in _dg]
+                st.table(_filas)
+                st.caption(
+                    f"Temporalidad: {_dg.get('timeframe', '—')} · Sesión: {_dg.get('sesion', '—')} · "
+                    f"Gap aplicado: {_dg.get('gap_min', '—')}% a {_dg.get('gap_max', '—')}%"
+                )
+                try:
+                    _cf = list(getattr(servicio, "cache_fund", {}).items())
+                    _meta_f = dict(getattr(servicio, "cache_fund", {}).get("__bulk_meta__", {}) or {})
+                    _con_float = sum(1 for _k, _v in _cf if not str(_k).startswith("__") and isinstance(_v, dict) and _v.get("float") is not None)
+                    _hace = (time.time() - float(_meta_f.get("ts", 0))) / 60 if _meta_f.get("ts") else None
+                    _pausa = float(getattr(servicio, "fmp_pausado_hasta", 0) or 0) - time.time()
+                    st.caption(
+                        f"FMP (flotación): clave configurada: {'sí' if getattr(servicio, 'fmp_api_key', None) else 'NO'} · "
+                        f"tickers con flotación en caché: {_con_float} · "
+                        f"última carga masiva: {'nunca' if _hace is None else f'hace {_hace:.0f} min'} "
+                        f"(páginas: {_meta_f.get('paginas', '—')}, encontrados: {_meta_f.get('encontrados', '—')}) · "
+                        f"pausa por límite: {'sí, ' + str(int(_pausa)) + ' s' if _pausa > 0 else 'no'}"
+                    )
+                    _fuentes = {}
+                    _solo_circ = 0
+                    for _k, _v in _cf:
+                        if str(_k).startswith("__") or not isinstance(_v, dict):
+                            continue
+                        if _v.get("float") is not None:
+                            _s = str(_v.get("float_source", "FMP"))
+                            _fuentes[_s] = _fuentes.get(_s, 0) + 1
+                        elif _v.get("outstanding") is not None:
+                            _solo_circ += 1
+                    st.caption(
+                        "Flotación por fuente: "
+                        + (" · ".join(f"{k}: {n}" for k, n in sorted(_fuentes.items())) or "ninguna aún")
+                        + f" · solo acciones en circulación (Finnhub): {_solo_circ}"
+                        + f" · Yahoo: {getattr(servicio, '_yahoo_estado', 'sin usar')}"
+                        + f" · Finnhub: {'clave sí' if getattr(servicio, 'finnhub_api_key', None) else 'SIN clave'}"
+                        + (f" ({getattr(servicio, '_finnhub_estado', '')})" if getattr(servicio, '_finnhub_estado', '') else "")
+                    )
+                except Exception as _e_fmp:
+                    st.caption(f"FMP: estado no disponible ({_e_fmp})")
+                try:
+                    _mv = servicio.estado_motor_velas()
+                    _mv_symbols = _mv.get("simbolos_cargados", []) or []
+                    _mv_last = _mv.get("ultimo_trade")
+                    st.caption(
+                        "Motor velas: "
+                        + ("🟢 conectado" if _mv.get("stream_hilo_vivo") and _mv.get("stream_iniciado") else "🔴 sin conexión")
+                        + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 30)}"
+                        + f" · trades: {_mv.get('total_trades', 0)}"
+                        + (f" · último: {_mv_last}" if _mv_last else "")
+                    )
+                    if _mv.get("error"):
+                        st.caption(f"Motor velas — último error: {_mv.get('error')}")
+                except Exception:
+                    pass
+                _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
+                if _err:
+                    st.warning(f"Último error del motor: {_err}")
+    except Exception as _e_dg:
+        print(f"⚠️ Panel de diagnóstico no disponible: {_e_dg}")
+
+
 # El temporizador se mantiene FUERA del iframe.
 # No navega el navegador ni modifica window.location desde el iframe.
 # IMPORTANTE: refresh_sec es local a _render_scanner(), por lo que aquí no se
@@ -6121,7 +6254,84 @@ _sincronizar_query_con_sesion()
 # El motor de mercado sigue trabajando en segundo plano; la actualización de
 # configuración se produce por setComponentValue y el usuario puede refrescar
 # la vista sin reconstruir un iframe activo dentro de un fragmento.
-_ts_checkpoint(4, "listo para dibujar el scanner")
-_ts_log("inicio render del scanner")
+
+
+def _render_robot_long_page(servicio):
+    _robot_q = {str(k): str(v) for k, v in st.query_params.items() if str(k) != "robot"}
+    _robot_href = "/?" + "&".join(f"{quote(k)}={quote(v)}" for k, v in _robot_q.items()) if _robot_q else "/"
+    st.markdown(f'<a href="{_robot_href}" target="_top" style="display:inline-block;margin:4px 0 12px 0;font-weight:700;text-decoration:none;">← VOLVER AL SCANNER</a>', unsafe_allow_html=True)
+    # ================================================================
+    # 🤖 PANEL VISIBLE DEL ROBOT LONG
+    # El robot trabaja en segundo plano cada ~1 s, independiente del
+    # refresh visual del scanner. Esta sección permite verlo en la misma
+    # página y comprobar qué está haciendo sin exponer claves.
+    # ================================================================
+    try:
+        _rb = servicio.estado_bot_long()
+        st.markdown("### 🤖 Robot LONG — tiempo real")
+        if _rb.get("hilo_vivo"):
+            st.success("🟢 Robot activo y evaluando continuamente")
+        elif _rb.get("disponible"):
+            st.warning("🟡 Robot cargado, pero su hilo no está activo")
+        else:
+            st.error("🔴 Robot no disponible")
+            if _rb.get("error"):
+                st.caption(f"Error del robot: {_rb.get('error')}")
+
+        # Tarjetas de estado del robot: alto contraste y lectura clara en PC/móvil.
+        # Solo cambia la presentación; no modifica ninguna variable del motor.
+        _ciclos = _rb.get("ciclos", 0)
+        _candidatos = len(_rb.get("candidatos", []) or [])
+        _posiciones = len(_rb.get("posiciones_paper", []) or [])
+        _observadas = len(_rb.get("posiciones_observadas", []) or [])
+        _decisiones = _rb.get("decisiones_guardadas", 0)
+        st.markdown("""
+        <style>
+        .ts-robot-panel{background:#1b2027;border:1px solid #3b4652;border-radius:12px;padding:14px 14px 10px;margin:4px 0 14px 0;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+        .ts-robot-title{font-size:1.15rem;font-weight:700;color:#f2f5f8;margin-bottom:12px}
+        .ts-robot-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+        .ts-robot-card{background:#252c35;border:1px solid #4a5663;border-radius:9px;padding:10px 8px;text-align:center;min-height:68px}
+        .ts-robot-label{font-size:.76rem;color:#b9c3ce;text-transform:uppercase;letter-spacing:.03em}
+        .ts-robot-value{font-size:1.45rem;font-weight:800;color:#ffffff;line-height:1.35;margin-top:2px}
+        @media(max-width:800px){.ts-robot-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
+        @media(max-width:520px){.ts-robot-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.ts-robot-value{font-size:1.25rem;}}
+        </style>
+        <div class="ts-robot-panel">
+          <div class="ts-robot-title">📊 Estado del robot</div>
+          <div class="ts-robot-grid">
+            <div class="ts-robot-card"><div class="ts-robot-label">Ciclos</div><div class="ts-robot-value">""" + str(_ciclos) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Candidatos</div><div class="ts-robot-value">""" + str(_candidatos) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Posiciones</div><div class="ts-robot-value">""" + str(_posiciones) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Observadas</div><div class="ts-robot-value">""" + str(_observadas) + """</div></div>
+            <div class="ts-robot-card"><div class="ts-robot-label">Decisiones</div><div class="ts-robot-value">""" + str(_decisiones) + """</div></div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        _dec = servicio.decisiones_bot_long(20)
+        if _dec:
+            _filas_bot = []
+            for _d in reversed(_dec):
+                _filas_bot.append({
+                    "Hora": datetime.fromtimestamp(float(_d.get("ts", time.time())), tz=ET).strftime("%H:%M:%S"),
+                    "Ticker": _d.get("simbolo", ""),
+                    "Acción": _d.get("accion", ""),
+                    "Estado": _d.get("estado", ""),
+                    "Motivo": _d.get("motivo", ""),
+                    "Precio": _d.get("precio", ""),
+                    "Stop": _d.get("stop_loss", ""),
+                })
+            st.dataframe(pd.DataFrame(_filas_bot), use_container_width=True, hide_index=True)
+        else:
+            st.info("El robot está encendido pero todavía no tiene decisiones para mostrar.")
+    except Exception as _e_robot_ui:
+        st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
+
+
+# URL independiente del Robot LONG: mantiene su interfaz separada del Scanner.
+_ROBOT_MODE = str(st.query_params.get("robot", "") or "").lower() in ("1", "true", "yes")
+if _ROBOT_MODE:
+    _render_robot_long_page(servicio)
+    st.stop()
+
 _render_scanner()
-_ts_log("fin render del scanner")
