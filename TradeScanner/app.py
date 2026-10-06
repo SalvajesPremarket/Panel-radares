@@ -5818,12 +5818,14 @@ def _render_scanner():
     _ts_checkpoint(5, "HTML del scanner armado, a punto de dibujar el cuadro")
     _ts_log("dibujando iframe del scanner")
     try:
-        st.iframe(h, height=900)
+        # Render estable del cuadro principal. components.html se usa como
+        # contenedor primario para evitar que un refresh deje st.iframe en blanco.
+        import streamlit.components.v1 as _stc_render
+        _stc_render.html(h, height=900, scrolling=True)
     except Exception as _e_ifr:
-        print(f"⚠️ st.iframe no disponible, uso components.html: {_e_ifr}")
+        print(f"⚠️ components.html no pudo dibujar el scanner: {_e_ifr}")
         try:
-            import streamlit.components.v1 as _stc_fb
-            _stc_fb.html(h, height=900, scrolling=True)
+            st.iframe(h, height=900)
         except Exception as _e_ifr2:
             st.error(f"No se pudo dibujar el scanner: {_e_ifr2}")
 
