@@ -99,11 +99,11 @@ class AlpacaMarketStream:
             for symbol in (symbols or [])
             if str(symbol).strip()
         }
-        with self._symbols_lock:
-            self._symbols = requested
         if self._thread and self._thread.is_alive():
             self._update_running_subscriptions(requested)
             return
+        with self._symbols_lock:
+            self._symbols = requested
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._run,
