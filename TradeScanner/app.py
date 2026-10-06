@@ -39,6 +39,9 @@ except Exception as _e_motor_import:
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
+# DIAGNOSTICO TEMPORAL: confirma que el modulo principal termino sus imports y Streamlit arranco.
+st.markdown('<div style="padding:6px 10px;background:#243447;border:1px solid #5b7ea3;border-radius:6px;color:#e8f1f8;font-size:12px;">SCANNER: arranque del modulo OK</div>', unsafe_allow_html=True)
+
 # Precio y gap viven DENTRO del cuadro gris (iframe). Los controles nativos de afuera quedan apagados.
 _USAR_FILTROS_NATIVOS = False
 
