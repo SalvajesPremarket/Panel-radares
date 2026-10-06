@@ -82,11 +82,14 @@ class AlpacaMarketStream:
                 symbols = sorted(self._symbols)
                 self._stream.subscribe_quotes(self._quote, *symbols)
                 self._stream.subscribe_trades(self._trade, *symbols)
-            self.health.mark_connected()
+            # StockDataStream.run() realiza la conexión/autenticación real.
+            # No reportamos "connected" antes de que el SDK entre en ejecución.
             self._stream.run()
+            self.health.mark_connected()
         except Exception as exc:
             self.health.mark_error(exc)
-            self.health.connected = False
+            with self.health._lock:
+                self.health.connected = False
 
     def start(self, symbols: Iterable[str]) -> None:
         requested = {
