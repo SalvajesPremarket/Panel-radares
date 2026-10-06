@@ -5098,8 +5098,43 @@ def _render_scanner():
     h += ".schwab-item{grid-column:span 2;align-items:center;}.schwab-item label{flex:0 0 auto;}.schwab-item>span{flex:1 1 auto;min-width:0;text-align:left;}.schwab-item button{white-space:nowrap;}";
     h += ".footer-note{margin-top:3px;font-size:8px;color:#7f8995;}";
     h += "</style>";
+    h += "<style>";
+    h += "@media(max-width:640px){";
+    h += "html,body{width:100%;height:auto;min-width:0;overflow-x:hidden;overflow-y:auto;}";
+    h += ".main-container{width:100%!important;max-width:none!important;min-width:0!important;margin:0!important;padding:3px 3px 10px!important;}";
+    h += ".topbar{display:flex!important;flex-direction:column!important;width:100%!important;min-height:78px!important;height:auto!important;padding:8px 6px!important;gap:5px!important;position:relative!important;overflow:visible!important;}";
+    h += ".brand{display:block!important;width:100%!important;text-align:center!important;font-size:20px!important;line-height:1.05!important;white-space:nowrap!important;padding:3px 0 0!important;}";
+    h += ".brand small{display:block!important;font-size:8px!important;margin:3px 0 0!important;}";
+    h += ".top-actions{width:100%!important;justify-content:center!important;flex-wrap:wrap!important;}";
+    h += ".status-line{width:100%!important;height:auto!important;min-height:18px!important;display:flex!important;flex-wrap:wrap!important;justify-content:space-between!important;gap:4px!important;font-size:8px!important;}";
+    h += ".tabs{display:flex!important;width:100%!important;height:auto!important;min-height:30px!important;overflow-x:auto!important;overflow-y:hidden!important;white-space:nowrap!important;}";
+    h += ".tab{flex:0 0 auto!important;width:auto!important;min-width:88px!important;height:27px!important;font-size:9px!important;padding:3px 8px!important;}";
+    h += ".tab-panel{width:100%!important;height:auto!important;overflow:visible!important;}";
+    h += ".panel-grid{grid-template-columns:1fr!important;}";
+    h += ".filtros-grid{display:grid!important;grid-template-columns:1fr!important;gap:4px!important;width:100%!important;height:auto!important;padding:5px!important;overflow:visible!important;}";
+    h += ".filtro-item{display:flex!important;width:100%!important;min-width:0!important;min-height:36px!important;height:auto!important;padding:5px 6px!important;align-items:center!important;gap:6px!important;overflow:visible!important;}";
+    h += ".filtro-item label{font-size:9px!important;flex:0 0 auto!important;white-space:nowrap!important;}";
+    h += ".filtro-item>span{font-size:9px!important;min-width:0!important;overflow-wrap:anywhere!important;}";
+    h += ".filtro-item input,.filtro-item select{height:25px!important;min-width:0!important;max-width:100%!important;width:auto!important;flex:1 1 auto!important;font-size:10px!important;}";
+    h += ".filtro-item .range{flex:1 1 auto!important;min-width:0!important;}";
+    h += ".filtro-item .range input{width:100%!important;min-width:0!important;}";
+    h += ".schwab-item{grid-column:auto!important;display:flex!important;flex-wrap:wrap!important;}";
+    h += ".schwab-item>span{flex:1 1 100%!important;}";
+    h += ".schwab-item button{max-width:100%!important;}";
+    h += ".refresh-bar{height:auto!important;min-height:30px!important;flex-wrap:wrap!important;}";
+    h += ".subline{height:auto!important;min-height:28px!important;flex-wrap:wrap!important;}";
+    h += ".saved-config{grid-template-columns:1fr 1fr!important;height:auto!important;}";
+    h += ".technical-subtabs{display:grid!important;grid-template-columns:1fr 1fr!important;}";
+    h += ".technical-subtab{width:100%!important;}";
+    h += ".table-wrapper{width:100%!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;-webkit-overflow-scrolling:touch!important;}";
+    h += ".table-wrapper table{min-width:930px!important;}";
+    h += ".result-title{width:100%!important;}";
+    h += ".footer-note{flex-direction:column!important;gap:2px!important;}";
+    h += ".logo{height:auto!important;min-height:34px!important;}";
+    h += "}";
     h += "</style>";
-    h += "</style>"
+    h += "<style>";
+
     h += "<script>window.addEventListener('load',function(){try{window.scrollTo(0,0);window.parent.scrollTo(0,0);}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
     h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
