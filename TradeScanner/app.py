@@ -5850,9 +5850,11 @@ def _render_scanner():
                                 _guardar_ultima_configuracion_servidor()
                             except Exception:
                                 pass
-                            # setComponentValue() ya provoca el rerun que devuelve
-                            # este mismo valor a Python. No forzar otro rerun: los
-                            # componentes V1 pueden perder su estado al reinstanciarse.
+                            # El evento llega después de construir el HTML de esta ejecución.
+                            # Forzamos UN solo rerun para que el cuadro se reconstruya
+                            # usando inmediatamente el valor recién confirmado.
+                            # No hay navegación ni segundo rerun en cadena.
+                            st.rerun()
         except Exception as _e_ts_nav:
             print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
@@ -5863,30 +5865,6 @@ def _render_scanner():
             _stc_fb.html(h, height=900, scrolling=True)
         except Exception as _e_ifr:
             st.error(f"No se pudo dibujar el scanner: {_e_ifr}")
-
-    # Diagnóstico temporal de persistencia de filtros.
-    try:
-        with st.expander("🧪 TEST DE CAMBIOS DEL CUADRO — diagnóstico", expanded=True):
-            st.caption(
-                "No modifica el scanner. Registra qué valor envía el navegador, "
-                "qué recibe Python y cómo queda después del sincronizador."
-            )
-            _dl = list(st.session_state.get("_ts_diag_log", []) or [])
-            if not _dl:
-                st.info("Prueba cambiando PRECIO MIN de 0.50 a 1.00 y espera el rerun.")
-            else:
-                for _row in reversed(_dl[-30:]):
-                    st.markdown(
-                        f"**{_row.get('hora','')} · {_row.get('etapa','')}** — "
-                        f"{_row.get('detalle','')}"
-                    )
-                    if _row.get("estado"):
-                        st.code(json.dumps(_row["estado"], ensure_ascii=False, indent=2), language="json")
-            if st.button("🧹 Limpiar diagnóstico", key="ts_diag_clear"):
-                st.session_state["_ts_diag_log"] = []
-                st.rerun()
-    except Exception as _e_diag_ui:
-        print(f"⚠️ Diagnóstico UI no disponible: {_e_diag_ui}")
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
@@ -6369,5 +6347,3 @@ if _ROBOT_MODE:
 
 _render_scanner()
 
-
-# REDEPLOY MARKER 2026-10-07 — diagnóstico temporal de filtros.
