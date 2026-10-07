@@ -5508,6 +5508,7 @@ def _render_scanner():
         h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}' onchange='pushConfig()'></div>"
+        h += "<div class='filtro-item' aria-hidden='true'></div>"
     else:
         h += _ctl_res("VOLUMEN ≥", f"{volumen_min_ui:,}", [("txt_vol", str(volumen_min_ui))])
     if PUBLIC_PREVIEW:
@@ -5522,10 +5523,12 @@ def _render_scanner():
         h += "<input type='hidden' id='sel_ema' value='" + _safe_text(ema_ui) + "'>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
+        h += "<div class='filtro-item' aria-hidden='true'></div>"
     else:
         h += _ctl_res("MACD", macd_ui, [("sel_mac", macd_ui)])
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+        h += "<div class='filtro-item' aria-hidden='true'></div>"
     else:
         h += _ctl_res("ORDENAR", orden_ui, [("sel_order", orden_ui)])
     if PUBLIC_PREVIEW:
