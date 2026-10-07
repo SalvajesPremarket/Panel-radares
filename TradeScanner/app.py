@@ -4592,7 +4592,23 @@ document.addEventListener('change',function(ev){
   if(t.checked){if(k>=0)s.hidden.splice(k,1)}else{if(k<0)s.hidden.push(id)}
   _colSave(s);aplicarColumnas();
 });
-document.addEventListener('DOMContentLoaded',function(){renderColumnas();aplicarColumnas();aplicarColoresLayouts();});
+document.addEventListener('DOMContentLoaded',function(){
+  renderColumnas();aplicarColumnas();aplicarColoresLayouts();
+  // Los campos numéricos del panel gris no llevan onchange individual.
+  // Guardarlos al cambiar evita que el siguiente rerun los reconstruya con
+  // el valor anterior.
+  try{
+    var _cfgIds=['price_min','price_max','gap_min','gap_max','float_max','txt_vol','ema_dist_max','rsi_min','rsi_max','ema20_dist','ema50_dist','ema200_dist'];
+    _cfgIds.forEach(function(_id){
+      var _el=document.getElementById(_id);
+      if(!_el)return;
+      _el.addEventListener('change',function(){try{pushConfig()}catch(e){}});
+      _el.addEventListener('keydown',function(ev){
+        if(ev.key==='Enter'){try{ev.preventDefault();pushConfig()}catch(e){}}
+      });
+    });
+  }catch(e){}
+});
 window.addEventListener('storage',function(e){if(e&&e.key===_colKey()){aplicarColumnas();renderColumnas();}});
 function _ajustarMarco(){
   try{
@@ -5731,13 +5747,9 @@ def _render_scanner():
                                 _guardar_ultima_configuracion_servidor()
                             except Exception:
                                 pass
-                            # El valor del componente llega al final de este run,
-                            # pero la carátula HTML ya fue construida con los
-                            # query params anteriores. Un único rerun aquí garantiza
-                            # que el siguiente render nazca con el valor recién
-                            # guardado. _ts_aplicar_evento_ui() deduplica el mismo
-                            # evento, por lo que no existe bucle de reruns. 
-                            st.rerun()
+                            # setComponentValue() ya provoca el rerun que devuelve
+                            # este mismo valor a Python. No forzar otro rerun: los
+                            # componentes V1 pueden perder su estado al reinstanciarse.
         except Exception as _e_ts_nav:
             print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
