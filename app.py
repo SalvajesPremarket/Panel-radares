@@ -21,6 +21,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from TradeScanner.data_engine import AlpacaMarketStream
+from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
@@ -2462,6 +2463,8 @@ class ServicioScanner:
         except Exception:
             self._live_max_symbols = 30
         self.live_stream = AlpacaMarketStream(api_key, secret_key, feed=_live_feed)
+        # El bot LONG consume este mismo websocket; no abre una segunda conexión a Alpaca.
+        self.bot_motor_bridge = MotorVelasBridge(api_key, secret_key, market_stream=self.live_stream)
 
         self.encendido = cargar_estado_motor_guardado()
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
@@ -3593,6 +3596,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                     break
             if candidatos:
                 self.live_stream.start(candidatos)
+                # El puente recibe exactamente la misma lista sin abrir otro websocket.
+                self.bot_motor_bridge.sync_results([{"ticker": t} for t in candidatos])
         except Exception as exc:
             self.ultimo_error = f"Alpaca WebSocket: {exc}"
             print(f"⚠️ Error actualizando stream Alpaca: {exc}")
