@@ -1,3 +1,4 @@
+# Syntax guard: PUENTE DE LAYOUT block paired with its own preview branch.
 import sys
 from pathlib import Path
 
