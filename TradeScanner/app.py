@@ -148,7 +148,7 @@ except Exception as _e_comp:
 # Ese componente añade un iframe contenedor + el iframe del scanner y, al
 # recibir nuevos argumentos, puede desmontarse/recrearse durante un rerun.
 # Para evitar la pantalla blanca mantenemos un único iframe HTML nativo.
-_TS_USE_COMPONENT = False
+_TS_USE_COMPONENT = True
 _TS_COMP_OK = bool(_TS_COMP_OK and _TS_USE_COMPONENT)
 
 # Sin "flash" en el refresh automático: Streamlit atenúa (opacity) los elementos
