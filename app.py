@@ -3612,17 +3612,17 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         if not self.universo:
             self.ultima_actualizacion = datetime.now(ET)
             self.duracion_ciclo = time.monotonic() - inicio
-        self._metrica_sumar("duracion_ciclo_total", self.duracion_ciclo)
-        with self._metricas_lock:
-            self.metricas["duracion_ciclo_min"] = self.duracion_ciclo if self.metricas["duracion_ciclo_min"] is None else min(self.metricas["duracion_ciclo_min"], self.duracion_ciclo)
-            self.metricas["duracion_ciclo_max"] = max(self.metricas["duracion_ciclo_max"], self.duracion_ciclo)
-            self.metricas["ultimo_ciclo_ts"] = time.time(); self.metricas["ultimo_ciclo_duracion"] = self.duracion_ciclo
-            self.metricas["simbolos_procesados"] += len(radar_gap)
-            if not self.ultimo_error:
-                self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
-            self.resultados_por_tf[tf] = []
-            if es_principal:
-                self.resultados = []
+            self._metrica_sumar("duracion_ciclo_total", self.duracion_ciclo)
+            with self._metricas_lock:
+                self.metricas["duracion_ciclo_min"] = self.duracion_ciclo if self.metricas["duracion_ciclo_min"] is None else min(self.metricas["duracion_ciclo_min"], self.duracion_ciclo)
+                self.metricas["duracion_ciclo_max"] = max(self.metricas["duracion_ciclo_max"], self.duracion_ciclo)
+                self.metricas["ultimo_ciclo_ts"] = time.time(); self.metricas["ultimo_ciclo_duracion"] = self.duracion_ciclo
+                self.metricas["simbolos_procesados"] += 0
+                if not self.ultimo_error:
+                    self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
+                self.resultados_por_tf[tf] = []
+                if es_principal:
+                    self.resultados = []
             return
 
         # El float masivo se actualiza en un hilo auxiliar: NUNCA bloquea el radar.
