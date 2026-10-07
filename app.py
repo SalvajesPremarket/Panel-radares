@@ -4683,6 +4683,7 @@ function moverColumna(act,id){
   }
   _colSave(s);renderColumnas();aplicarColumnas();
 }
+window.moverColumna=moverColumna;
 function renderColumnas(){
   var box=document.getElementById('cols_list');if(!box)return;
   var s=_colLoad();var nombres={};COLS.forEach(function(c){nombres[c[0]]=c[1]});
