@@ -87,10 +87,13 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
     // componente y puede actualizar el mismo iframe sin pantalla blanca.
     if(!current){
       var f=document.createElement('iframe');
-      f.__html=lastHtml;
       try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
       current=f;
       wrap.appendChild(f);
+      try{f.srcdoc=lastHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(lastHtml);}
+      f.__html=lastHtml;
+      f.style.visibility='visible';
+      return;
     }
     if(current.__html===lastHtml){
       current.style.visibility='visible';
@@ -109,11 +112,11 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
       if(typeof a.html==='string'&&a.html!==lastHtml){lastHtml=a.html;schedule();}
       return;
     }
-    if(!isOurs(ev.source))return;
     if(d.tsNav){
       post('streamlit:setComponentValue',{value:{id:String(Date.now())+'-'+Math.random().toString(36).slice(2),q:String(d.q||'')},dataType:'json'});
       return;
     }
+    if(!isOurs(ev.source))return;
     if(d.tsReady&&pending&&ev.source===pending.contentWindow){show(pending);}
   });
   post('streamlit:componentReady',{apiVersion:1});
