@@ -5399,6 +5399,7 @@ def _render_scanner():
         h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
         h += "</div></div>"
     h += f"<div id='panel-columnas' class='tab-panel {'active' if _active_tab_ui == 'panel-columnas' else ''}'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>🧩 COLUMNAS DEL RADAR</b><span style='display:block;margin-bottom:6px;'>Activa/desactiva columnas y cambia su orden. El cambio se aplica directamente a la tabla del radar.</span><div id='cols_list'></div><button type='button' data-col-act='reset' style='margin-top:6px;'>↺ RESTABLECER COLUMNAS</button></div></div></div>"
+    h += "<script>try{renderColumnas()}catch(e){console.warn('COLUMNAS: '+e)}</script>"
     def _ctl_res(label, texto, campos):
         def _v(i, d=""):
             for k, v in campos:
