@@ -1451,6 +1451,43 @@ def _ts_auth_href(modo="abrir"):
 # =========================================================
 # auth_session solo es respaldo de recarga completa; durante un rerun normal
 # la identidad permanece en st.session_state.
+
+def _ts_diag_add(etapa, detalle="", estado=None):
+    """Registro temporal de la ruta UI -> Python -> estado."""
+    try:
+        log = st.session_state.setdefault("_ts_diag_log", [])
+        from datetime import datetime
+        fila = {"hora": datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                "etapa": str(etapa), "detalle": str(detalle)}
+        if isinstance(estado, dict):
+            fila["estado"] = {k: str(v) for k, v in estado.items()}
+        log.append(fila)
+        if len(log) > 80:
+            del log[:-80]
+    except Exception:
+        pass
+
+
+def _ts_diag_snapshot():
+    """Copia compacta de los valores que pueden rebotar."""
+    try:
+        claves = ("f_price_min", "f_price_max", "f_gap_min", "f_gap_max",
+                  "f_float_max", "f_vol", "f_mac", "f_order", "timeframe")
+        qp = {}
+        for k in claves:
+            v = st.query_params.get(k, "")
+            if isinstance(v, list):
+                v = v[0] if v else ""
+            qp[k] = str(v)
+        canon = st.session_state.get("_ts_query_elegida")
+        if not isinstance(canon, dict):
+            canon = {}
+        return {"query": qp, "canon": {k: str(canon.get(k, "")) for k in claves}}
+    except Exception:
+        return {}
+
+
+
 def _ts_aplicar_evento_ui():
     """Recibe lo que hizo el usuario en el cuadro gris y lo convierte
     inmediatamente en el estado canónico de esta sesión.
@@ -1471,6 +1508,17 @@ def _ts_aplicar_evento_ui():
 
         from urllib.parse import parse_qsl
         pares = dict(parse_qsl(str(ev.get("q", "")), keep_blank_values=True))
+        _diag_raw = pares.pop("_ts_diag", "")
+        if _diag_raw:
+            try:
+                _diag_browser = json.loads(_diag_raw)
+                _ts_diag_add(
+                    "NAVEGADOR → PYTHON",
+                    "pushConfig recibió los valores del DOM",
+                    {"dom": _diag_browser.get("fields", {}), "url_q": str(ev.get("q", ""))[-900:]}
+                )
+            except Exception as _de:
+                _ts_diag_add("NAVEGADOR → PYTHON", f"diagnóstico JS inválido: {_de}")
         pares.pop("_ts", None)
 
         # La configuración que viene del iframe pasa a ser canónica
@@ -1502,6 +1550,12 @@ def _ts_aplicar_evento_ui():
             except Exception:
                 for _k, _v in _qp_evento.items():
                     st.query_params[_k] = _v
+
+        _ts_diag_add(
+            "PYTHON: EVENTO APLICADO",
+            "La configuración recibida quedó escrita en Session State y query_params",
+            _ts_diag_snapshot()
+        )
 
         if "c_active" in pares:
             # Solo se consume como orden de motor después de verificar ES_ADMIN.
@@ -5208,6 +5262,7 @@ def _render_scanner():
     h += "if(!q.get('c_start'))q.set('c_start','04:00');if(!q.get('c_end'))q.set('c_end','20:00');"
     h += "_sq(q,'c_lang','cfg_lang');_sq(q,'c_wnd','cfg_wnd');q.set('market_session','TODO EL MERCADO');var _tfEl=document.getElementById('timeframe');var _ttfEl=document.getElementById('technical_timeframe');var _tfVal=(_tfEl&&_tfEl.value)?_tfEl.value:((_ttfEl&&_ttfEl.value)?_ttfEl.value:'1m');q.set('timeframe',_tfVal);q.set('technical_timeframe',_tfVal);_sq(q,'ema_dist_max','ema_dist_max');_sq(q,'rsi_min','rsi_min');_sq(q,'rsi_max','rsi_max');['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));"
     h += "_sq(q,'c_broker','cfg_broker');_sq(q,'c_url','cfg_url');"
+    h += "try{var _dbg={t:Date.now(),fields:{}};['price_min','price_max','gap_min','gap_max','float_max','txt_vol','sel_mac','sel_order','timeframe'].forEach(function(id){var e=document.getElementById(id);if(e)_dbg.fields[id]=String(e.value)});q.set('_ts_diag',JSON.stringify(_dbg));}catch(_de){}"
     h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(e){_navegarMismaApp(q);}}"
     h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
     h += "function _bridgeUrlUi(){var e=document.getElementById('bridge_url_conn')||document.getElementById('cfg_url');var u=e&&e.value?String(e.value).trim():'';return u.replace(/\\/$/,'')}";
@@ -5809,6 +5864,30 @@ def _render_scanner():
         except Exception as _e_ifr:
             st.error(f"No se pudo dibujar el scanner: {_e_ifr}")
 
+    # Diagnóstico temporal de persistencia de filtros.
+    try:
+        with st.expander("🧪 TEST DE CAMBIOS DEL CUADRO — diagnóstico", expanded=True):
+            st.caption(
+                "No modifica el scanner. Registra qué valor envía el navegador, "
+                "qué recibe Python y cómo queda después del sincronizador."
+            )
+            _dl = list(st.session_state.get("_ts_diag_log", []) or [])
+            if not _dl:
+                st.info("Prueba cambiando PRECIO MIN de 0.50 a 1.00 y espera el rerun.")
+            else:
+                for _row in reversed(_dl[-30:]):
+                    st.markdown(
+                        f"**{_row.get('hora','')} · {_row.get('etapa','')}** — "
+                        f"{_row.get('detalle','')}"
+                    )
+                    if _row.get("estado"):
+                        st.code(json.dumps(_row["estado"], ensure_ascii=False, indent=2), language="json")
+            if st.button("🧹 Limpiar diagnóstico", key="ts_diag_clear"):
+                st.session_state["_ts_diag_log"] = []
+                st.rerun()
+    except Exception as _e_diag_ui:
+        print(f"⚠️ Diagnóstico UI no disponible: {_e_diag_ui}")
+
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
     try:
@@ -6195,6 +6274,11 @@ def _sincronizar_query_con_sesion():
 
 
 _sincronizar_query_con_sesion()
+_ts_diag_add(
+    "PYTHON: DESPUÉS DEL SINCRONIZADOR",
+    "Así quedó el estado después de _sincronizar_query_con_sesion()",
+    _ts_diag_snapshot()
+)
 
 # ESTABILIZACIÓN: el scanner usa un componente iframe (Components V1).
 # No lo ejecutamos dentro de st.fragment/run_every: en esta arquitectura el
