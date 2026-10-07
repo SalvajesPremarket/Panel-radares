@@ -258,7 +258,7 @@ ETAPA_PRUEBA_FILTROS = 3
 # PRUEBA 7: medir alcanzabilidad de objetivos sobre la misma señal.
 PRUEBA7_OBJETIVOS_PCT = (0.25, 0.50, 1.00)
 
-MAX_ENRIQUECER = 300                   # Muestra técnica amplia, manteniendo ciclos rápidos.
+MAX_ENRIQUECER = 600                   # Ampliamos la muestra técnica compartida para que los filtros personales (precio/gap/volumen/EMA) tengan más universo real sin crear conexiones ni motores adicionales.
 
 # Float: FMP es la fuente principal; volumen y velas técnicas se obtienen con Alpaca.
 FMP_API_URL = "https://financialmodelingprep.com/stable/shares-float"
