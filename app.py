@@ -5530,7 +5530,7 @@ def _render_scanner():
     else:
         h += _ctl_res("VOLUMEN ≥", f"{volumen_min_ui:,}", [("txt_vol", str(volumen_min_ui))])
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_float_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_float_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+        h += f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_float_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_float_on','OFF')=='ON' else ''}>ON</option></select></div>"
         h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
     else:
         h += _ctl_res("FLOAT · FILTRO", _qtxt('f_float_on','OFF'), [("f_float_on", _qtxt('f_float_on','OFF'))])
