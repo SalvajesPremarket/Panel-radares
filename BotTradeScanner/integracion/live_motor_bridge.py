@@ -31,6 +31,16 @@ class MotorVelasBridge:
         self.motor = motor
         self.market_stream = market_stream
         if self.market_stream is not None:
+            # Compatibilidad defensiva: Cloud puede conservar una instancia
+            # antigua del módulo durante un hot-reload. Si la interfaz pública
+            # no está presente, no abortamos el scanner al importar el bridge.
+            if not hasattr(self.market_stream, "add_consumer"):
+                consumidores_t = getattr(self.market_stream, "_trade_consumers", None)
+                consumidores_q = getattr(self.market_stream, "_quote_consumers", None)
+                if isinstance(consumidores_t, list) and self.motor._recibir_trade_compartido not in consumidores_t:
+                    consumidores_t.append(self.motor._recibir_trade_compartido)
+                if isinstance(consumidores_q, list) and self.motor._recibir_quote_compartido not in consumidores_q:
+                    consumidores_q.append(self.motor._recibir_quote_compartido)
             self.motor.conectar_stream_compartido(self.market_stream)
         self._lock = Lock()
         self._subscribe_lock = Lock()
