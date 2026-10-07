@@ -77,8 +77,6 @@ class AlpacaMarketStream:
             feed=self._feed_enum(),
             data_timeout=90,
         )
-        self._stream.subscribe_quotes(self._on_quote)
-        self._stream.subscribe_trades(self._on_trade)
 
     def _run_stream(self):
         try:
@@ -110,14 +108,23 @@ class AlpacaMarketStream:
             return
 
         with self._lock:
-            self._symbols = set(symbols)
+            nuevos = set(symbols)
 
             if self._stream is None:
                 self._create_stream_locked()
+                self._stream.subscribe_quotes(self._on_quote, *symbols)
+                self._stream.subscribe_trades(self._on_trade, *symbols)
+            else:
+                quitar = self._symbols - nuevos
+                agregar = nuevos - self._symbols
+                if quitar:
+                    self._stream.unsubscribe_quotes(*sorted(quitar))
+                    self._stream.unsubscribe_trades(*sorted(quitar))
+                if agregar:
+                    self._stream.subscribe_quotes(self._on_quote, *sorted(agregar))
+                    self._stream.subscribe_trades(self._on_trade, *sorted(agregar))
 
-            # Las suscripciones se registran antes de arrancar el event loop.
-            self._stream.subscribe_quotes(self._on_quote, *symbols)
-            self._stream.subscribe_trades(self._on_trade, *symbols)
+            self._symbols = nuevos
 
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(
