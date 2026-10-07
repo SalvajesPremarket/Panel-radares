@@ -46,7 +46,7 @@ class MotorVelasBridge:
         # El websocket es LAZY: no se abre mientras no existan candidatos.
 
     def _arrancar_stream(self):
-        if self.market_stream is not None:
+        if getattr(self, "market_stream", None) is not None:
             self._arrancado = True
             return True
         with self._lock:
@@ -135,11 +135,11 @@ class MotorVelasBridge:
         # historicas concurrentes contra Alpaca.
         with self._subscribe_lock:
             try:
-                if self.market_stream is None:
+                if getattr(self, "market_stream", None) is None:
                     self._esperar_stream()
 
                 for symbol in retirar:
-                    if self.market_stream is None:
+                    if getattr(self, "market_stream", None) is None:
                         self.motor.quitar_simbolo_en_caliente(symbol)
                     with self._lock:
                         self._simbolos_cargados.discard(symbol)
@@ -154,7 +154,7 @@ class MotorVelasBridge:
                         with self._lock:
                             self._simbolos_solicitados.discard(symbol)
                         continue
-                    if self.market_stream is None:
+                    if getattr(self, "market_stream", None) is None:
                         self.motor.agregar_simbolo_en_caliente(symbol)
                     with self._lock:
                         self._simbolos_solicitados.discard(symbol)
@@ -185,5 +185,5 @@ class MotorVelasBridge:
             "ultimo_trade": getattr(self.motor, "ultimo_trade", None),
             "error": self._ultima_error,
             "limite_simbolos": self.MAX_SIMBOLOS_BASIC,
-            "stream_compartido": self.market_stream is not None,
+            "stream_compartido": getattr(self, "market_stream", None) is not None,
         }
