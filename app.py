@@ -5517,8 +5517,7 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>GAP MIN</label><input type='number' id='gap_min' value='{gap_min_ui:g}' step='0.1' min='0' onchange='pushConfig()'><label>GAP MAX</label><input type='number' id='gap_max' value='{gap_max_ui:g}' step='0.1' min='0' onchange='pushConfig()'></div>"
     else:
         h += _ctl_res("GAP · FILTRO", _qtxt('f_gap_on','OFF'), [("f_gap_on", _qtxt('f_gap_on','OFF'))])
-        h += _ctl_res("GAP MIN", f"{gap_min_ui:g}%", [("gap_min", str(gap_min_ui))])
-        h += _ctl_res("GAP MAX", f"{gap_max_ui:g}%", [("gap_max", str(gap_max_ui))])
+        h += _ctl_res("GAP (%)", "", [("gap_min", str(gap_min_ui)), ("gap_max", str(gap_max_ui))])
 
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
