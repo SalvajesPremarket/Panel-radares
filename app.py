@@ -4695,8 +4695,9 @@ document.addEventListener('click',function(ev){
   var b=ev.target&&ev.target.closest?ev.target.closest('[data-col-act]'):null;
   if(!b)return;
   ev.preventDefault();
+  ev.stopImmediatePropagation();
   moverColumna(b.getAttribute('data-col-act'),b.getAttribute('data-col-id'));
-});
+},true);
 document.addEventListener('change',function(ev){
   var t=ev.target;if(!t||!t.getAttribute)return;var id=t.getAttribute('data-col-vis');if(!id)return;
   var s=_colLoad();var k=s.hidden.indexOf(id);
