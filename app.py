@@ -3244,6 +3244,10 @@ class ServicioScanner:
         if _err_barras:
             self.ultimo_error = f"Velas Alpaca ({tf_actual}): {_err_barras}"
         extras_ema = self._cache_ema_extra(tf_actual)
+        # El TTL empieza cuando termina la descarga, no cuando comienza.
+        # Si una tanda tarda > TTL por rate-limit, no debe quedar marcada como
+        # vencida inmediatamente y disparar otra tanda idéntica en el ciclo siguiente.
+        ahora_cache = time.time()
         for t in pendientes:
             extras_ema[t] = evaluar_ema_condiciones(series.get(t))
             extras_ema[t].update(evaluar_swing(series.get(t)))
@@ -3251,7 +3255,7 @@ class ServicioScanner:
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
              ema_actual, bb_upper, bb_dist_pct, rsi_val, ema50_act, ema200_act) = evaluar_tecnico(series.get(t))
             cache[t] = (
-                ahora, tf_actual, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
+                ahora_cache, tf_actual, cruz_arriba, cruz_abajo, macd_pos, macd_neg,
                 precio_act, ema_act, macd_val, barras_count,
                 precio_prev, ema_prev, precio_actual, ema_actual,
                 bb_upper, bb_dist_pct, rsi_val, ema50_act, ema200_act
