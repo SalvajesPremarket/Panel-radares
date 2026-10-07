@@ -3652,9 +3652,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             return
 
         base = []
+        snapshots_validos = 0
+        snapshots_rechazados = 0
         for ticker, snap in snapshots.items():
             if not snap or not snap.latest_trade or not snap.daily_bar or not snap.previous_daily_bar:
+                snapshots_rechazados += 1
                 continue
+            snapshots_validos += 1
             precio = snap.latest_trade.price
             cierre_prev = snap.previous_daily_bar.close
             if not cierre_prev or cierre_prev <= 0:
@@ -3750,6 +3754,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         radar_base_total = len(base)
         self.n_radar_base = radar_base_total
+        self.n_snapshots_validos = snapshots_validos
+        self.n_snapshots_rechazados = snapshots_rechazados
         self.n_radar_gap = len(radar_gap)
         radar_gap.sort(key=lambda c: c["volumen_dia"], reverse=True)
         radar_gap = radar_gap[:MAX_ENRIQUECER]
@@ -3859,6 +3865,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if cumple_condiciones_ema(c, filtros_tf) and cumple_macd(c, filtros_tf)
         )
         _diag_tf = {
+            "snapshots_total": len(snapshots),
+            "snapshots_validos": snapshots_validos,
+            "snapshots_rechazados": snapshots_rechazados,
             "radar_base": radar_base_total,
             "enviados_tecnico": len(radar_gap),
             "lote_tecnico": 30,
