@@ -4688,7 +4688,7 @@ function renderColumnas(){
   var s=_colLoad();var nombres={};COLS.forEach(function(c){nombres[c[0]]=c[1]});
   box.innerHTML=s.order.map(function(id,i){
     var vis=s.hidden.indexOf(id)<0;
-    return '<div class="col-row"><label><input type="checkbox" data-col-vis="'+id+'" '+(vis?'checked':'')+'> '+nombres[id]+'</label><span><button type="button" data-col-act="up" data-col-id="'+id+'" onclick="moverColumna(\\''+id+'\\',\\'up\\');return false;"'+(i===0?' disabled':'')+'>▲</button><button type="button" data-col-act="down" data-col-id="'+id+'" onclick="moverColumna(\\''+id+'\\',\\'down\\');return false;"'+(i===s.order.length-1?' disabled':'')+'>▼</button></span></div>';
+    return '<div class="col-row"><label><input type="checkbox" data-col-vis="'+id+'" '+(vis?'checked':'')+'> '+nombres[id]+'</label><span><button type="button" data-col-act="up" data-col-id="'+id+'" onclick="moverColumna(\\'up\\',\\''+id+'\\');return false;"'+(i===0?' disabled':'')+'>▲</button><button type="button" data-col-act="down" data-col-id="'+id+'" onclick="moverColumna(\\'down\\',\\''+id+'\\');return false;"'+(i===s.order.length-1?' disabled':'')+'>▼</button></span></div>';
   }).join('');
 }
 document.addEventListener('click',function(ev){
