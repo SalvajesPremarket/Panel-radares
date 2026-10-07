@@ -171,13 +171,28 @@ class AlpacaMarketStream:
             else:
                 quitar = self._symbols - nuevos
                 agregar = nuevos - self._symbols
+
+                # Alpaca procesa unsubscribe/subscribe de forma asíncrona. Si
+                # enviamos ambos mensajes pegados, durante un instante la
+                # suscripción puede superar el límite del plan y devolver 405.
+                # Primero reducimos la suscripción; el siguiente ciclo agregará
+                # los símbolos faltantes cuando el servidor ya haya procesado el
+                # unsubscribe. Así nunca solicitamos más de max_symbols.
                 if quitar:
                     self._stream.unsubscribe_quotes(*sorted(quitar))
                     self._stream.unsubscribe_trades(*sorted(quitar))
+                    self._symbols.difference_update(quitar)
+                    self._last_subscription_change = time.monotonic()
+                    return
+
                 if agregar:
-                    self._stream.subscribe_quotes(self._on_quote, *sorted(agregar))
-                    self._stream.subscribe_trades(self._on_trade, *sorted(agregar))
-            self._symbols = nuevos
+                    capacidad = max(0, self.max_symbols - len(self._symbols))
+                    agregar = sorted(agregar)[:capacidad]
+                    if agregar:
+                        self._stream.subscribe_quotes(self._on_quote, *agregar)
+                        self._stream.subscribe_trades(self._on_trade, *agregar)
+                        self._symbols.update(agregar)
+
             self._last_subscription_change = time.monotonic()
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._run_stream, name="alpaca-market-stream", daemon=True)
