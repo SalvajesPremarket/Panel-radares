@@ -59,6 +59,7 @@ class AlpacaMarketStream:
         self._trade_consumers = []
         self._quote_consumers = []
 
+    # API estable del stream compartido. No abrir otro websocket para consumidores.
     def add_consumer(self, trade_callback=None, quote_callback=None):
         """Registra consumidores adicionales sin abrir otro websocket."""
         with self._lock:
