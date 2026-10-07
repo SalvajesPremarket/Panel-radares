@@ -66,3 +66,36 @@ def test_bridge_rota_simbolos_fuera_del_conjunto_actual():
     assert motor.desuscritos == ["AAPL", "MSFT"]
     assert motor.suscritos == ["NVDA"]
     assert bridge._simbolos_cargados == {"NVDA"}
+
+
+def test_bridge_compartido_no_arranca_stream_propio_ni_suscribe_alpaca():
+    class FakeSharedStream:
+        pass
+
+    class FakeMotorShared:
+        def __init__(self):
+            self._stream = None
+            self._stream_compartido = None
+            self._iniciado = False
+
+        def conectar_stream_compartido(self, stream):
+            self._stream_compartido = stream
+            self._iniciado = True
+
+        def precargar_historial(self, simbolos, cantidad=300):
+            raise AssertionError("El modo compartido no debe precargar aqui")
+
+        def agregar_simbolo_en_caliente(self, simbolo):
+            raise AssertionError("El modo compartido no debe abrir suscripciones propias")
+
+    stream = FakeSharedStream()
+    motor = FakeMotorShared()
+    bridge = MotorVelasBridge("key", "secret", motor=motor, market_stream=stream)
+
+    bridge.sync_results([{"ticker": "AAPL"}])
+
+    assert motor._stream_compartido is stream
+    assert motor._stream is None
+    assert motor._iniciado is True
+    assert bridge.status()["stream_compartido"] is True
+    assert bridge.status()["simbolos_solicitados"] == ["AAPL"]
