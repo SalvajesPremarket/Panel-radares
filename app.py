@@ -5513,6 +5513,15 @@ def _render_scanner():
     else:
         h += _ctl_res("PUENTE DE LAYOUT", bridge_val, [("cfg_url", bridge_val)])
     if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select></div>
+        h += f"<div class='filtro-item'><label>GAP MIN</label><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}' onchange='pushConfig()'></div>
+        h += f"<div class='filtro-item'><label>GAP MAX</label><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}' onchange='pushConfig()'></div>
+    else:
+        h += _ctl_res("GAP · FILTRO", _qtxt('f_gap_on','OFF'), [("f_gap_on", _qtxt('f_gap_on','OFF'))])
+        h += _ctl_res("GAP MIN", f"{gap_min_ui:g}%", [("gap_min", str(gap_min_ui))])
+        h += _ctl_res("GAP MAX", f"{gap_max_ui:g}%", [("gap_max", str(gap_max_ui))])
+
+    if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
         h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
     else:
