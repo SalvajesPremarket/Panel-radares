@@ -1,10 +1,34 @@
-import asyncio
 import threading
 import time
 from typing import Any, Dict, Iterable, List, Set
 
 from alpaca.data.enums import DataFeed
 from alpaca.data.live import StockDataStream
+
+
+class _LiveCache:
+    def __init__(self):
+        self._lock = threading.RLock()
+        self._trades: Dict[str, Dict[str, Any]] = {}
+        self._quotes: Dict[str, Dict[str, Any]] = {}
+    def trade(self, symbol: str):
+        with self._lock:
+            value = self._trades.get(str(symbol or "").upper())
+            return dict(value) if value else None
+    def quote(self, symbol: str):
+        with self._lock:
+            value = self._quotes.get(str(symbol or "").upper())
+            return dict(value) if value else None
+    def set_trade(self, symbol: str, price: Any, timestamp: Any = None):
+        key = str(symbol or "").upper()
+        if key:
+            with self._lock:
+                self._trades[key] = {"price": price, "timestamp": timestamp}
+    def set_quote(self, symbol: str, bid: Any, ask: Any, timestamp: Any = None):
+        key = str(symbol or "").upper()
+        if key:
+            with self._lock:
+                self._quotes[key] = {"bid": bid, "ask": ask, "timestamp": timestamp}
 
 
 class AlpacaMarketStream:
@@ -32,6 +56,7 @@ class AlpacaMarketStream:
         self._connected = False
         self._running = False
         self._last_error = ""
+        self.cache = _LiveCache()
 
     def _feed_enum(self):
         value = self.feed
@@ -50,6 +75,28 @@ class AlpacaMarketStream:
             value = data.get("S") or data.get("symbol")
         return str(value or "").strip().upper()
 
+    async def _on_trade(self, data: Any):
+        with self._lock:
+            self._trades += 1
+            self._last_event_ts = time.time()
+            self._connected = True
+            symbol = self._symbol(data)
+            if symbol:
+                self._symbols_seen.add(symbol)
+                self.cache.set_trade(symbol, getattr(data, "price", None), getattr(data, "timestamp", None))
+
+    def _create_stream_locked
+    async def _on_quote(self, data: Any):
+        with self._lock:
+            self._quotes += 1
+            self._last_event_ts = time.time()
+            self._connected = True
+            symbol = self._symbol(data)
+            if symbol:
+                self._symbols_seen.add(symbol)
+                self.cache.set_quote(symbol, getattr(data, "bid_price", None), getattr(data, "ask_price", None), getattr(data, "timestamp", None))
+
+    async def _on_trade
     async def _on_quote(self, data: Any):
         with self._lock:
             self._quotes += 1
