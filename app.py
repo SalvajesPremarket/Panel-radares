@@ -4631,6 +4631,7 @@ function _layoutColorsLoad(){
   var raw='';
   try{raw=window.top.localStorage.getItem(_layoutKey())||''}catch(e){}
   if(!raw){try{raw=localStorage.getItem(_layoutKey())||''}catch(e){}
+  }
   var o={};
   try{o=JSON.parse(raw||'{}')||{}}catch(e){o={}}
   Object.keys(TS_LAYOUT_DEFAULT_COLORS).forEach(function(id){
