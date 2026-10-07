@@ -1452,8 +1452,14 @@ def _ts_auth_href(modo="abrir"):
 # auth_session solo es respaldo de recarga completa; durante un rerun normal
 # la identidad permanece en st.session_state.
 def _ts_aplicar_evento_ui():
-    """Recibe lo que hizo el usuario en el cuadro gris (filtros, EMAs, idioma, refresh...)
-    y lo escribe en los parametros de la sesion ANTES de calcular nada."""
+    """Recibe lo que hizo el usuario en el cuadro gris y lo convierte
+    inmediatamente en el estado canónico de esta sesión.
+    
+    El evento del componente es la fuente de verdad. No basta con escribir
+    st.query_params: el sincronizador que corre después también puede tener
+    una copia anterior en _ts_query_elegida. Por eso ambos se actualizan
+    atómicamente aquí, antes de construir el scanner.
+    """
     try:
         ev = st.session_state.get("ts_scanner_ui")
         if not isinstance(ev, dict):
@@ -1462,18 +1468,57 @@ def _ts_aplicar_evento_ui():
         if not eid or eid == st.session_state.get("_ts_evt_visto"):
             return
         st.session_state["_ts_evt_visto"] = eid
+
         from urllib.parse import parse_qsl
         pares = dict(parse_qsl(str(ev.get("q", "")), keep_blank_values=True))
         pares.pop("_ts", None)
+
+        # La configuración que viene del iframe pasa a ser canónica
+        # inmediatamente. Esto evita que un valor viejo de Session State
+        # pueda ganar en el mismo rerun.
+        _canon = st.session_state.get("_ts_query_elegida")
+        if not isinstance(_canon, dict):
+            _canon = {}
+
+        _permitidas = set(_CONFIG_USUARIO_KEYS) if "_CONFIG_USUARIO_KEYS" in globals() else set()
         for _k, _v in pares.items():
             if _k == "auth_session" and not _v:
                 continue
-            if str(st.query_params.get(_k, "")) != _v:
-                st.query_params[_k] = _v
+            if _k in _permitidas or _k in ("_u", "technical_timeframe", "robot"):
+                _canon[_k] = str(_v)
+
+        st.session_state["_ts_query_elegida"] = _canon
+
+        # Aplicar el mismo estado a query_params en una sola operación.
+        _qp_evento = {}
+        for _k, _v in _canon.items():
+            if _k == "auth_session" and not _v:
+                continue
+            if str(st.query_params.get(_k, "")) != str(_v):
+                _qp_evento[_k] = str(_v)
+        if _qp_evento:
+            try:
+                st.query_params.update(_qp_evento)
+            except Exception:
+                for _k, _v in _qp_evento.items():
+                    st.query_params[_k] = _v
+
         if "c_active" in pares:
             # Solo se consume como orden de motor después de verificar ES_ADMIN.
             st.session_state["_admin_motor_evento"] = str(pares.get("c_active", ""))
-        # Una accion del usuario siempre gana a un auto-refresh que coincida en el tiempo.
+
+        # Marcar el _u recibido como ya visto: este evento ya fue consumido.
+        try:
+            _u_evento = int(float(str(pares.get("_u", "0") or "0")))
+        except Exception:
+            _u_evento = 0
+        try:
+            _u_prev = int(st.session_state.get("_ts_u_visto", 0) or 0)
+        except Exception:
+            _u_prev = 0
+        st.session_state["_ts_u_visto"] = max(_u_prev, _u_evento)
+
+        # Una acción del usuario siempre gana a un auto-refresh que coincida en el tiempo.
         st.session_state["_ts_rerun_auto"] = False
     except Exception as _e_ev:
         print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
