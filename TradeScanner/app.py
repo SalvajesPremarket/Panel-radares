@@ -5731,10 +5731,13 @@ def _render_scanner():
                                 _guardar_ultima_configuracion_servidor()
                             except Exception:
                                 pass
-                            # Streamlit Components v1 ya provocan el rerun de
-                            # Python cuando llaman setComponentValue(). No hacemos
-                            # un segundo rerun manual: evita duplicar trabajo y
-                            # reduce CPU, además de eliminar una carrera de estado.
+                            # El valor del componente llega al final de este run,
+                            # pero la carátula HTML ya fue construida con los
+                            # query params anteriores. Un único rerun aquí garantiza
+                            # que el siguiente render nazca con el valor recién
+                            # guardado. _ts_aplicar_evento_ui() deduplica el mismo
+                            # evento, por lo que no existe bucle de reruns. 
+                            st.rerun()
         except Exception as _e_ts_nav:
             print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
