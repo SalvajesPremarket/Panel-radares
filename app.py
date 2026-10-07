@@ -215,7 +215,6 @@ METRICAS_FASE1_VERSION = 1
 # ⚙️ PARÁMETROS DEL MOTOR
 # ==========================================
 INTERVALO_ESCANEO_SEGUNDOS = 10        # cada cuánto el motor recorre el mercado (una sola vez para todos los usuarios)
-TTL_SNAPSHOT_CACHE_SEGUNDOS = 15       # evita repetir toda la descarga del universo en ciclos consecutivos
 TAMANO_LOTE_SNAPSHOT = 500             # tickers por petición de snapshot
 WORKERS_SNAPSHOT = 4                   # peticiones de snapshot en paralelo
 PAUSA_MIN_ENTRE_PETICIONES = 0.33      # ~180 peticiones/min a Alpaca (límite: 200/min)
@@ -2475,8 +2474,6 @@ class ServicioScanner:
         self.n_radar_base = 0
         self.universo = []
         self.universo_ts = 0.0
-        self._snapshots_cache = None
-        self._snapshots_cache_ts = 0.0
 
         self.calendario_ts = 0.0
         self.dias_mercado_cache = set()
@@ -2788,8 +2785,6 @@ class ServicioScanner:
             self.n_radar_base = 0
             self.universo = []
             self.universo_ts = 0.0
-            self._snapshots_cache = None
-            self._snapshots_cache_ts = 0.0
             self.calendario_ts = 0.0
             self.dias_mercado_cache = set()
             self.auto_en_horario = False
@@ -3648,15 +3643,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                     self._bulk_float_running = True
                     threading.Thread(target=self._actualizar_float_bulk, daemon=True).start()
 
-        if snapshots_pre:
-            snapshots = snapshots_pre
-        elif self._snapshots_cache is not None and time.time() - self._snapshots_cache_ts < TTL_SNAPSHOT_CACHE_SEGUNDOS:
-            snapshots = self._snapshots_cache
-        else:
-            snapshots = self._descargar_snapshots()
-            if snapshots:
-                self._snapshots_cache = snapshots
-                self._snapshots_cache_ts = time.time()
+        snapshots = snapshots_pre if snapshots_pre else self._descargar_snapshots()
         self._ultimos_snapshots = snapshots
         if not snapshots:
             self.ultima_actualizacion = datetime.now(ET)
