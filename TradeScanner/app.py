@@ -3459,110 +3459,10 @@ class ServicioScanner:
 
     # ---------- Telegram ----------
     def _enviar_telegram(self, texto_tabla):
-        """Telegram pausado temporalmente para estabilizar el scanner.
-        No realiza ninguna petición externa mientras esté desactivado.
-        """
-        self.telegram_estado = "PAUSADO TEMPORALMENTE"
+        """Telegram desactivado permanentemente en el scanner."""
+        self.telegram_estado = "DESACTIVADO"
         self.telegram_ultimo_error = None
         return
-        """Envía/actualiza la señal en el grupo de Telegram.
-        El token y el chat_id nunca se muestran en la interfaz.
-        """
-        if not self.tg_token:
-            self.telegram_estado = "ERROR: TELEGRAM_BOT_TOKEN no configurado"
-            self.telegram_ultimo_error = self.telegram_estado
-            print("❌ Telegram: falta TELEGRAM_BOT_TOKEN en st.secrets")
-            return
-        if not self.tg_chat:
-            self.telegram_estado = "ERROR: TELEGRAM_CHAT_ID no configurado"
-            self.telegram_ultimo_error = self.telegram_estado
-            print("❌ Telegram: falta TELEGRAM_CHAT_ID en st.secrets")
-            return
-
-        hash_actual = hashlib.md5(texto_tabla.encode("utf-8")).hexdigest()
-        if hash_actual == self.tg_ultimo_hash:
-            self.telegram_estado = "OK: sin cambios; se conserva el mensaje actual"
-            return
-        try:
-            payload = {
-                "chat_id": self.tg_chat,
-                "text": f"⚡️ <b>SCANNER</b>\n<pre>{html_escape(texto_tabla)}</pre>",
-                "parse_mode": "HTML",
-            }
-            cabeceras = {"User-Agent": "TradeScanner/1.0"}
-            if self.tg_msg_id is None:
-                url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
-                r = requests.post(url, json=payload, headers=cabeceras, timeout=15)
-                if r.ok:
-                    data = r.json()
-                    self.tg_msg_id = data.get("result", {}).get("message_id")
-                    self.tg_ultimo_hash = hash_actual
-                    self.telegram_estado = "OK: mensaje enviado al grupo"
-                    self.telegram_ultimo_error = None
-                else:
-                    detalle = r.text[:500]
-                    self.telegram_estado = f"ERROR Telegram {r.status_code}: {detalle}"
-                    self.telegram_ultimo_error = self.telegram_estado
-                    print(self.telegram_estado)
-            else:
-                url = f"https://api.telegram.org/bot{self.tg_token}/editMessageText"
-                payload["message_id"] = self.tg_msg_id
-                r = requests.post(url, json=payload, headers=cabeceras, timeout=15)
-                if r.ok or "message is not modified" in r.text:
-                    self.tg_ultimo_hash = hash_actual
-                    self.telegram_estado = "OK: mensaje de Telegram actualizado"
-                    self.telegram_ultimo_error = None
-                elif "message is not modified" in r.text:
-                    self.tg_ultimo_hash = hash_actual
-                    self.telegram_estado = "OK: Telegram sin cambios"
-                elif (
-                    "message to edit not found" in r.text.lower()
-                    or "message not found" in r.text.lower()
-                    or "message_id_invalid" in r.text.lower()
-                    or "message id invalid" in r.text.lower()
-                ):
-                    # Telegram puede conservar en memoria un message_id que ya no
-                    # existe. Invalidamos el ID y creamos inmediatamente un mensaje nuevo.
-                    self.tg_msg_id = None
-                    send_url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
-                    send_payload = dict(payload)
-                    send_payload.pop("message_id", None)
-                    r_nuevo = requests.post(
-                        send_url,
-                        json=send_payload,
-                        headers=cabeceras,
-                        timeout=15,
-                    )
-                    if r_nuevo.ok:
-                        try:
-                            data_nuevo = r_nuevo.json()
-                            self.tg_msg_id = data_nuevo.get("result", {}).get("message_id")
-                        except Exception:
-                            self.tg_msg_id = None
-                        if self.tg_msg_id is not None:
-                            self.tg_ultimo_hash = hash_actual
-                            self.telegram_estado = "OK: mensaje de Telegram recreado"
-                            self.telegram_ultimo_error = None
-                        else:
-                            self.telegram_estado = "ERROR Telegram: respuesta sin message_id"
-                            self.telegram_ultimo_error = self.telegram_estado
-                    else:
-                        detalle_nuevo = r_nuevo.text[:500]
-                        self.telegram_estado = (
-                            f"ERROR Telegram al recrear {r_nuevo.status_code}: {detalle_nuevo}"
-                        )
-                        self.telegram_ultimo_error = self.telegram_estado
-                    if self.telegram_ultimo_error:
-                        print(self.telegram_estado)
-                else:
-                    detalle = r.text[:500]
-                    self.telegram_estado = f"ERROR al editar Telegram {r.status_code}: {detalle}"
-                    self.telegram_ultimo_error = self.telegram_estado
-                    print(self.telegram_estado)
-        except Exception as e:
-            self.telegram_estado = f"ERROR de red Telegram: {e}"
-            self.telegram_ultimo_error = self.telegram_estado
-            print(self.telegram_estado)
 
     def _escribir_html(self, texto_tabla):
         contenido = f"""<!DOCTYPE html>
@@ -4086,51 +3986,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         if not es_principal:
             return
 
-        # TELEGRAM INMEDIATO: usa exactamente los resultados que el motor acaba
-        # de publicar en self.resultados. No hace una segunda pasada de filtros
-        # que pueda dejar la pantalla con datos y Telegram sin datos.
-        top = sorted(
-            list(resultados_finales_hist),
-            key=lambda x: x.get("actualizado") or datetime.min.replace(tzinfo=ET),
-            reverse=True,
-        )[:10]
-        if top:
-            # Telegram usa la misma información que la tabla de RESULTADOS,
-            # pero en una versión compacta de ancho fijo para que todos los
-            # campos queden en una sola fila horizontal por ticker.
-            tabla = (
-                f"{'TICK':<7} {'SEC':<9} {'PREC':>6} {'CHG%':>6} "
-                f"{'VOL':>6} {'GAP%':>6} {'FLT':>6} {'E20':>4} "
-                f"{'E50':>4} {'E200':>4} {'MACD':>5}\n"
-                + "-" * 83 + "\n"
-            )
-            for c in top:
-                ticker = str(c.get("ticker", ""))[:6]
-                sector = str(c.get("sector", "N/A"))[:8]
-                noticia = "🔥" if c.get("tiene_noticia") else ""
-                ticker_txt = (noticia + ticker)[:6]
-                precio = float(c.get("precio") or 0)
-                cambio = float(c.get("cambio_pct") or 0)
-                gap = float(c.get("gap_pct") or 0)
-                volumen = _big(c.get("volumen_dia") or 0)
-                flotacion = _big(c.get("float_shares") or 0)
-                ema20 = ("UP" if c.get("cruzando_ema20") else
-                         ("DN" if c.get("cruzando_ema20_abajo") else "--"))
-                ema50_raw = str(c.get("ema50_estado", "Neutro"))
-                ema200_raw = str(c.get("ema200_estado", "Neutro"))
-                ema50 = "UP" if ema50_raw == "Por encima" else ("DN" if ema50_raw == "Por debajo" else "--")
-                ema200 = "UP" if ema200_raw == "Por encima" else ("DN" if ema200_raw == "Por debajo" else "--")
-                macd = "POS" if c.get("macd_positivo") else ("NEG" if c.get("macd_negativo") else "--")
-                tabla += (
-                    f"{ticker_txt:<7} {sector:<9} {precio:>6.2f} {cambio:>+5.1f}% "
-                    f"{volumen:>6} {gap:>+5.1f}% {flotacion:>6} {ema20:>4} "
-                    f"{ema50:>4} {ema200:>4} {macd:>5}\n"
-                )
-            # Un solo mensaje de Telegram: el primer ciclo lo crea y los
-            # siguientes ciclos EDITAN ese mismo mensaje. El hash evita llamadas
-            # cuando las 10 filas no cambiaron.
-            self._enviar_telegram(tabla)
-            self._escribir_html(tabla)
+        # Telegram eliminado: no se construyen ni envían mensajes.
+
         else:
             self.telegram_estado = "Sin resultados para Telegram en este ciclo"
 
@@ -5228,7 +5085,7 @@ def _render_scanner():
     h += "@media(max-width:640px){.main-container{width:100%;padding:0 3px 8px;}.topbar{display:flex;flex-direction:column;min-height:78px;padding:7px 6px;}.brand{width:100%;text-align:center;font-size:18px;}.top-actions{width:100%;justify-content:center;}.status-line{width:100%;}.tabs{height:auto;overflow-x:auto;}.tab{min-width:82px;}.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.filtro-item{height:32px;min-height:32px;}.table-wrapper{overflow-x:auto;}.table-wrapper table{min-width:930px;}}";
     h += "</style>";
     h += "</style>"
-    h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
+    h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');var _tabPersist=_leerPestana(TS_ACTIVE_TAB_KEY);var _subPersist=_leerPestana(TS_ACTIVE_SUBTAB_KEY);if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
     h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
     h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
@@ -5240,16 +5097,16 @@ def _render_scanner():
     h += "function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_BASE_QUERY||{});return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
     h += "function abrirRobotLong(){try{var q=_qtop();q.set('robot','1');var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);window.top.location.href='/?'+q.toString();}catch(e){try{window.top.location.href='/?robot=1'}catch(_e){}}}"
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
-    h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
+    h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];var TS_ACTIVE_TAB_KEY='tradeScannerActiveTab_'+TS_USER_KEY;var TS_ACTIVE_SUBTAB_KEY='tradeScannerActiveSubTab_'+TS_USER_KEY;function _guardarPestanas(tabId,subId){try{if(tabId){window.top.localStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId));try{sessionStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId))}catch(e){}}if(subId){window.top.localStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId));try{sessionStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId))}catch(e){}}}catch(e){}}function _leerPestana(clave){var v='';try{v=window.top.localStorage.getItem(clave)||''}catch(e1){}if(!v){try{v=sessionStorage.getItem(clave)||''}catch(e2){}}return v;}function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');var sub=document.querySelector('.technical-subtab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';if(tab||sub)_guardarPestanas(o._activeTab||'',o._technicalSubtab||'');o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
     h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.history.replaceState(null,'','/?'+q.toString());}catch(e){}window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;/* Puente nativo: st.iframe con HTML permite acceso same-origin al documento padre. Actualizamos la URL y pulsamos el boton oculto para provocar un rerun de la MISMA sesion. No usamos location.replace como respaldo porque puede volver a montar la app dentro de un iframe o generar la pantalla blanca. */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(brErr){}try{console.warn('TS: no se pudo activar el puente nativo',brErr);}catch(_e){} }catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
     h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));_guardarUltimaConfiguracion(q);_goto(q);}"
     h += "function _configStorageKey(){return 'tradeScannerConfigs_'+TS_USER_KEY;}function _leerConfiguracionesPersonal(){var a=[];var raw='';try{raw=window.top.localStorage.getItem(_configStorageKey())||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(_configStorageKey())||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(_configStorageKey())||''}catch(e3){}}if(!raw){try{raw=localStorage.getItem('tradeScannerConfigs')||''}catch(e4){}}try{a=JSON.parse(raw||'[]')}catch(e5){a=[]}return Array.isArray(a)?a:[];}function _guardarConfiguracionesPersonal(a){var txt=JSON.stringify(a.slice(0,50));try{window.top.localStorage.setItem(_configStorageKey(),txt)}catch(e1){}try{window.parent.localStorage.setItem(_configStorageKey(),txt)}catch(e2){}try{localStorage.setItem(_configStorageKey(),txt)}catch(e3){}try{localStorage.setItem('tradeScannerConfigs',txt)}catch(e4){}}function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));var o={};q.forEach(function(v,k){o[k]=v});o.nombre=n;o._savedAt=Date.now();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==n.toLowerCase()});a.unshift(o);_guardarConfiguracionesPersonal(a);_guardarUltimaConfiguracion(q);document.getElementById('config_name').value='';renderConfiguraciones();_goto(q);}"
-    h += "function cargarConfiguracionPersonal(n){var a=_leerConfiguracionesPersonal();var o=a.find(function(x){return String(x.nombre||'')===String(n||'')});if(!o)return;var q=_qtop();Object.keys(o).forEach(function(k){if(k!=='nombre'&&k!=='auth_session'&&k!=='_savedAt')q.set(k,o[k])});_goto(q)}function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var a=_leerConfiguracionesPersonal();var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});_guardarConfiguracionesPersonal(restantes);renderConfiguraciones();}catch(e){alert('No se pudo eliminar la configuración: '+e.message);}}function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
+    h += "function cargarConfiguracionPersonal(n){var a=_leerConfiguracionesPersonal();var o=a.find(function(x){return String(x.nombre||'')===String(n||'')});if(!o)return;var q=_qtop();Object.keys(o).forEach(function(k){if(k!=='nombre'&&k!=='auth_session'&&k!=='_savedAt')q.set(k,o[k])});_goto(q)}function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var a=_leerConfiguracionesPersonal();var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});_guardarConfiguracionesPersonal(restantes);renderConfiguraciones();}catch(e){alert('No se pudo eliminar la configuración: '+e.message);}}function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');_guardarPestanas('',id);if(id==='load-config-panel')renderConfiguraciones();}"
     h += "function renderConfiguraciones(){var b=document.getElementById('saved_configs_list');if(!b)return;var t=(document.getElementById('config_search').value||'').toLowerCase();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').toLowerCase().indexOf(t)>=0});b.innerHTML=a.length?a.map(function(x){var n=String((x&&x.nombre)||'').replace(/[<>]/g,'');var key=encodeURIComponent(String((x&&x.nombre)||''));return '<div class=\"saved-config\"><b>'+n+'</b><span>'+String(x.timeframe||'1m')+' · EMA20 '+String(x.ema20_estado||'Neutro')+' · EMA50 '+String(x.ema50_estado||'Neutro')+' · EMA200 '+String(x.ema200_estado||'Neutro')+'</span><button type=\"button\" class=\"btn-cargar-config\" data-config-name=\"'+key+'\">CARGAR</button><button type=\"button\" class=\"btn-eliminar-config\" data-config-name=\"'+key+'\">ELIMINAR</button></div>'}).join(''):'<span class=\"saved-empty\">No hay configuraciones guardadas.</span>'; }var _tsScrollTimer=null;window.addEventListener('scroll',function(){if(!TS_AUTH)return;if(_tsScrollTimer)return;_tsScrollTimer=setTimeout(function(){_tsScrollTimer=null;try{_guardarUltimaConfiguracion(_qtop());}catch(e){}},250);},{passive:true});"
-    h += """document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){try{_restaurarUltimaConfiguracion()}catch(e){};try{renderConfiguraciones();var raw=localStorage.getItem(TS_USER_KEY)||\'\';if(!raw){try{raw=window.top.localStorage.getItem(TS_USER_KEY)||\'\'}catch(_e1){}}var o=JSON.parse(raw||\'{}\');if(o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target="\'+o._activeTab+\'"]\');if(b)showTab(o._activeTab,b)}if(o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target="\'+o._technicalSubtab+\'"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};try{var lg=(document.getElementById(\'cfg_lang\')||{}).value||\'\';if(lg&&TS_LANGS[lg])aplicarIdioma(lg);}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'technical_timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\',\'f_gap_on\',\'f_float_on\',\'f_vol_on\',\'ema20_on\',\'refresh_sec_inside\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{if(id===\'refresh_sec_inside\')cambiarRefresh(el.value);else if(id===\'timeframe\'||id===\'technical_timeframe\'){var _tfv=String(el.value||\'1m\');var _qtf=_qtop();_qtf.set(\'timeframe\',_tfv);_qtf.set(\'technical_timeframe\',_tfv);_guardarUltimaConfiguracion(_qtf);_goto(_qtf);}else if([\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\'].indexOf(id)>=0){pushConfig();}else pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',technical_timeframe:\'technical_timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',ema20_cond:\'ema20_cond\',ema50_cond:\'ema50_cond\',ema200_cond:\'ema200_cond\',ema20_dist:\'ema20_dist\',ema50_dist:\'ema50_dist\',ema200_dist:\'ema200_dist\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\',f_gap_on:\'f_gap_on\',f_float_on:\'f_float_on\',f_vol_on:\'f_vol_on\',ema20_on:\'ema20_on\',refresh_sec_inside:\'refresh_sec\'};var k=map[id];if(id==='bridge_url_conn'){q.set('c_url',el.value);_guardarUltimaConfiguracion(q)}else if(k){q.set(k,el.value);_guardarUltimaConfiguracion(q);}}catch(e){}});});},100)});"""
+    h += """document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){try{_restaurarUltimaConfiguracion()}catch(e){};try{renderConfiguraciones();var raw=localStorage.getItem(TS_USER_KEY)||\'\';if(!raw){try{raw=window.top.localStorage.getItem(TS_USER_KEY)||\'\'}catch(_e1){}}var o=JSON.parse(raw||\'{}\');if(!_tabPersist&&o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target="\'+o._activeTab+\'"]\');if(b)showTab(o._activeTab,b)}if(!_subPersist&&o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target="\'+o._technicalSubtab+\'"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};try{var lg=(document.getElementById(\'cfg_lang\')||{}).value||\'\';if(lg&&TS_LANGS[lg])aplicarIdioma(lg);}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'technical_timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\',\'f_gap_on\',\'f_float_on\',\'f_vol_on\',\'ema20_on\',\'refresh_sec_inside\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{if(id===\'refresh_sec_inside\')cambiarRefresh(el.value);else if(id===\'timeframe\'||id===\'technical_timeframe\'){var _tfv=String(el.value||\'1m\');var _qtf=_qtop();_qtf.set(\'timeframe\',_tfv);_qtf.set(\'technical_timeframe\',_tfv);_guardarUltimaConfiguracion(_qtf);_goto(_qtf);}else if([\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\'].indexOf(id)>=0){pushConfig();}else pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',technical_timeframe:\'technical_timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',ema20_cond:\'ema20_cond\',ema50_cond:\'ema50_cond\',ema200_cond:\'ema200_cond\',ema20_dist:\'ema20_dist\',ema50_dist:\'ema50_dist\',ema200_dist:\'ema200_dist\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\',f_gap_on:\'f_gap_on\',f_float_on:\'f_float_on\',f_vol_on:\'f_vol_on\',ema20_on:\'ema20_on\',refresh_sec_inside:\'refresh_sec\'};var k=map[id];if(id==='bridge_url_conn'){q.set('c_url',el.value);_guardarUltimaConfiguracion(q)}else if(k){q.set(k,el.value);_guardarUltimaConfiguracion(q);}}catch(e){}});});},100)});"""
     h += "document.addEventListener('click',function(ev){var tab=ev.target.closest?ev.target.closest('.tab[data-tab-target]'):null;if(tab){ev.preventDefault();showTab(tab.getAttribute('data-tab-target'),tab);return;}var sub=ev.target.closest?ev.target.closest('.technical-subtab[data-subtab-target]'):null;if(sub){ev.preventDefault();showTechnicalSubTab(sub.getAttribute('data-subtab-target'),sub);return;}var save=ev.target.closest?ev.target.closest('.btn-guardar-config'):null;if(save){ev.preventDefault();guardarConfiguracionPersonal();return;}var btn=ev.target.closest?ev.target.closest('.btn-eliminar-config'):null;if(btn){ev.preventDefault();ev.stopPropagation();borrarConfiguracionPersonal(decodeURIComponent(btn.getAttribute('data-config-name')||''));return;}var cargar=ev.target.closest?ev.target.closest('.btn-cargar-config'):null;if(cargar){ev.preventDefault();ev.stopPropagation();cargarConfiguracionPersonal(decodeURIComponent(cargar.getAttribute('data-config-name')||''));return;}});"
     h += "var TS_LANGS={ESP:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'CONFIGURACIÓN','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUMNAS','PRECIO ($)':'PRECIO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTACIÓN ≤','VOLUMEN ≥':'VOLUMEN ≥','MACD':'MACD','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'VENTANA','TEMPORALIDAD':'TEMPORALIDAD','MOTOR':'MOTOR','HORARIO (ET)':'HORARIO (ET)','HORARIO DEL SCANNER':'HORARIO DEL SCANNER','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'PUENTE DE LAYOUT','🔌 CONEXIONES':'🔌 CONEXIONES','GUARDAR':'GUARDAR','ELIMINAR':'ELIMINAR','CARGAR':'CARGAR'},ENG:{'RADAR':'RADAR','TÉCNICOS':'TECHNICALS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'SETTINGS','RESULTADOS':'RESULTS','COLUMNAS':'COLUMNS','PRECIO ($)':'PRICE ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','MACD':'MACD','ORDENAR':'SORT','IDIOMA':'LANGUAGE','VENTANA':'WINDOW','TEMPORALIDAD':'TIMEFRAME','MOTOR':'ENGINE','HORARIO (ET)':'SCHEDULE (ET)','HORARIO DEL SCANNER':'SCANNER SCHEDULE','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'LAYOUT BRIDGE','GUARDAR':'SAVE','ELIMINAR':'DELETE','CARGAR':'LOAD'},POR:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TÉCNICO','CONFIGURACIÓN':'CONFIGURAÇÃO','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUNAS','PRECIO ($)':'PREÇO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'JANELA','TEMPORALIDAD':'PERÍODO','MOTOR':'MOTOR','GUARDAR':'SALVAR','ELIMINAR':'EXCLUIR','CARGAR':'CARREGAR'},FRA:{'RADAR':'RADAR','TÉCNICOS':'TECHNIQUES','TECHNICAL':'TECHNIQUE','CONFIGURACIÓN':'CONFIGURATION','RESULTADOS':'RÉSULTATS','COLUMNAS':'COLONNES','PRECIO ($)':'PRIX ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTATION ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'TRIER','IDIOMA':'LANGUE','VENTANA':'FENÊTRE','TEMPORALIDAD':'UNITÉ DE TEMPS','MOTOR':'MOTEUR','GUARDAR':'ENREGISTRER','ELIMINAR':'SUPPRIMER','CARGAR':'CHARGER'},DEU:{'RADAR':'RADAR','TÉCNICOS':'TECHNIK','TECHNICAL':'TECHNIK','CONFIGURACIÓN':'EINSTELLUNGEN','RESULTADOS':'ERGEBNISSE','COLUMNAS':'SPALTEN','PRECIO ($)':'PREIS ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUMEN','ORDENAR':'SORTIEREN','IDIOMA':'SPRACHE','VENTANA':'FENSTER','TEMPORALIDAD':'ZEITRAHMEN','MOTOR':'MOTOR','GUARDAR':'SPEICHERN','ELIMINAR':'LÖSCHEN','CARGAR':'LADEN'},ITA:{'RADAR':'RADAR','TÉCNICOS':'TECNICI','TECHNICAL':'TECNICO','CONFIGURACIÓN':'CONFIGURAZIONE','RESULTADOS':'RISULTATI','COLUMNAS':'COLONNE','PRECIO ($)':'PREZZO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME','ORDENAR':'ORDINA','IDIOMA':'LINGUA','VENTANA':'FINESTRA','TEMPORALIDAD':'TIMEFRAME','MOTOR':'MOTORE','GUARDAR':'SALVA','ELIMINAR':'ELIMINA','CARGAR':'CARICA'},CHN:{'RADAR':'雷达','TÉCNICOS':'技术','TECHNICAL':'技术分析','CONFIGURACIÓN':'设置','RESULTADOS':'结果','COLUMNAS':'列','PRECIO ($)':'价格 ($)','GAP (%)':'跳空 (%)','FLOTACIÓN ≤':'流通股 ≤','VOLUMEN ≥':'成交量 ≥','ORDENAR':'排序','IDIOMA':'语言','VENTANA':'窗口','TEMPORALIDAD':'时间周期','MOTOR':'引擎','GUARDAR':'保存','ELIMINAR':'删除','CARGAR':'加载'},JPN:{'RADAR':'レーダー','TÉCNICOS':'テクニカル','TECHNICAL':'テクニカル分析','CONFIGURACIÓN':'設定','RESULTADOS':'結果','COLUMNAS':'列','PRECIO ($)':'価格 ($)','GAP (%)':'ギャップ (%)','FLOTACIÓN ≤':'浮動株 ≤','VOLUMEN ≥':'出来高 ≥','ORDENAR':'並べ替え','IDIOMA':'言語','VENTANA':'ウィンドウ','TEMPORALIDAD':'時間足','MOTOR':'エンジン','GUARDAR':'保存','ELIMINAR':'削除','CARGAR':'読み込み'}};"
     h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var o=el.getAttribute('data-orig');var t=(el.textContent||'').trim();if(!o){if(TS_LANGS.ESP[t]!==undefined){o=t;el.setAttribute('data-orig',t)}else return}var tr=(lang&&lang!=='ESP'&&d[o])?d[o]:o;if(el.textContent!==tr)el.textContent=tr});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}"
@@ -5272,7 +5129,7 @@ def _render_scanner():
     h += "function enviarLayoutLocal(t,layout,color){var u=_bridgeUrlUi();if(!u||!t)return;var s=document.getElementById('bridge_status');var col=color||_layoutColor(layout);_bridgeFetch(u,{method:'POST',mode:'cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({broker:document.getElementById('cfg_broker')?document.getElementById('cfg_broker').value:'Charles Schwab',ticker:String(t),layout:String(layout),layout_color:String(layout),color:String(col),timestamp:Date.now()/1000})}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json().catch(function(){return {ok:true}})}).then(function(){if(s)s.innerHTML='🟢 '+String(t)+' → '+String(layout)+' · '+String(col)}).catch(function(){if(s)s.innerHTML='🔴 Puente no disponible · verifica que esté abierto en tu PC';});}";
     h += '''var TS_LAYOUT_LINK_COLORS=[{n:1,name:'Red',c:'#d51f1f'},{n:2,name:'Yellow',c:'#f1cf16'},{n:3,name:'Blue',c:'#178fca'},{n:4,name:'Green',c:'#159447'},{n:5,name:'Purple',c:'#9a4de3'},{n:6,name:'Maroon',c:'#8b2f18'},{n:7,name:'Orange',c:'#d86b08'},{n:8,name:'Brown',c:'#8b5a2b'},{n:9,name:'Lilac',c:'#b56bd9'},{n:10,name:'Cyan',c:'#11a9b5'}];function _layoutColorsLoad(){var o={};try{o=JSON.parse(localStorage.getItem('tsLayoutColors_'+TS_USER_KEY)||'{}')||{}}catch(e){}return o;}function _layoutColorsSave(o){try{localStorage.setItem('tsLayoutColors_'+TS_USER_KEY,JSON.stringify(o))}catch(e){}try{window.top.localStorage.setItem('tsLayoutColors_'+TS_USER_KEY,JSON.stringify(o))}catch(e){}}function _layoutColor(layout){var o=_layoutColorsLoad();if(o[layout])return o[layout];var x=TS_LAYOUT_LINK_COLORS.find(function(v){return 'L'+v.n===layout});return x?x.c:'#d51f1f';}function guardarColorLayout(layout,color){var o=_layoutColorsLoad();o[String(layout)]=String(color);_layoutColorsSave(o);aplicarColoresLayouts();}function aplicarColoresLayouts(){document.querySelectorAll('[data-layout-color]').forEach(function(el){var l=el.getAttribute('data-layout-color');var c=_layoutColor(l);el.style.setProperty('color',c);el.style.setProperty('border-color',c);el.setAttribute('data-current-color',c);});}function cerrarPaletaLayout(){var p=document.getElementById('layout-palette');if(p){p.classList.remove('open');p.style.display='none';}}function seleccionarColorLayout(layout,color){guardarColorLayout(layout,color);cerrarPaletaLayout();}function abrirPaletaLayout(ev,layout){try{ev.preventDefault();ev.stopPropagation();}catch(e){}var old=document.getElementById('layout-palette');if(old)old.remove();var p=document.createElement('div');p.id='layout-palette';p.className='layout-palette open';TS_LAYOUT_LINK_COLORS.forEach(function(v){var b=document.createElement('button');b.type='button';b.title=v.n+' · '+v.name;b.innerHTML='<span class="num">'+v.n+'</span><span class="swatch" style="background:'+v.c+'"></span><span>'+v.name+'</span>';b.onclick=function(e){e.preventDefault();e.stopPropagation();seleccionarColorLayout(layout,v.c);};p.appendChild(b);});document.body.appendChild(p);var r=ev.currentTarget.getBoundingClientRect();var left=Math.min(Math.max(6,r.left),window.innerWidth-184);var top=r.bottom+4;if(top+184>window.innerHeight)top=Math.max(6,r.top-184);p.style.left=left+'px';p.style.top=top+'px';p.style.display='grid';}document.addEventListener('click',function(e){var p=document.getElementById('layout-palette');if(p&&!p.contains(e.target)&&!e.target.closest('.layout-color-picker'))cerrarPaletaLayout();});document.addEventListener('DOMContentLoaded',function(){setTimeout(aplicarColoresLayouts,80);});''';
     h += "function cambiarLayout(t,e){var v=e&&e.value;if(!v)return;enviarLayoutLocal(t,v,_layoutColor(v));try{var q=_qtop();q.set('c_url',_bridgeUrlUi());q.delete('layout_send_ticker');q.delete('layout_send_color');q.delete('layout_from_browser');_guardarUltimaConfiguracion(q)}catch(err){}}";
-    h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
+    h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');_guardarPestanas(id,'');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
     h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
     h += "function cambiarRefresh(v){var _n=Date.now();if(window._tsRf===String(v)&&_n-(window._tsRfT||0)<1500)return;window._tsRf=String(v);window._tsRfT=_n;var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += ""
