@@ -5311,7 +5311,7 @@ def _render_scanner():
         f"<div>EMA{n}: <b>{_le.get(_estados_ema[n], _estados_ema[n])}</b> · {_cond_txt(n, ema_cond_ui[n])}</div>"
         for n in (20, 50, 200)
     )
-    _tab_validos = {"panel-radar", "panel-tecnicos", "panel-technical", "panel-config", "panel-conexiones", "panel-resultados"}
+    _tab_validos = {"panel-radar", "panel-tecnicos", "panel-technical", "panel-config", "panel-conexiones", "panel-columnas"}
     _active_tab_ui = str(st.query_params.get("_active_tab", "") or "").strip()
     if _active_tab_ui not in _tab_validos:
         _active_tab_ui = "panel-radar"
@@ -5327,7 +5327,7 @@ def _render_scanner():
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-technical' else '') + "' data-tab-target='panel-technical' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-technical')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-technical')});return false;\">TECHNICAL</button>"
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-config' else '') + "' data-tab-target='panel-config' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-config')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-config')});return false;\">CONFIGURACIÓN</button>"
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-conexiones' else '') + "' data-tab-target='panel-conexiones' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-conexiones')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-conexiones')});return false;\">🔌 CONEXIONES</button>"
-    h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-resultados' else '') + "' data-tab-target='panel-resultados' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-resultados')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-resultados')});return false;\">RESULTADOS</button>"
+    h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-columnas' else '') + "' data-tab-target='panel-columnas' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-columnas')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-columnas')});return false;\">COLUMNAS</button>"
     h += "</div>"
     h += f"<div id='panel-radar' class='tab-panel {'active' if _active_tab_ui == 'panel-radar' else ''}'><b>RADAR</b><br>Filtros principales del radar: precio, gap, flotación y volumen.</div>"
     h += f"<div id='panel-tecnicos' class='tab-panel {'active' if _active_tab_ui == 'panel-tecnicos' else ''}'><div class='panel-grid'>"
@@ -5397,8 +5397,7 @@ def _render_scanner():
         h += "<div style='margin-top:8px;font-size:10px;color:#8f98a3;'>El puente se ejecuta en la computadora del usuario. El scanner no necesita instalarse allí.</div></div>"
         h += "<div class='panel-card' style='grid-column:1/-1;'><b>🏦 BROKER</b><span style='display:block;margin-top:6px;'>La conexión de la cuenta se añadirá en el siguiente paso con autorización segura. No se piden claves en esta fase.</span>"
         h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
-        h += "</div></div>"
-    h += f"<div id='panel-resultados' class='tab-panel {'active' if _active_tab_ui == 'panel-resultados' else ''}'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
+        h += "</div></div>"    h += f"<div id='panel-columnas' class='tab-panel {'active' if _active_tab_ui == 'panel-columnas' else ''}'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>🧩 COLUMNAS DEL RADAR</b><span style='display:block;margin-bottom:6px;'>Activa/desactiva columnas y cambia su orden. El cambio se aplica directamente a la tabla del radar.</span><div id='cols_list'></div><button type='button' data-col-act='reset' style='margin-top:6px;'>↺ RESTABLECER COLUMNAS</button></div></div></div>"
     def _ctl_res(label, texto, campos):
         def _v(i, d=""):
             for k, v in campos:
