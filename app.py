@@ -5222,7 +5222,7 @@ def _render_scanner():
     h += ".layout-palette .swatch{width:18px;height:18px;border-radius:3px;border:1px solid rgba(255,255,255,.5);flex:0 0 auto;}";
     h += ".layout-palette .num{width:13px;text-align:center;color:#d7dce2;font-size:9px;}";
     h += "@media(max-width:520px){.layout-palette{width:170px;}}";
-    h += ".schwab-item{grid-column:1/-1;align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;width:100%;}.schwab-item label{flex:0 0 auto;white-space:nowrap;}.schwab-item>span{flex:1 1 auto;min-width:0;text-align:left;white-space:nowrap;}.schwab-item button{white-space:nowrap;margin-left:auto;flex:0 0 auto;}@media(max-width:640px){.schwab-item{flex-wrap:wrap;}.schwab-item>span{white-space:normal;}.schwab-item button{margin-left:auto;}}";
+    h += ".schwab-item{grid-column:1/-1;align-items:center;display:flex;flex-direction:row;flex-wrap:nowrap;width:100%;}.schwab-item label{flex:0 0 auto;white-space:nowrap;}.schwab-item .schwab-info{flex:1 1 auto;min-width:0;text-align:left;white-space:nowrap;margin-left:4px;}.schwab-item button{white-space:nowrap;margin-left:auto;flex:0 0 auto;}@media(max-width:640px){.schwab-item{flex-wrap:wrap;}.schwab-item .schwab-info{white-space:normal;}.schwab-item button{margin-left:auto;}}";
     h += ".footer-note{margin-top:3px;font-size:8px;color:#7f8995;}";
     h += "@media(max-width:1100px){.main-container{width:calc(100% - 24px);}.filtros-grid{grid-template-columns:repeat(4,minmax(0,1fr));}.tab{min-width:82px;padding-left:7px;padding-right:7px;}}";
     h += "@media(max-width:900px){.main-container{width:100%;padding:0 3px 8px;}.filtros-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.brand{font-size:18px;}}";
@@ -5339,14 +5339,6 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
     h += "</div></div>"
     h += f"<div id='panel-technical' class='tab-panel {'active' if _active_tab_ui == 'panel-technical' else ''}'><div class='panel-grid'>"
-    h += "<div class='panel-card technical-control'><b>TIMEFRAME</b>"
-    if swing_activo_ui and swing_multitimeframe_ui:
-        h += "<select id='technical_timeframe' disabled><option>NEUTRO · MULTITEMPORAL</option></select><span>Neutral porque Swing multitemporal usa únicamente las temporalidades seleccionadas abajo.</span></div>"
-    else:
-        h += "<select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
-        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
-            h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
-        h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20/50/200, MACD y RSI.</span></div>"
     h += "<div class='panel-card technical-control' style='grid-column:1/-1;'><b>SWING EMA20 → EMA50 / EMA200</b>"
     h += f"<select id='swing_activo' onchange='aplicarTecnicas()'><option value='OFF' {'selected' if not swing_activo_ui else ''}>OFF · detector apagado</option><option value='ON' {'selected' if swing_activo_ui else ''}>ON · detectar swing</option></select>"
     h += f"<select id='swing_origen' onchange='aplicarTecnicas()'><option value='Bollinger inferior + debajo de EMA20' {'selected' if swing_origen_ui=='Bollinger inferior + debajo de EMA20' else ''}>Bollinger inferior + debajo de EMA20</option><option value='Bollinger inferior' {'selected' if swing_origen_ui=='Bollinger inferior' else ''}>Bollinger inferior</option><option value='Debajo de EMA20' {'selected' if swing_origen_ui=='Debajo de EMA20' else ''}>Debajo de EMA20</option></select>"
@@ -5489,6 +5481,15 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>MI HORARIO</label><span>{start_time}–{end_time} ET</span></div>"
     else:
         h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · solo lectura</span></div>"
+    h += "<div class='filtro-item'><label>TEMPORALIDAD</label>"
+    if swing_activo_ui and swing_multitimeframe_ui:
+        h += "<select id='timeframe' disabled><option>NEUTRO · MULTITEMPORAL</option></select><span>SWING MULTITEMPORAL</span></div>"
+    else:
+        h += "<select id='timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
+        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+            h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+        h += "</select>"
+    h += "</div>"
     h += f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_float_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_float_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
@@ -5553,7 +5554,7 @@ def _render_scanner():
         h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
     else:
         h += "<div class='filtro-item'><label>CONTROLES</label><span style='font-size:10px;line-height:1.35;'>Los filtros, temporalidad, EMA, idioma y refresh se cambian directamente dentro de este cuadro gris.</span></div>"
-    h += "<div class='filtro-item schwab-item'><label>CHARLES SCHWAB</label><span style='font-size:10px;line-height:1.2;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:auto;min-width:190px;height:26px;flex:0 0 auto;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
+    h += "<div class='filtro-item schwab-item'><label>CHARLES SCHWAB</label><span class='schwab-info'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:auto;min-width:190px;height:26px;flex:0 0 auto;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
     _schwab_connected = bool(_schwab_access_token())
