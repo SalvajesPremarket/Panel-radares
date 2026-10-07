@@ -5736,9 +5736,10 @@ def _render_scanner():
             pass
 
     if _USAR_FILTROS_NATIVOS and not PUBLIC_PREVIEW:
-        # Estos cuatro valores tienen una única fuente de verdad: widgets nativos
-        # de Streamlit. Se inicializan desde la URL solo cuando todavía no existe
-        # estado de sesión, evitando que un rerun restaure el valor anterior.
+        # Inicialización de los widgets nativos: SOLO una vez por sesión.
+        # Después de que el usuario modifica un filtro, Streamlit conserva el
+        # valor del widget y ningún rerun debe volver a copiar el valor canónico
+        # anterior sobre la clave *_native.
         _pmin0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_min", precio_min_ui))
         _pmax0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_max", precio_max_ui))
         _gmin0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_min", gap_min_ui))
@@ -5749,8 +5750,8 @@ def _render_scanner():
             ("ts_f_gap_min_native", _gmin0, gap_min_ui),
             ("ts_f_gap_max_native", _gmax0, gap_max_ui),
         ):
-            _obj = float(_v_nat if _v_nat is not None else _v_def)
-            if st.session_state.get(_k_nat) != _obj:
+            if _k_nat not in st.session_state:
+                _obj = float(_v_nat if _v_nat is not None else _v_def)
                 st.session_state[_k_nat] = _obj
 
     st.markdown("""<style>
