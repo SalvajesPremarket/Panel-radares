@@ -23,12 +23,15 @@ class MotorVelasBridge:
     MAX_SIMBOLOS_BASIC = 30
     MAX_NUEVOS_POR_CICLO = 10
 
-    def __init__(self, api_key: str, secret_key: str, motor=None):
+    def __init__(self, api_key: str, secret_key: str, motor=None, market_stream=None):
         if motor is None:
             from BotTradeScanner.motor_velas.motor_velas import MotorVelas
             motor = MotorVelas(api_key, secret_key)
 
         self.motor = motor
+        self.market_stream = market_stream
+        if self.market_stream is not None:
+            self.motor.conectar_stream_compartido(self.market_stream)
         self._lock = Lock()
         self._subscribe_lock = Lock()
         self._arrancado = False
@@ -43,6 +46,9 @@ class MotorVelasBridge:
         # El websocket es LAZY: no se abre mientras no existan candidatos.
 
     def _arrancar_stream(self):
+        if self.market_stream is not None:
+            self._arrancado = True
+            return True
         with self._lock:
             if self._arrancado:
                 return True
@@ -129,10 +135,12 @@ class MotorVelasBridge:
         # historicas concurrentes contra Alpaca.
         with self._subscribe_lock:
             try:
-                self._esperar_stream()
+                if self.market_stream is None:
+                    self._esperar_stream()
 
                 for symbol in retirar:
-                    self.motor.quitar_simbolo_en_caliente(symbol)
+                    if self.market_stream is None:
+                        self.motor.quitar_simbolo_en_caliente(symbol)
                     with self._lock:
                         self._simbolos_cargados.discard(symbol)
 
@@ -146,7 +154,8 @@ class MotorVelasBridge:
                         with self._lock:
                             self._simbolos_solicitados.discard(symbol)
                         continue
-                    self.motor.agregar_simbolo_en_caliente(symbol)
+                    if self.market_stream is None:
+                        self.motor.agregar_simbolo_en_caliente(symbol)
                     with self._lock:
                         self._simbolos_solicitados.discard(symbol)
                         self._simbolos_cargados.add(symbol)
@@ -176,4 +185,5 @@ class MotorVelasBridge:
             "ultimo_trade": getattr(self.motor, "ultimo_trade", None),
             "error": self._ultima_error,
             "limite_simbolos": self.MAX_SIMBOLOS_BASIC,
+            "stream_compartido": self.market_stream is not None,
         }
