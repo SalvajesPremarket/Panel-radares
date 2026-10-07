@@ -5500,11 +5500,10 @@ def _render_scanner():
     else:
         h += "<input type='hidden' id='price_min' value='" + _safe_text(precio_min_ui) + "'><input type='hidden' id='price_max' value='" + _safe_text(precio_max_ui) + "'>"
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select></div>"
-        h += f"<div class='filtro-item'><label>GAP MIN</label><input type='number' id='gap_min' value='{gap_min_ui:g}' step='0.1' min='0' onchange='pushConfig()'><label>GAP MAX</label><input type='number' id='gap_max' value='{gap_max_ui:g}' step='0.1' min='0' onchange='pushConfig()'></div>"
+        h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+        h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
     else:
-        h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select></div>"
-        h += _ctl_res("GAP (%)", "", [("gap_min", str(gap_min_ui)), ("gap_max", str(gap_max_ui))])
+        h += _ctl_res("ORDENAR", orden_ui, [("sel_order", orden_ui)])
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
     else:
@@ -5520,10 +5519,11 @@ def _render_scanner():
 
 
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
-        h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
+        h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select></div>"
+        h += f"<div class='filtro-item'><label>GAP MIN</label><input type='number' id='gap_min' value='{gap_min_ui:g}' step='0.1' min='0' onchange='pushConfig()'><label>GAP MAX</label><input type='number' id='gap_max' value='{gap_max_ui:g}' step='0.1' min='0' onchange='pushConfig()'></div>"
     else:
-        h += _ctl_res("ORDENAR", orden_ui, [("sel_order", orden_ui)])
+        h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select></div>"
+        h += _ctl_res("GAP (%)", "", [("gap_min", str(gap_min_ui)), ("gap_max", str(gap_max_ui))])
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}' onchange='pushConfig()'></div>"
         h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
