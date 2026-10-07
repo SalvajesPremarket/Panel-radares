@@ -11,19 +11,23 @@ class _LiveCache:
         self._lock = threading.RLock()
         self._trades: Dict[str, Dict[str, Any]] = {}
         self._quotes: Dict[str, Dict[str, Any]] = {}
+
     def trade(self, symbol: str):
         with self._lock:
             value = self._trades.get(str(symbol or "").upper())
             return dict(value) if value else None
+
     def quote(self, symbol: str):
         with self._lock:
             value = self._quotes.get(str(symbol or "").upper())
             return dict(value) if value else None
+
     def set_trade(self, symbol: str, price: Any, timestamp: Any = None):
         key = str(symbol or "").upper()
         if key:
             with self._lock:
                 self._trades[key] = {"price": price, "timestamp": timestamp}
+
     def set_quote(self, symbol: str, bid: Any, ask: Any, timestamp: Any = None):
         key = str(symbol or "").upper()
         if key:
@@ -32,18 +36,11 @@ class _LiveCache:
 
 
 class AlpacaMarketStream:
-    """Adaptador pequeño y único para el WebSocket de acciones de Alpaca.
-
-    Mantiene UNA conexión por instancia y actualiza la suscripción sin crear
-    conexiones nuevas en cada ciclo del scanner.
-    """
-
     def __init__(self, api_key: str, secret_key: str, feed: str = "iex", max_symbols: int = 30):
         self.api_key = api_key
         self.secret_key = secret_key
         self.feed = str(feed or "iex").strip().lower()
         self.max_symbols = max(1, int(max_symbols or 30))
-
         self._lock = threading.RLock()
         self._stream = None
         self._thread = None
@@ -59,14 +56,7 @@ class AlpacaMarketStream:
         self.cache = _LiveCache()
 
     def _feed_enum(self):
-        value = self.feed
-        if value == "sip":
-            return DataFeed.SIP
-        if value == "delayed_sip":
-            return DataFeed.DELAYED_SIP
-        if value == "otc":
-            return DataFeed.OTC
-        return DataFeed.IEX
+        return DataFeed.SIP if self.feed == "sip" else DataFeed.IEX
 
     @staticmethod
     def _symbol(data: Any) -> str:
@@ -74,6 +64,16 @@ class AlpacaMarketStream:
         if value is None and isinstance(data, dict):
             value = data.get("S") or data.get("symbol")
         return str(value or "").strip().upper()
+
+    async def _on_quote(self, data: Any):
+        with self._lock:
+            self._quotes += 1
+            self._last_event_ts = time.time()
+            self._connected = True
+            symbol = self._symbol(data)
+            if symbol:
+                self._symbols_seen.add(symbol)
+                self.cache.set_quote(symbol, getattr(data, "bid_price", None), getattr(data, "ask_price", None), getattr(data, "timestamp", None))
 
     async def _on_trade(self, data: Any):
         with self._lock:
@@ -85,45 +85,9 @@ class AlpacaMarketStream:
                 self._symbols_seen.add(symbol)
                 self.cache.set_trade(symbol, getattr(data, "price", None), getattr(data, "timestamp", None))
 
-    def _create_stream_locked
-    async def _on_quote(self, data: Any):
-        with self._lock:
-            self._quotes += 1
-            self._last_event_ts = time.time()
-            self._connected = True
-            symbol = self._symbol(data)
-            if symbol:
-                self._symbols_seen.add(symbol)
-                self.cache.set_quote(symbol, getattr(data, "bid_price", None), getattr(data, "ask_price", None), getattr(data, "timestamp", None))
-
-    async def _on_trade
-    async def _on_quote(self, data: Any):
-        with self._lock:
-            self._quotes += 1
-            self._last_event_ts = time.time()
-            self._connected = True
-            symbol = self._symbol(data)
-            if symbol:
-                self._symbols_seen.add(symbol)
-
-    async def _on_trade(self, data: Any):
-        with self._lock:
-            self._trades += 1
-            self._last_event_ts = time.time()
-            self._connected = True
-            symbol = self._symbol(data)
-            if symbol:
-                self._symbols_seen.add(symbol)
-
     def _create_stream_locked(self):
-        if self._stream is not None:
-            return
-        self._stream = StockDataStream(
-            self.api_key,
-            self.secret_key,
-            feed=self._feed_enum(),
-            data_timeout=90,
-        )
+        if self._stream is None:
+            self._stream = StockDataStream(self.api_key, self.secret_key, feed=self._feed_enum(), data_timeout=90)
 
     def _run_stream(self):
         try:
@@ -150,13 +114,10 @@ class AlpacaMarketStream:
                 symbols.append(symbol)
             if len(symbols) >= self.max_symbols:
                 break
-
         if not symbols:
             return
-
         with self._lock:
             nuevos = set(symbols)
-
             if self._stream is None:
                 self._create_stream_locked()
                 self._stream.subscribe_quotes(self._on_quote, *symbols)
@@ -170,15 +131,9 @@ class AlpacaMarketStream:
                 if agregar:
                     self._stream.subscribe_quotes(self._on_quote, *sorted(agregar))
                     self._stream.subscribe_trades(self._on_trade, *sorted(agregar))
-
             self._symbols = nuevos
-
             if self._thread is None or not self._thread.is_alive():
-                self._thread = threading.Thread(
-                    target=self._run_stream,
-                    name="alpaca-market-stream",
-                    daemon=True,
-                )
+                self._thread = threading.Thread(target=self._run_stream, name="alpaca-market-stream", daemon=True)
                 self._thread.start()
 
     def stop(self):
