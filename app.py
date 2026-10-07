@@ -2463,6 +2463,29 @@ class ServicioScanner:
         except Exception:
             self._live_max_symbols = 30
         self.live_stream = AlpacaMarketStream(api_key, secret_key, feed=_live_feed)
+
+        # Compatibilidad fuerte con instancias antiguas del módulo en Cloud:
+        # el bridge debe poder registrar sus callbacks aunque el proceso haya
+        # conservado una clase AlpacaMarketStream sin add_consumer().
+        if not hasattr(self.live_stream, "add_consumer"):
+            self.live_stream._trade_consumers = list(getattr(self.live_stream, "_trade_consumers", []) or [])
+            self.live_stream._quote_consumers = list(getattr(self.live_stream, "_quote_consumers", []) or [])
+
+            def _compat_add_consumer(trade_callback=None, quote_callback=None):
+                if trade_callback is not None and trade_callback not in self.live_stream._trade_consumers:
+                    self.live_stream._trade_consumers.append(trade_callback)
+                if quote_callback is not None and quote_callback not in self.live_stream._quote_consumers:
+                    self.live_stream._quote_consumers.append(quote_callback)
+
+            def _compat_remove_consumer(trade_callback=None, quote_callback=None):
+                while trade_callback in self.live_stream._trade_consumers:
+                    self.live_stream._trade_consumers.remove(trade_callback)
+                while quote_callback in self.live_stream._quote_consumers:
+                    self.live_stream._quote_consumers.remove(quote_callback)
+
+            self.live_stream.add_consumer = _compat_add_consumer
+            self.live_stream.remove_consumer = _compat_remove_consumer
+
         # El bot LONG consume este mismo websocket; no abre una segunda conexión a Alpaca.
         self.bot_motor_bridge = MotorVelasBridge(api_key, secret_key, market_stream=self.live_stream)
 
