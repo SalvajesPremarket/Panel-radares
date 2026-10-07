@@ -53,6 +53,8 @@ class AlpacaMarketStream:
         self._connected = False
         self._running = False
         self._last_error = ""
+        self._last_subscription_change = 0.0
+        self._subscription_min_interval = 20.0
         self.cache = _LiveCache()
 
     def _feed_enum(self):
@@ -125,6 +127,13 @@ class AlpacaMarketStream:
             return
         with self._lock:
             nuevos = set(symbols)
+            # No renegociamos la suscripción en cada ciclo de 10 s. El radar
+            # puede cambiar de candidatos muy rápido y eso provoca tráfico
+            # innecesario de subscribe/unsubscribe en Alpaca. Conservamos la
+            # última lista durante unos segundos y evitamos churn del websocket.
+            if self._stream is not None and nuevos != self._symbols:
+                if time.monotonic() - self._last_subscription_change < self._subscription_min_interval:
+                    return
             if self._stream is None:
                 self._create_stream_locked()
                 self._stream.subscribe_quotes(self._on_quote, *symbols)
@@ -139,6 +148,7 @@ class AlpacaMarketStream:
                     self._stream.subscribe_quotes(self._on_quote, *sorted(agregar))
                     self._stream.subscribe_trades(self._on_trade, *sorted(agregar))
             self._symbols = nuevos
+            self._last_subscription_change = time.monotonic()
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._run_stream, name="alpaca-market-stream", daemon=True)
                 self._thread.start()
