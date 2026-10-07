@@ -5407,7 +5407,7 @@ def _render_scanner():
         if label == "PRECIO ($)":
             return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.01' id='price_min' value='{_safe_text(_v('price_min', precio_min_ui))}' onchange='pushConfig()'><span>–</span><input type='number' step='0.01' id='price_max' value='{_safe_text(_v('price_max', precio_max_ui))}' onchange='pushConfig()'></div></div>"
         if label == "GAP (%)":
-            return f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select><div class='range'><span>GAP MIN</span><input type='number' step='0.1' id='gap_min' value='{_safe_text(_v('gap_min', gap_min_ui))}' onchange='pushConfig()'><span>GAP MAX</span><input type='number' step='0.1' id='gap_max' value='{_safe_text(_v('gap_max', gap_max_ui))}' onchange='pushConfig()'></div></div>"
+            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{_safe_text(_v('gap_min', gap_min_ui))}' onchange='pushConfig()'><span>–</span><input type='number' step='0.1' id='gap_max' value='{_safe_text(_v('gap_max', gap_max_ui))}' onchange='pushConfig()'></div></div>"
         if label == "FLOTACIÓN ≤":
             return f"<div class='filtro-item'><label>{label}</label><input type='number' id='float_max' value='{_safe_text(_v('float_max', float_max_ui))}' onchange='pushConfig()'></div>"
         if label == "VOLUMEN ≥":
@@ -5513,7 +5513,7 @@ def _render_scanner():
     else:
         h += _ctl_res("PUENTE DE LAYOUT", bridge_val, [("cfg_url", bridge_val)])
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select><div class='range'><span>GAP MIN</span><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}' min='0' onchange='pushConfig()'><span>GAP MAX</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}' min='0' onchange='pushConfig()'></div></div>"
+        h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select></div>"
         h += f"<div class='filtro-item'><label>GAP MIN</label><input type='number' id='gap_min' value='{gap_min_ui:g}' step='0.1' min='0' onchange='pushConfig()'><label>GAP MAX</label><input type='number' id='gap_max' value='{gap_max_ui:g}' step='0.1' min='0' onchange='pushConfig()'></div>"
     else:
         h += _ctl_res("GAP · FILTRO", _qtxt('f_gap_on','OFF'), [("f_gap_on", _qtxt('f_gap_on','OFF'))])
