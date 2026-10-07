@@ -259,7 +259,7 @@ HORA_MERCADO_FIN_ET = 16
 HORA_AFTER_FIN_ET = 20
 TTL_CALENDARIO_MERCADO = 12 * 3600
 
-TTL_TECNICO_SEGUNDOS = 10              # no recalcular EMA/MACD de un ticker más seguido que esto
+TTL_TECNICO_SEGUNDOS = 30              # EMA/MACD se refrescan cada 30 s; el precio sigue llegando por snapshot/WebSocket
 MAX_TIMEFRAMES_ACTIVOS = 4        # temporalidades que el motor calcula a la vez (las más recientes)
 VIGENCIA_TIMEFRAME_ACTIVO = 1800  # una temporalidad sigue activa 30 min después de que alguien la pidió
 VENTANA_CRUCE_EMA_MINUTOS = 1
