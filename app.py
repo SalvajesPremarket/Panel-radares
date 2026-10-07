@@ -5528,7 +5528,6 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
     else:
         h += _ctl_res("ORDENAR", orden_ui, [("sel_order", orden_ui)])
-    h += "<div class='filtro-item'><label>SCHWAB CREDENCIALES</label><span style='font-size:9px;line-height:1.25;color:#b8c0ca;'>Se leen desde Streamlit Secrets. No se guardan en URL ni navegador.</span></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
     else:
