@@ -389,17 +389,23 @@ class MotorVelas:
     def conectar_stream_compartido(self, market_stream):
         """Conecta este motor al websocket ya existente del scanner."""
         self._stream_compartido = market_stream
-        market_stream.add_consumer(self._al_recibir_trade, self._al_recibir_quote)
+        market_stream.add_consumer(self._recibir_trade_compartido, self._recibir_quote_compartido)
         self._iniciado = True
 
     def desconectar_stream_compartido(self):
         stream = getattr(self, "_stream_compartido", None)
         if stream is not None:
-            stream.remove_consumer(self._al_recibir_trade, self._al_recibir_quote)
+            stream.remove_consumer(self._recibir_trade_compartido, self._recibir_quote_compartido)
         self._stream_compartido = None
         self._iniciado = False
 
+    def _recibir_quote_compartido(self, quote):
+        self._guardar_quote(quote)
+
     async def _al_recibir_quote(self, quote):
+        self._guardar_quote(quote)
+
+    def _guardar_quote(self, quote):
         """Guarda el ultimo bid/ask real recibido por Alpaca."""
         simbolo = quote.symbol
         try:
@@ -416,7 +422,13 @@ class MotorVelas:
             "timestamp": getattr(quote, "timestamp", None),
         }
 
+    def _recibir_trade_compartido(self, trade):
+        self._procesar_trade(trade)
+
     async def _al_recibir_trade(self, trade):
+        self._procesar_trade(trade)
+
+    def _procesar_trade(self, trade):
         motor = self._obtener_motor(trade.symbol)
         momento = trade.timestamp
         if momento.tzinfo is None:
