@@ -5760,46 +5760,6 @@ def _render_scanner():
                 _obj = float(_v_nat if _v_nat is not None else _v_def)
                 st.session_state[_k_nat] = _obj
 
-    st.markdown("""<style>
-    .st-key-ts_filter_native{position:relative !important;height:0 !important;min-height:0 !important;z-index:80 !important;pointer-events:none !important;}
-    /* Los filtros nativos siguen al filtro visual al que pertenecen:
-       PRECIO debajo de HORARIO DEL SCANNER y GAP debajo de GAP · FILTRO. */
-    .st-key-ts_filter_native > div{position:relative !important;top:360px !important;pointer-events:auto !important;margin:0 !important;}
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"]{position:relative !important;display:block !important;width:100% !important;height:88px !important;}
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div{position:absolute !important;top:0 !important;flex:none !important;min-width:0 !important;width:12.5% !important;}
-    /* Precio: dos controles bajo HORARIO DEL SCANNER (columna 2). */
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(1){left:25% !important;}
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(2){left:37.5% !important;}
-    /* Gap: dos controles bajo GAP · FILTRO (columna 4), una fila debajo. */
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(3){left:75% !important;top:48px !important;}
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(4){left:87.5% !important;top:48px !important;}
-    .st-key-ts_filter_native [data-testid="stNumberInput"]{width:72px !important;min-width:72px !important;}
-    .st-key-ts_filter_native [data-testid="stNumberInput"] input{width:100% !important;max-width:none !important;min-width:0 !important;height:25px !important;font-size:10px !important;}
-    .st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:8px !important;line-height:1 !important;margin:0 !important;white-space:nowrap !important;}
-    @media(max-width:640px){
-      .st-key-ts_filter_native > div{top:300px !important;}
-      .st-key-ts_filter_native [data-testid="stHorizontalBlock"]{height:78px !important;}
-      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div{width:25% !important;}
-      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(1){left:25% !important;}
-      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(2){left:50% !important;}
-      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(3){left:50% !important;top:42px !important;}
-      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(4){left:75% !important;top:42px !important;}
-      .st-key-ts_filter_native [data-testid="stNumberInput"]{width:54px !important;min-width:54px !important;}
-      .st-key-ts_filter_native [data-testid="stNumberInput"] input{height:21px !important;font-size:8px !important;padding:1px 2px !important;}
-      .st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:6px !important;}
-    }
-    </style>""", unsafe_allow_html=True)
-    if _USAR_FILTROS_NATIVOS and not PUBLIC_PREVIEW:
-        with st.container(key="ts_filter_native"):
-            _a1, _a2, _a3, _a4 = st.columns([1, 1, 1, 1])
-            with _a1:
-                st.number_input("PRECIO MIN", min_value=0.0, max_value=100000.0, step=0.01, key="ts_f_price_min_native", on_change=_ts_cambiar_filtro_precio, label_visibility="visible")
-            with _a2:
-                st.number_input("PRECIO MAX", min_value=0.0, max_value=100000.0, step=0.01, key="ts_f_price_max_native", on_change=_ts_cambiar_filtro_precio, label_visibility="visible")
-            with _a3:
-                st.number_input("GAP MIN", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_min_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
-            with _a4:
-                st.number_input("GAP MAX", min_value=-100.0, max_value=10000.0, step=0.1, key="ts_f_gap_max_native", on_change=_ts_cambiar_filtro_gap, label_visibility="visible")
     # Puente nativo: el iframe no puede navegar la página superior (Streamlit no
     # da allow-top-navigation). En su lugar el JS del iframe actualiza la URL del
     # padre con history.replaceState y pulsa este botón oculto, lo que provoca un
