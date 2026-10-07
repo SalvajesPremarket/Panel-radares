@@ -25,6 +25,7 @@ class AlpacaMarketStream:
         api_key: str,
         secret_key: str,
         feed: str = "iex",
+        max_symbols: int = 30,
         cache: MarketCache | None = None,
         bars: LiveBarBuilder | None = None,
         health: DataHealth | None = None,
@@ -33,6 +34,7 @@ class AlpacaMarketStream:
         self.api_key = str(api_key or "").strip()
         self.secret_key = str(secret_key or "").strip()
         self.feed_name = str(feed or "iex").strip().lower()
+        self.max_symbols = max(1, int(max_symbols or 30))
         self.cache = cache or MarketCache()
         self.bars = bars or LiveBarBuilder()
         self.health = health or DataHealth()
@@ -98,6 +100,7 @@ class AlpacaMarketStream:
             for symbol in (symbols or [])
             if str(symbol).strip()
         }
+        requested = set(sorted(requested)[:self.max_symbols])
         if self._thread and self._thread.is_alive():
             self._update_running_subscriptions(requested)
             return
@@ -139,6 +142,7 @@ class AlpacaMarketStream:
             for symbol in (symbols or [])
             if str(symbol).strip()
         }
+        requested = set(sorted(requested)[:self.max_symbols])
         if self._thread and self._thread.is_alive():
             self._update_running_subscriptions(requested)
         else:
