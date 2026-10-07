@@ -5501,6 +5501,10 @@ def _render_scanner():
         h += "<input type='hidden' id='price_min' value='" + _safe_text(precio_min_ui) + "'><input type='hidden' id='price_max' value='" + _safe_text(precio_max_ui) + "'>"
     h += f"<div class='filtro-item'><label>VOLUMEN · FILTRO</label><select id='f_vol_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_vol_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_vol_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}' onchange='pushConfig()'></div></div>"
+    else:
+        h += "<input type='hidden' id='gap_min' value='" + _safe_text(gap_min_ui) + "'><input type='hidden' id='gap_max' value='" + _safe_text(gap_max_ui) + '">'
     h += f"<div class='filtro-item'><label>EMA20 · FILTRO</label><select id='ema20_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('ema20_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('ema20_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}' onchange='pushConfig()'></div>"
@@ -5510,10 +5514,6 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}' onchange='pushConfig()'></div>"
     else:
         h += _ctl_res("VOLUMEN ≥", f"{volumen_min_ui:,}", [("txt_vol", str(volumen_min_ui))])
-    if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}' onchange='pushConfig()'></div></div>"
-    else:
-        h += "<input type='hidden' id='gap_min' value='" + _safe_text(gap_min_ui) + "'><input type='hidden' id='gap_max' value='" + _safe_text(gap_max_ui) + '">'
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
     else:
