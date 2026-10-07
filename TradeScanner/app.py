@@ -6368,3 +6368,6 @@ if _ROBOT_MODE:
     st.stop()
 
 _render_scanner()
+
+
+# REDEPLOY MARKER 2026-10-07 — diagnóstico temporal de filtros.
