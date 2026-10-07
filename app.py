@@ -5481,6 +5481,7 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>MI HORARIO</label><span>{start_time}–{end_time} ET</span></div>"
     else:
         h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · solo lectura</span></div>"
+    h += f"<div class='filtro-item'><label>PRECIO</label><input type='number' id='price_min' value='{precio_min_ui:g}' step='0.01' min='0' onchange='pushConfig()'></div>"
     h += "<div class='filtro-item'><label>TEMPORALIDAD</label>"
     if swing_activo_ui and swing_multitimeframe_ui:
         h += "<select id='timeframe' disabled><option>NEUTRO · MULTITEMPORAL</option></select><span>SWING MULTITEMPORAL</span></div>"
