@@ -77,13 +77,14 @@ def test_bridge_compartido_no_arranca_stream_propio_ni_suscribe_alpaca():
             self._stream = None
             self._stream_compartido = None
             self._iniciado = False
+            self.precargados = []
 
         def conectar_stream_compartido(self, stream):
             self._stream_compartido = stream
             self._iniciado = True
 
         def precargar_historial(self, simbolos, cantidad=300):
-            raise AssertionError("El modo compartido no debe precargar aqui")
+            self.precargados = list(simbolos)
 
         def agregar_simbolo_en_caliente(self, simbolo):
             raise AssertionError("El modo compartido no debe abrir suscripciones propias")
@@ -97,5 +98,10 @@ def test_bridge_compartido_no_arranca_stream_propio_ni_suscribe_alpaca():
     assert motor._stream_compartido is stream
     assert motor._stream is None
     assert motor._iniciado is True
+    deadline = time.time() + 1.0
+    while time.time() < deadline and not bridge.status()["simbolos_cargados"]:
+        time.sleep(0.01)
+
     assert bridge.status()["stream_compartido"] is True
-    assert bridge.status()["simbolos_solicitados"] == ["AAPL"]
+    assert bridge.status()["simbolos_cargados"] == ["AAPL"]
+    assert motor.precargados == ["AAPL"]
