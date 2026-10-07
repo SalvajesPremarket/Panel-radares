@@ -1072,6 +1072,9 @@ def pantalla_autenticacion():
                 radial-gradient(circle at 50% 0%, rgba(212,175,55,.10), transparent 35%),
                 #030303 !important;
         }
+        [data-testid="stTabs"] { position: relative !important; z-index: 100000 !important; }
+        [data-testid="stTabs"] [role="tab"] { position: relative !important; z-index: 100001 !important; pointer-events: auto !important; cursor: pointer !important; }
+        [data-testid="stForm"] button { position: relative !important; z-index: 100002 !important; pointer-events: auto !important; }
         .auth-card {
             position: relative;
             box-sizing: border-box;
@@ -5671,13 +5674,9 @@ def _render_scanner():
     )
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
-            st.markdown(
-                f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
-                'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-                'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
-                '📝 REGISTRO / INICIAR SESIÓN</a>',
-                unsafe_allow_html=True,
-            )
+            if st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_abrir_auth", width="stretch"):
+                st.query_params["auth"] = "1"
+                st.rerun()
         else:
             _n1, _n3, _n4 = st.columns([1.3, 1, 1])
             with _n1:
