@@ -56,6 +56,23 @@ class AlpacaMarketStream:
         self._last_subscription_change = 0.0
         self._subscription_min_interval = 20.0
         self.cache = _LiveCache()
+        self._trade_consumers = []
+        self._quote_consumers = []
+
+    def add_consumer(self, trade_callback=None, quote_callback=None):
+        """Registra consumidores adicionales sin abrir otro websocket."""
+        with self._lock:
+            if trade_callback is not None and trade_callback not in self._trade_consumers:
+                self._trade_consumers.append(trade_callback)
+            if quote_callback is not None and quote_callback not in self._quote_consumers:
+                self._quote_consumers.append(quote_callback)
+
+    def remove_consumer(self, trade_callback=None, quote_callback=None):
+        with self._lock:
+            if trade_callback in self._trade_consumers:
+                self._trade_consumers.remove(trade_callback)
+            if quote_callback in self._quote_consumers:
+                self._quote_consumers.remove(quote_callback)
 
     def _feed_enum(self):
         return DataFeed.SIP if self.feed == "sip" else DataFeed.IEX
@@ -76,6 +93,12 @@ class AlpacaMarketStream:
             if symbol:
                 self._symbols_seen.add(symbol)
                 self.cache.set_quote(symbol, getattr(data, "bid_price", None), getattr(data, "ask_price", None), getattr(data, "timestamp", None))
+            consumidores = list(self._quote_consumers)
+        for callback in consumidores:
+            try:
+                callback(data)
+            except Exception:
+                pass
 
     async def _on_trade(self, data: Any):
         with self._lock:
@@ -86,6 +109,12 @@ class AlpacaMarketStream:
             if symbol:
                 self._symbols_seen.add(symbol)
                 self.cache.set_trade(symbol, getattr(data, "price", None), getattr(data, "timestamp", None))
+            consumidores = list(self._trade_consumers)
+        for callback in consumidores:
+            try:
+                callback(data)
+            except Exception:
+                pass
 
     def _create_stream_locked(self):
         if self._stream is None:
