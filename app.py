@@ -5764,7 +5764,65 @@ def _render_scanner():
     if _show_ema200: h += f"<th data-col='ema200'>EMA200 ({timeframe_ui})</th>"
     h += f"<th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
-    h += "<script>try{aplicarColumnas()}catch(e){}</script>"
+    h += """<script>
+(function(){
+  var orden=['layout','ticker','sector','precio','cambio','volumen','gap','flot','ema20','ema50','ema200','macd'];
+  var ocultas=[];
+  function tabla(){
+    var b=document.getElementById('resultados-tabla');
+    return b ? b.querySelector('table') : null;
+  }
+  function aplicar(){
+    var t=tabla();
+    if(!t)return;
+    t.querySelectorAll('tr').forEach(function(tr){
+      var mapa={};
+      Array.prototype.forEach.call(tr.children,function(td){
+        var id=td.getAttribute('data-col');
+        if(id)mapa[id]=td;
+      });
+      orden.forEach(function(id){
+        var td=mapa[id];
+        if(td){
+          td.style.display=ocultas.indexOf(id)>=0?'none':'';
+          tr.appendChild(td);
+        }
+      });
+    });
+  }
+  window.moverColumna=function(dir,id){
+    var i=orden.indexOf(String(id));
+    if(i<0)return false;
+    var j=dir==='up'?i-1:i+1;
+    if(j<0||j>=orden.length)return false;
+    var x=orden[i]; orden[i]=orden[j]; orden[j]=x;
+    aplicar();
+    var box=document.getElementById('cols_list');
+    if(box){
+      var b=box.querySelector('[data-col-id="'+String(id)+'"][data-col-act="'+dir+'"]');
+      if(b)b.blur();
+    }
+    return false;
+  };
+  document.addEventListener('change',function(ev){
+    var id=ev.target&&ev.target.getAttribute('data-col-vis');
+    if(!id)return;
+    var n=ocultas.indexOf(id);
+    if(ev.target.checked){if(n>=0)ocultas.splice(n,1);}
+    else if(n<0)ocultas.push(id);
+    aplicar();
+  });
+  document.addEventListener('DOMContentLoaded',function(){
+    aplicar();
+  });
+  window.addEventListener('load',function(){
+    aplicar();
+    setTimeout(aplicar,100);
+    setTimeout(aplicar,500);
+  });
+  aplicar();
+})();
+</script>"""
     try:
         _det_noticias = getattr(servicio, "noticias_detalle", {}) or {}
         _noticias_ui = {}
