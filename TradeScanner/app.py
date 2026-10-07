@@ -1,10 +1,3 @@
-import sys
-from pathlib import Path
-
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
-
 import os
 import json
 import time
@@ -14,7 +7,6 @@ import secrets
 from urllib.parse import quote
 from html import escape as html_escape
 import threading
-import traceback
 from datetime import date, datetime, timedelta, timezone, time as dt_time
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
@@ -28,20 +20,11 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
-from TradeScanner.data_engine import AlpacaMarketStream
-try:
-    from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
-    _MOTOR_VELAS_IMPORT_ERROR = None
-except Exception as _e_motor_import:
-    # Si el módulo no se encuentra, el scanner igual debe abrir (sin motor de velas).
-    MotorVelasBridge = None
-    _MOTOR_VELAS_IMPORT_ERROR = f"{type(_e_motor_import).__name__}: {_e_motor_import}"
-    print(f"⚠️ No se pudo importar MotorVelasBridge: {_MOTOR_VELAS_IMPORT_ERROR}")
 
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 # Precio y gap viven DENTRO del cuadro gris (iframe). Los controles nativos de afuera quedan apagados.
-_USAR_FILTROS_NATIVOS = True
+_USAR_FILTROS_NATIVOS = False
 
 # ------------------------------------------------------------------
 # Canal fiable cuadro gris -> Python.
@@ -53,8 +36,8 @@ _USAR_FILTROS_NATIVOS = True
 _TS_COMP_HTML = r'''<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
-html,body{margin:0;padding:0;width:100%;height:100%;background:#15181d;overflow:hidden}
-#wrap{position:relative;width:100%;height:100vh;min-height:680px;background:#15181d;overflow:hidden}
+html,body{margin:0;padding:0;background:#15181d;overflow:hidden}
+#wrap{position:relative;width:100%;height:1200px;background:#15181d}
 iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background:#15181d}
 </style></head>
 <body><div id="wrap"></div>
@@ -64,44 +47,34 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   var current=null,pending=null,lastHtml=null,height=0,deferSince=0,timer=null;
   function post(type,data){var m={isStreamlitMessage:true,type:type};for(var k in data){m[k]=data[k];}window.parent.postMessage(m,'*');}
   function setHeight(h){if(!h||h===height)return;height=h;wrap.style.height=h+'px';post('streamlit:setFrameHeight',{height:h});}
-  function viewportHeight(){
-    try{
-      var h=Number(window.top.innerHeight)||0;
-      if(h>300)return Math.max(680,Math.min(1400,h-12));
-    }catch(e){}
-    return 900;
-  }
-  function fitViewport(){setHeight(viewportHeight());}
   function busy(f){try{return !!(f.contentWindow&&f.contentWindow._tsDirty);}catch(e){return false;}}
   function isOurs(w){return !!w&&((current&&current.contentWindow===w)||(pending&&pending.contentWindow===w));}
   function show(f){
-    // Conservado por compatibilidad con mensajes tsReady antiguos.
-    if(!f)return;
+    var old=current;current=f;if(pending===f)pending=null;
     f.style.visibility='visible';
-    if(f===current)pending=null;
+    if(old&&old!==f&&old.parentNode){old.parentNode.removeChild(old);}
   }
   function run(){
     if(!lastHtml)return;
-    // ESTABLE: no desmontar/recrear iframes. El scanner ya no usa refresh
-    // dentro de st.fragment; cada cambio de configuración llega por el
-    // componente y puede actualizar el mismo iframe sin pantalla blanca.
-    if(!current){
-      var f=document.createElement('iframe');
-      try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
-      current=f;
-      wrap.appendChild(f);
-      try{f.srcdoc=lastHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(lastHtml);}
-      f.__html=lastHtml;
-      f.style.visibility='visible';
+    if(current&&current.__html===lastHtml){
+      if(pending){if(pending.parentNode)pending.parentNode.removeChild(pending);pending=null;}
       return;
     }
-    if(current.__html===lastHtml){
-      current.style.visibility='visible';
-      return;
+    if(current&&busy(current)){
+      if(!deferSince)deferSince=Date.now();
+      if(Date.now()-deferSince<10000){timer=setTimeout(function(){timer=null;run();},600);return;}
     }
-    current.__html=lastHtml;
-    current.style.visibility='visible';
-    try{current.srcdoc=lastHtml;}catch(e){current.src='data:text/html;charset=utf-8,'+encodeURIComponent(lastHtml);}
+    deferSince=0;
+    if(pending){if(pending.parentNode)pending.parentNode.removeChild(pending);pending=null;}
+    var f=document.createElement('iframe');
+    f.__html=lastHtml;
+    if(!current){current=f;}
+    else{
+      f.style.visibility='hidden';pending=f;
+      f.onload=function(){setTimeout(function(){if(pending===f)show(f);},2500);};
+    }
+    wrap.appendChild(f);
+    f.srcdoc=lastHtml;
   }
   function schedule(){if(timer)return;timer=setTimeout(function(){timer=null;run();},0);}
   window.addEventListener('message',function(ev){
@@ -112,18 +85,15 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
       if(typeof a.html==='string'&&a.html!==lastHtml){lastHtml=a.html;schedule();}
       return;
     }
+    if(!isOurs(ev.source))return;
     if(d.tsNav){
       post('streamlit:setComponentValue',{value:{id:String(Date.now())+'-'+Math.random().toString(36).slice(2),q:String(d.q||'')},dataType:'json'});
       return;
     }
-    if(!isOurs(ev.source))return;
     if(d.tsReady&&pending&&ev.source===pending.contentWindow){show(pending);}
   });
   post('streamlit:componentReady',{apiVersion:1});
-  setHeight(viewportHeight());
-  setTimeout(fitViewport,300);
-  window.addEventListener('resize',function(){setTimeout(fitViewport,80);});
-  window.addEventListener('orientationchange',function(){setTimeout(fitViewport,180);});
+  setHeight(1200);
 })();
 </script></body></html>
 '''
@@ -146,13 +116,6 @@ try:
 except Exception as _e_comp:
     print(f"⚠️ Componente del scanner no disponible, se usa st.iframe: {_e_comp}")
     _TS_COMP_OK = False
-
-# ESTABILIZACIÓN WEB: el scanner no usa el componente V1 bidireccional.
-# Ese componente añade un iframe contenedor + el iframe del scanner y, al
-# recibir nuevos argumentos, puede desmontarse/recrearse durante un rerun.
-# Para evitar la pantalla blanca mantenemos un único iframe HTML nativo.
-_TS_USE_COMPONENT = True
-_TS_COMP_OK = bool(_TS_COMP_OK and _TS_USE_COMPONENT)
 
 # Sin "flash" en el refresh automático: Streamlit atenúa (opacity) los elementos
 # mientras se recalcula y el iframe de la tabla parpadea al recargarse. Se deja todo
@@ -230,12 +193,6 @@ st.markdown("""
 ET = ZoneInfo("America/New_York")
 
 # ==========================================
-# 📊 INSTRUMENTACIÓN FASE 1 — CONSUMO REAL
-# Solo mide; no modifica la lógica del scanner.
-# ==========================================
-METRICAS_FASE1_VERSION = 1
-
-# ==========================================
 # ⚙️ PARÁMETROS DEL MOTOR
 # ==========================================
 INTERVALO_ESCANEO_SEGUNDOS = 10        # cada cuánto el motor recorre el mercado (una sola vez para todos los usuarios)
@@ -276,7 +233,7 @@ FMP_BULK_MIN_INTERVAL_SEGUNDOS = 1.0
 
 # Horario automático: 04:00–16:00 ET, solo días de mercado según Alpaca.
 HORA_AUTO_INICIO_ET = 4
-HORA_AUTO_FIN_ET = 20
+HORA_AUTO_FIN_ET = 16
 HORA_MERCADO_INICIO_ET = 9
 MINUTO_MERCADO_INICIO_ET = 30
 HORA_MERCADO_FIN_ET = 16
@@ -341,15 +298,6 @@ VALORES_POR_DEFECTO = {
     "ema20_estado": "Neutro", "ema50_estado": "Neutro", "ema200_estado": "Neutro",
     "ema20_cond": "Naciendo", "ema50_cond": "Ninguna", "ema200_cond": "Ninguna",
     "ema20_dist": 0.5, "ema50_dist": 0.5, "ema200_dist": 0.5,
-    # Detector de swing: zona inferior -> cruce EMA20 -> primer toque EMA50/EMA200.
-    "swing_activo": False,
-    "swing_origen": "Bollinger inferior + debajo de EMA20",
-    "swing_objetivo": "EMA50 o EMA200",
-    "swing_ventana": 10,
-    "swing_tolerancia": 1.0,
-    "swing_origen_tolerancia": 1.0,
-    "swing_multitimeframe": False,
-    "swing_tfs": "1d,1w,1mo",
     # Filtros opcionales: el usuario decide cuáles activar.
     "gap_activo": False,
     "flotacion_activa": False,
@@ -359,27 +307,8 @@ VALORES_POR_DEFECTO = {
 
 
 def cargar_config():
-    """Filtros personales por defecto; no se usan para controlar el motor compartido."""
+    """Filtros por defecto (los del dueño). Solo lectura: cada usuario ajusta su propia vista."""
     return VALORES_POR_DEFECTO.copy()
-
-
-def cargar_config_motor_compartido():
-    """Pool técnico común: amplio, sin filtros personales de ningún usuario."""
-    d = VALORES_POR_DEFECTO.copy()
-    d.update({
-        "precio_min": BASE_PRECIO_MIN, "precio_max": BASE_PRECIO_MAX,
-        "gap_min": BASE_GAP_MIN, "gap_max": BASE_GAP_MAX,
-        "flotacion_max": BASE_FLOTACION_MAX, "volumen_min": 0,
-        "macd": "No exigir",
-        "ema20_estado": "Neutro", "ema50_estado": "Neutro", "ema200_estado": "Neutro",
-        "ema20_cond": "Ninguna", "ema50_cond": "Ninguna", "ema200_cond": "Ninguna",
-        "ema20_dist": 0.0, "ema50_dist": 0.0, "ema200_dist": 0.0,
-        "gap_activo": False, "flotacion_activa": False, "volumen_activo": False,
-        "ema20_activa": False, "f_gap_on": "OFF", "f_float_on": "OFF",
-        "f_vol_on": "OFF", "ema20_on": "OFF",
-        "rsi_min": 0.0, "rsi_max": 100.0, "swing_activo": False, "timeframe": "1m",
-    })
-    return d
 
 
 def cargar_horario_guardado():
@@ -396,40 +325,8 @@ def cargar_horario_guardado():
 def guardar_horario_en_disco(inicio_min, fin_min):
     """Guarda el horario automático en disco para que sobreviva a reinicios de la app."""
     try:
-        with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
-            d = json.load(f)
-    except Exception:
-        d = {}
-    try:
-        d["hora_inicio_auto_min"] = int(inicio_min)
-        d["hora_fin_auto_min"] = int(fin_min)
         with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
-            json.dump(d, f)
-    except Exception:
-        pass
-
-
-def cargar_estado_motor_guardado():
-    """Estado ON/OFF del motor central administrado por ADMIN."""
-    try:
-        with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
-            d = json.load(f)
-        return bool(d.get("motor_central_encendido", True))
-    except Exception:
-        return True
-
-
-def guardar_estado_motor_en_disco(encendido):
-    """Guarda el ON/OFF central para que no se pierda al reiniciar la app."""
-    try:
-        with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
-            d = json.load(f)
-    except Exception:
-        d = {}
-    try:
-        d["motor_central_encendido"] = bool(encendido)
-        with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
-            json.dump(d, f)
+            json.dump({"hora_inicio_auto_min": int(inicio_min), "hora_fin_auto_min": int(fin_min)}, f)
     except Exception:
         pass
 
@@ -440,9 +337,7 @@ def guardar_estado_motor_en_disco(encendido):
 # Estos precios son únicamente de prueba. No hay cobro real ni tarjeta.
 PRECIO_MENSUAL_USD = 28.00
 PRECIO_ANUAL_USD = 270.00
-PRECIO_MENSUAL_ROBOT_USD = 38.00
-PRECIO_ANUAL_ROBOT_USD = 370.00
-DIAS_PRUEBA_GRATIS = 30
+DIAS_PRUEBA_GRATIS = 7
 RUTA_LICENCIAS_SIMULADAS = os.path.join(os.getcwd(), "licencias_simuladas.json")
 
 def _leer_licencias_simuladas():
@@ -476,7 +371,7 @@ def _parse_iso(value):
         return None
 
 def crear_prueba_usuario(user_id, email):
-    """Crea una prueba de 1 mes una sola vez por usuario."""
+    """Crea una prueba de 7 días una sola vez por usuario."""
     if not user_id:
         return None
     data = _leer_licencias_simuladas()
@@ -520,26 +415,12 @@ def activar_plan_simulado(user_id, plan):
     clave = str(user_id)
     actual = data.get(clave) or {"user_id": clave}
     inicio = _ahora_utc()
-    if plan in {"MENSUAL", "MENSUAL_SCANNER"}:
+    if plan == "MENSUAL":
         dias = 30
         precio = PRECIO_MENSUAL_USD
-        nombre_plan = "SCANNER MENSUAL"
-        incluye_robot = False
-    elif plan in {"ANUAL", "ANUAL_SCANNER"}:
+    elif plan == "ANUAL":
         dias = 365
         precio = PRECIO_ANUAL_USD
-        nombre_plan = "SCANNER ANUAL"
-        incluye_robot = False
-    elif plan == "MENSUAL_ROBOT":
-        dias = 30
-        precio = PRECIO_MENSUAL_ROBOT_USD
-        nombre_plan = "SCANNER + ROBOT MENSUAL"
-        incluye_robot = True
-    elif plan == "ANUAL_ROBOT":
-        dias = 365
-        precio = PRECIO_ANUAL_ROBOT_USD
-        nombre_plan = "SCANNER + ROBOT ANUAL"
-        incluye_robot = True
     else:
         return False, "Plan no válido."
     # En simulación, cada activación extiende desde hoy o desde el vencimiento vigente.
@@ -547,8 +428,7 @@ def activar_plan_simulado(user_id, plan):
     if base < inicio:
         base = inicio
     actual.update({
-        "plan": nombre_plan,
-        "incluye_robot": incluye_robot,
+        "plan": plan,
         "estado": "ACTIVO",
         "inicio": _iso(inicio),
         "vencimiento": _iso(base + timedelta(days=dias)),
@@ -1171,9 +1051,7 @@ def pantalla_autenticacion():
             <div style="width:100%;margin:5px 0 11px;color:#8e96a3;font-family:Arial,sans-serif;font-size:10px;letter-spacing:2px;text-align:center;">SCANNER</div>
             <div style="box-sizing:border-box;width:100%;margin:0;padding:10px 8px 9px;border:1px solid rgba(212,175,55,.55);border-radius:10px;background:linear-gradient(180deg,rgba(212,175,55,.10),rgba(212,175,55,.035));text-align:center;color:#f3f3f3;">
                 <div style="color:#f2d675;font-family:Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.8px;margin-bottom:6px;">🎁 OFERTA DE LANZAMIENTO</div>
-                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;">Prueba <span style="color:#37c77a;font-weight:800;">1 MES GRATIS</span></div>
-                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;margin-top:3px;">Solo Scanner: <span style="color:#f2d675;font-weight:800;">$28/mes</span> · <span style="color:#f2d675;font-weight:800;">$270/año</span></div>
-                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;">Scanner + Robot: <span style="color:#f2d675;font-weight:800;">$38/mes</span> · <span style="color:#f2d675;font-weight:800;">$370/año</span></div>
+                <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.5;color:#d9dee7;">Prueba <span style="color:#37c77a;font-weight:800;">7 DÍAS GRATIS</span> &nbsp;•&nbsp; Luego <span style="color:#f2d675;font-weight:800;">$28/mes</span> &nbsp;•&nbsp; Anual <span style="color:#f2d675;font-weight:800;">$270/año</span></div>
             </div>
         </div>
         """,
@@ -1195,11 +1073,10 @@ def pantalla_autenticacion():
     # El acceso de administrador está dentro de la misma pantalla y
     # requiere el token secreto configurado en Streamlit Secrets.
     # No se utiliza una segunda URL ni un parámetro especial de administrador.
-    st.markdown(
-        f'<a href="/" target="_top" '
-        'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-        'color:#e5e9ee;text-decoration:none;background:#20252c;font-size:11px;">← Volver al scanner</a>',
-        unsafe_allow_html=True,
+    st.button(
+        "← Volver al scanner",
+        key="ts_volver_auth",
+        on_click=lambda: st.session_state.update(mostrar_auth=False),
     )
     tab_login, tab_registro, tab_admin = st.tabs(
         ["🔐 Iniciar sesión", "📝 Registrarse", "👑 Administrador"]
@@ -1372,12 +1249,12 @@ def pantalla_autenticacion():
                         st.query_params["auth_session"] = _sid
                         st.session_state["mostrar_auth"] = False
                         st.query_params.pop("auth", None)
-                        st.success("✅ Cuenta creada. Tu prueba gratuita de 1 mes está activa.")
+                        st.success("✅ Cuenta creada. Tu prueba gratuita de 7 días está activa.")
                         st.rerun()
                     else:
                         st.success(
                             "✅ Cuenta creada. Revisa tu correo para confirmar la cuenta. "
-                            "Al iniciar sesión se activará tu prueba gratuita de 1 mes."
+                            "Al iniciar sesión se activará tu prueba gratuita de 7 días."
                         )
 
     with tab_admin:
@@ -1419,31 +1296,7 @@ def pantalla_autenticacion():
                 else:
                     st.error("❌ Token no válido. Acceso denegado.")
 
-    return
-
-
-def _ts_auth_href(modo="abrir"):
-    """Construye una navegación de la misma página sin usar callbacks de Streamlit.
-    Se usa para aislar Auth del rerun que desmonta el iframe del scanner.
-    """
-    try:
-        from urllib.parse import urlencode
-        pares = {}
-        for _k, _v in st.query_params.items():
-            if isinstance(_v, list):
-                if _v:
-                    pares[str(_k)] = str(_v[0])
-            elif _v is not None:
-                pares[str(_k)] = str(_v)
-        pares.pop("logout", None)
-        if modo == "abrir":
-            pares["auth"] = "1"
-        else:
-            pares.pop("auth", None)
-        _qs = urlencode(pares)
-        return "?" + _qs if _qs else "/"
-    except Exception:
-        return "/?auth=1" if modo == "abrir" else "/"
+    st.stop()
 
 
 # =========================================================
@@ -1451,52 +1304,9 @@ def _ts_auth_href(modo="abrir"):
 # =========================================================
 # auth_session solo es respaldo de recarga completa; durante un rerun normal
 # la identidad permanece en st.session_state.
-
-def _ts_diag_add(etapa, detalle="", estado=None):
-    """Registro temporal de la ruta UI -> Python -> estado."""
-    try:
-        log = st.session_state.setdefault("_ts_diag_log", [])
-        from datetime import datetime
-        fila = {"hora": datetime.now().strftime("%H:%M:%S.%f")[:-3],
-                "etapa": str(etapa), "detalle": str(detalle)}
-        if isinstance(estado, dict):
-            fila["estado"] = {k: str(v) for k, v in estado.items()}
-        log.append(fila)
-        if len(log) > 80:
-            del log[:-80]
-    except Exception:
-        pass
-
-
-def _ts_diag_snapshot():
-    """Copia compacta de los valores que pueden rebotar."""
-    try:
-        claves = ("f_price_min", "f_price_max", "f_gap_min", "f_gap_max",
-                  "f_float_max", "f_vol", "f_mac", "f_order", "timeframe")
-        qp = {}
-        for k in claves:
-            v = st.query_params.get(k, "")
-            if isinstance(v, list):
-                v = v[0] if v else ""
-            qp[k] = str(v)
-        canon = st.session_state.get("_ts_query_elegida")
-        if not isinstance(canon, dict):
-            canon = {}
-        return {"query": qp, "canon": {k: str(canon.get(k, "")) for k in claves}}
-    except Exception:
-        return {}
-
-
-
 def _ts_aplicar_evento_ui():
-    """Recibe lo que hizo el usuario en el cuadro gris y lo convierte
-    inmediatamente en el estado canónico de esta sesión.
-    
-    El evento del componente es la fuente de verdad. No basta con escribir
-    st.query_params: el sincronizador que corre después también puede tener
-    una copia anterior en _ts_query_elegida. Por eso ambos se actualizan
-    atómicamente aquí, antes de construir el scanner.
-    """
+    """Recibe lo que hizo el usuario en el cuadro gris (filtros, EMAs, idioma, refresh...)
+    y lo escribe en los parametros de la sesion ANTES de calcular nada."""
     try:
         ev = st.session_state.get("ts_scanner_ui")
         if not isinstance(ev, dict):
@@ -1505,105 +1315,33 @@ def _ts_aplicar_evento_ui():
         if not eid or eid == st.session_state.get("_ts_evt_visto"):
             return
         st.session_state["_ts_evt_visto"] = eid
-
         from urllib.parse import parse_qsl
         pares = dict(parse_qsl(str(ev.get("q", "")), keep_blank_values=True))
-        _diag_raw = pares.pop("_ts_diag", "")
-        if _diag_raw:
-            try:
-                _diag_browser = json.loads(_diag_raw)
-                _ts_diag_add(
-                    "NAVEGADOR → PYTHON",
-                    "pushConfig recibió los valores del DOM",
-                    {"dom": _diag_browser.get("fields", {}), "url_q": str(ev.get("q", ""))[-900:]}
-                )
-            except Exception as _de:
-                _ts_diag_add("NAVEGADOR → PYTHON", f"diagnóstico JS inválido: {_de}")
         pares.pop("_ts", None)
-
-        # La configuración que viene del iframe pasa a ser canónica
-        # inmediatamente. Esto evita que un valor viejo de Session State
-        # pueda ganar en el mismo rerun.
-        _canon = st.session_state.get("_ts_query_elegida")
-        if not isinstance(_canon, dict):
-            _canon = {}
-
-        _permitidas = set(_CONFIG_USUARIO_KEYS) if "_CONFIG_USUARIO_KEYS" in globals() else set()
         for _k, _v in pares.items():
             if _k == "auth_session" and not _v:
                 continue
-            if _k in _permitidas or _k in ("_u", "technical_timeframe", "robot"):
-                _canon[_k] = str(_v)
-
-        st.session_state["_ts_query_elegida"] = _canon
-
-        # Aplicar el mismo estado a query_params en una sola operación.
-        _qp_evento = {}
-        for _k, _v in _canon.items():
-            if _k == "auth_session" and not _v:
-                continue
-            if str(st.query_params.get(_k, "")) != str(_v):
-                _qp_evento[_k] = str(_v)
-        if _qp_evento:
-            try:
-                st.query_params.update(_qp_evento)
-            except Exception:
-                for _k, _v in _qp_evento.items():
-                    st.query_params[_k] = _v
-
-        _ts_diag_add(
-            "PYTHON: EVENTO APLICADO",
-            "La configuración recibida quedó escrita en Session State y query_params",
-            _ts_diag_snapshot()
-        )
-
-        if "c_active" in pares:
-            # Solo se consume como orden de motor después de verificar ES_ADMIN.
-            st.session_state["_admin_motor_evento"] = str(pares.get("c_active", ""))
-
-        # Marcar el _u recibido como ya visto: este evento ya fue consumido.
-        try:
-            _u_evento = int(float(str(pares.get("_u", "0") or "0")))
-        except Exception:
-            _u_evento = 0
-        try:
-            _u_prev = int(st.session_state.get("_ts_u_visto", 0) or 0)
-        except Exception:
-            _u_prev = 0
-        st.session_state["_ts_u_visto"] = max(_u_prev, _u_evento)
-
-        # Una acción del usuario siempre gana a un auto-refresh que coincida en el tiempo.
+            if str(st.query_params.get(_k, "")) != _v:
+                st.query_params[_k] = _v
+        # Una accion del usuario siempre gana a un auto-refresh que coincida en el tiempo.
         st.session_state["_ts_rerun_auto"] = False
     except Exception as _e_ev:
         print(f"⚠️ No se pudo aplicar el evento del cuadro gris: {_e_ev}")
 
 
-# Restaurar la identidad persistente ANTES de decidir si debemos mostrar Auth.
-# En un F5 Streamlit crea un st.session_state nuevo; auth_session es la clave
-# para recuperar al usuario antes de entrar al flujo público.
-if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
-    _restaurar_sesion_persistente()
+_ts_aplicar_evento_ui()
 
-# Estado nativo de autenticación.
-# IMPORTANTE: la autenticación se resuelve ANTES de construir el scanner/robot.
-# Este era el flujo estable de la versión anterior al montaje del robot y evita
-# intentar insertar Auth dentro del mismo árbol que contiene el iframe del scanner.
-if "mostrar_auth" not in st.session_state:
-    st.session_state["mostrar_auth"] = False
-
-# El cierre de sesión se procesa fuera del callback del botón.
-if st.session_state.pop("_ts_logout_requested", False):
-    cerrar_sesion()
-    st.session_state.pop("_ts_query_elegida", None)
-    st.session_state.pop("_ts_u_visto", None)
-    st.session_state["mostrar_auth"] = False
-    try:
-        st.query_params.clear()
-    except Exception:
-        pass
-
+PUBLIC_PREVIEW = (
+    "token_verificado" not in st.session_state
+    and "usuario_auth" not in st.session_state
+)
 AUTH_REQUESTED = str(st.query_params.get("auth", "0")).lower() in ("1", "true", "yes")
 LOGOUT_REQUESTED = str(st.query_params.get("logout", "0")).lower() in ("1", "true", "yes")
+
+# Estado nativo de Streamlit: no depende de iframe, target, window.open ni
+# navegación del navegador.
+if "mostrar_auth" not in st.session_state:
+    st.session_state["mostrar_auth"] = False
 
 if LOGOUT_REQUESTED:
     cerrar_sesion()
@@ -1614,6 +1352,8 @@ if LOGOUT_REQUESTED:
         pass
     st.rerun()
 
+# Si llega ?auth=1 desde una versión anterior, se convierte una sola vez al
+# estado nativo y se elimina el parámetro.
 if AUTH_REQUESTED:
     st.session_state["mostrar_auth"] = True
     try:
@@ -1621,52 +1361,22 @@ if AUTH_REQUESTED:
     except Exception:
         pass
 
-# Si Auth está abierta, no procesamos eventos del iframe, sincronización,
-# motor visual ni robot. Solo dibujamos la autenticación y terminamos el run.
+# Si hay un pedido explícito de autenticación, NO restauramos una sesión vieja
+# primero. Esto garantiza que REGISTRO/LOGIN siempre sea accesible.
+# Cuando el usuario pide explícitamente REGISTRO / LOGIN, la pantalla de
+# autenticación debe abrirse incluso si Streamlit restauró una sesión anterior.
+# Esto evita que la restauración automática bloquee el botón de acceso.
 if st.session_state.get("mostrar_auth"):
     pantalla_autenticacion()
     st.stop()
 
-# Desde aquí comienza el flujo normal de la aplicación.
-_ts_aplicar_evento_ui()
-
-PUBLIC_PREVIEW = (
-    "token_verificado" not in st.session_state
-    and "usuario_auth" not in st.session_state
-)
-
-# Visitantes: solo lectura. No aceptamos configuración personal enviada por URL.
-if PUBLIC_PREVIEW:
-    # Limpieza atómica de filtros de usuario en la primera carga pública.
-    # Evita una cascada de actualizaciones de URL durante un refresh completo.
-    _PUBLIC_QUERY_KEYS = {
-        "c_active","c_start","c_end","c_lang","c_wnd","c_broker","c_url","refresh_sec",
-        "f_price_min","f_price_max","f_gap_min","f_gap_max","f_float_max","f_vol",
-        "f_ema","f_mac","f_order","timeframe","technical_timeframe","ema_dist_max",
-        "rsi_min","rsi_max","ema20_estado","ema50_estado","ema200_estado",
-        "ema20_cond","ema50_cond","ema200_cond","ema20_dist","ema50_dist","ema200_dist",
-        "f_gap_on","f_float_on","f_vol_on","ema20_on","swing_activo","swing_origen",
-        "swing_objetivo","swing_ventana","swing_tolerancia","swing_origen_tolerancia",
-        "swing_multitimeframe","swing_tfs",
-    }
-    try:
-        _qp_actual_publico = dict(st.query_params)
-        _qp_limpio_publico = {
-            _k: _v for _k, _v in _qp_actual_publico.items()
-            if _k not in _PUBLIC_QUERY_KEYS
-        }
-        if len(_qp_limpio_publico) != len(_qp_actual_publico):
-            try:
-                st.query_params.from_dict(_qp_limpio_publico)
-            except Exception:
-                st.query_params.clear()
-                st.query_params.update(_qp_limpio_publico)
-    except Exception:
-        pass
-PUBLIC_PREVIEW = (
-    "token_verificado" not in st.session_state
-    and "usuario_auth" not in st.session_state
-)
+# Restauración normal de sesión solamente cuando no se está mostrando Auth.
+if "token_verificado" not in st.session_state and "usuario_auth" not in st.session_state:
+    _restaurar_sesion_persistente()
+    PUBLIC_PREVIEW = (
+        "token_verificado" not in st.session_state
+        and "usuario_auth" not in st.session_state
+    )
 
 # =========================================================
 # IDENTIDAD ACTIVA
@@ -1720,8 +1430,6 @@ _CONFIG_USUARIO_KEYS = (
     "f_gap_on", "f_float_on", "f_vol_on", "ema20_on",
     "ema20_cond", "ema50_cond", "ema200_cond",
     "ema20_dist", "ema50_dist", "ema200_dist",
-    "swing_activo", "swing_origen", "swing_objetivo", "swing_ventana",
-    "swing_tolerancia", "swing_origen_tolerancia", "swing_multitimeframe", "swing_tfs",
 )
 
 def _clave_configuracion_activa():
@@ -1771,29 +1479,20 @@ def _restaurar_ultima_configuracion_servidor():
         pass
     if not isinstance(guardada, dict) or not guardada:
         return False
-    # Preparar toda la restauración antes de tocar st.query_params.
-    # Una sola actualización evita una cascada de cambios de URL durante
-    # el arranque de un refresh completo.
-    _restaurados = {}
+    cambio = False
     for clave in _CONFIG_USUARIO_KEYS:
         if clave in guardada and str(st.query_params.get(clave, "")) == "":
+            # Sesión y horario son globales/fijos; los demás filtros sí son personales.
             if clave == "market_session":
-                _restaurados[clave] = "TODO EL MERCADO"
+                st.query_params[clave] = "TODO EL MERCADO"
             elif clave == "c_start":
-                _restaurados[clave] = "04:00"
+                st.query_params[clave] = "04:00"
             elif clave == "c_end":
-                _restaurados[clave] = "20:00"
+                st.query_params[clave] = "20:00"
             else:
-                _restaurados[clave] = str(guardada[clave])
-    if _restaurados:
-        try:
-            st.query_params.update(_restaurados)
-        except Exception:
-            # Compatibilidad con versiones donde update no esté disponible.
-            for _k, _v in _restaurados.items():
-                st.query_params[_k] = _v
-        return True
-    return False
+                st.query_params[clave] = str(guardada[clave])
+            cambio = True
+    return cambio
 
 def _guardar_ultima_configuracion_servidor():
     if not USUARIO_AUTENTICADO:
@@ -1826,11 +1525,8 @@ def _guardar_ultima_configuracion_servidor():
 
 # Al volver a entrar con la misma cuenta, recuperar la última configuración
 # antes de construir la interfaz. Así el refresh tampoco vuelve a 3 minutos.
-# La configuración restaurada ya quedó escrita en st.query_params y puede
-# ser consumida por este mismo ciclo. No forzar un segundo rerun durante
-# el arranque: en un refresh completo ese rerun intermedio puede dejar la
-# página sin contenido mientras Streamlit reconstruye la sesión.
-_restaurar_ultima_configuracion_servidor()
+if _restaurar_ultima_configuracion_servidor():
+    st.rerun()
 
 
 # Solo los tokens configurados como ADMIN pueden ser administradores.
@@ -1887,44 +1583,28 @@ if not ES_ADMIN and USUARIO_AUTENTICADO:
             """,
             unsafe_allow_html=True,
         )
-        st.markdown("### Elige tu plan — COBRO SIMULADO")
-        st.caption("Tu primer mes es gratis. En esta versión de prueba no se realiza ningún cargo real ni se solicita tarjeta.")
+        st.markdown("### Elige un plan — COBRO SIMULADO")
+        st.caption("En esta versión de prueba no se realiza ningún cargo real ni se solicita tarjeta.")
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("#### 🟦 Solo Scanner")
-            st.markdown("**$28/mes** · **$270/año**")
-            if st.button("ACTIVAR SCANNER MENSUAL", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL_SCANNER")
+            st.markdown("#### 💳 Mensual — $28 USD")
+            if st.button("ACTIVAR MENSUAL (SIMULADO)", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL")
                 if ok:
-                    st.success("✅ Plan Scanner mensual simulado activado.")
-                    st.rerun()
-                else:
-                    st.error(msg)
-            if st.button("ACTIVAR SCANNER ANUAL", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL_SCANNER")
-                if ok:
-                    st.success("✅ Plan Scanner anual simulado activado.")
+                    st.success("✅ Membresía mensual simulada activada.")
                     st.rerun()
                 else:
                     st.error(msg)
         with c2:
-            st.markdown("#### 🟧 Scanner + 🤖 Robot")
-            st.markdown("**$38/mes** · **$370/año**")
-            if st.button("ACTIVAR SCANNER + ROBOT MENSUAL", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "MENSUAL_ROBOT")
+            st.markdown("#### 💳 Anual — $270 USD")
+            if st.button("ACTIVAR ANUAL (SIMULADO)", width="stretch"):
+                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL")
                 if ok:
-                    st.success("✅ Plan Scanner + Robot mensual simulado activado.")
+                    st.success("✅ Membresía anual simulada activada.")
                     st.rerun()
                 else:
                     st.error(msg)
-            if st.button("ACTIVAR SCANNER + ROBOT ANUAL", width="stretch"):
-                ok, msg = activar_plan_simulado(_u.get("user_id", ""), "ANUAL_ROBOT")
-                if ok:
-                    st.success("✅ Plan Scanner + Robot anual simulado activado.")
-                    st.rerun()
-                else:
-                    st.error(msg)
-        st.info("El administrador también podrá concederte acceso gratuito durante el período de prueba o como cortesía.")
+        st.info("Para esta prueba, el administrador también podrá concederte acceso gratuito sin pago.")
         st.stop()
 
 
@@ -1965,9 +1645,9 @@ with st.sidebar:
                 estado, venc_txt = _resumen_licencia(lic)
                 st.markdown(f"**{lic.get('email','Usuario')}**  ")
                 st.caption(f"{lic.get('plan','—')} · {estado} · vence {venc_txt}")
-                if st.button("🎁 +30 días", key=f"grant_{uid}", width="stretch"):
+                if st.button("🎁 +7 días", key=f"grant_{uid}", width="stretch"):
                     if conceder_gratis_admin(uid, 30):
-                        st.success("30 días gratuitos concedidos.")
+                        st.success("7 días gratuitos concedidos.")
                         st.rerun()
                 if st.button("⛔ Suspender", key=f"suspend_{uid}", width="stretch"):
                     if suspender_usuario_admin(uid):
@@ -2226,57 +1906,6 @@ def evaluar_tecnico(velas):
 OPCIONES_COND_EMA = ("Ninguna", "Naciendo", "Distancia", "Naciendo o distancia", "Pullback a la baja", "Pullback a la alta")
 
 
-def evaluar_swing(velas):
-    """Detecta zona inferior -> cruce EMA20 -> continuación -> primer toque."""
-    out = {"swing_cross_ago": 999, "swing_origin_bb_dist_pct": 999.0,
-           "swing_origin_below_ema20": False, "swing_continua_alcista": False,
-           "swing_ema50_touch_dist_current": 999.0, "swing_ema50_touch_dist_previous_min": 999.0,
-           "swing_ema200_touch_dist_current": 999.0, "swing_ema200_touch_dist_previous_min": 999.0}
-    try:
-        if velas is None or len(velas) < 200:
-            return out
-        v=velas.sort_index()
-        if not all(c in v.columns for c in ("open","high","low","close")):
-            return out
-        close=v["close"].astype(float).reset_index(drop=True)
-        e20=close.ewm(span=20,adjust=False).mean()
-        e50=close.ewm(span=50,adjust=False).mean()
-        e200=close.ewm(span=200,adjust=False).mean()
-        mid=close.rolling(20).mean(); std=close.rolling(20).std(); lower=mid-2*std
-        last=len(close)-1; cross=None
-        for i in range(max(1,last-30),last+1):
-            if close.iloc[i-1] < e20.iloc[i-1] and close.iloc[i] >= e20.iloc[i]:
-                cross=i
-        if cross is None:
-            return out
-        out["swing_cross_ago"]=last-cross
-        bb_dist=999.0; below=False
-        for j in range(max(0,cross-12),cross+1):
-            if float(close.iloc[j]) < float(e20.iloc[j]): below=True
-            b=lower.iloc[j]
-            if not pd.isna(b) and float(b)>0:
-                lo=float(v.iloc[j]["low"]); d=0.0 if lo<=float(b) else max(0.0,(lo-float(b))/float(b)*100.0)
-                bb_dist=min(bb_dist,d)
-        out["swing_origin_bb_dist_pct"]=bb_dist
-        out["swing_origin_below_ema20"]=below
-        post=close.iloc[cross:last+1]
-        out["swing_continua_alcista"]=bool(len(post)>=2 and close.iloc[last]>e20.iloc[last] and float(post.max())>float(close.iloc[cross]))
-        def rdist(j,ema):
-            e=float(ema.iloc[j])
-            if e<=0:return 999.0
-            lo=float(v.iloc[j]["low"]); hi=float(v.iloc[j]["high"])
-            if lo<=e<=hi:return 0.0
-            return min(abs(lo-e),abs(hi-e))/e*100.0
-        for n,ema in ((50,e50),(200,e200)):
-            cur=rdist(last,ema); prev=999.0
-            for j in range(cross+1,last): prev=min(prev,rdist(j,ema))
-            out["swing_ema%d_touch_dist_current"%n]=cur
-            out["swing_ema%d_touch_dist_previous_min"%n]=prev
-    except Exception as e:
-        print("⚠️ Error evaluando Swing EMA20/50/200:",e)
-    return out
-
-
 def evaluar_ema_condiciones(velas):
     """Datos extra por EMA (20/50/200) para las pestañas de filtros.
 
@@ -2351,33 +1980,6 @@ def cumple_condiciones_ema(c, p):
     Por defecto EMA20 = "Naciendo" (la regla original del scanner) y
     EMA50/EMA200 = "Ninguna". Si un dato no se puede calcular, la condición falla.
     """
-    swing_activo = _filtro_activo(p, "swing_activo", False)
-    if swing_activo:
-        for _n in (20, 50, 200):
-            _pedido = p.get("ema%d_estado" % _n, "Neutro")
-            if _pedido in ("Por encima", "Por debajo") and c.get("ema%d_estado" % _n, "Neutro") != _pedido:
-                return False
-        try: _ventana=max(1,min(30,int(float(p.get("swing_ventana",10)))))
-        except Exception: _ventana=10
-        try: _tol=max(0.0,min(10.0,float(p.get("swing_tolerancia",1.0))))
-        except Exception: _tol=1.0
-        try: _otol=max(0.0,min(10.0,float(p.get("swing_origen_tolerancia",1.0))))
-        except Exception: _otol=1.0
-        if int(c.get("swing_cross_ago",999)) > _ventana:return False
-        _origen=str(p.get("swing_origen","Bollinger inferior + debajo de EMA20"))
-        _bb=float(c.get("swing_origin_bb_dist_pct",999.0)) <= _otol
-        _below=bool(c.get("swing_origin_below_ema20",False))
-        if _origen=="Bollinger inferior" and not _bb:return False
-        if _origen=="Debajo de EMA20" and not _below:return False
-        if _origen=="Bollinger inferior + debajo de EMA20" and not (_bb and _below):return False
-        if not bool(c.get("swing_continua_alcista",False)):return False
-        _obj=str(p.get("swing_objetivo","EMA50 o EMA200"))
-        _ok50=_obj in ("EMA50","EMA50 o EMA200") and float(c.get("swing_ema50_touch_dist_current",999.0))<=_tol and float(c.get("swing_ema50_touch_dist_previous_min",999.0))>_tol
-        _ok200=_obj in ("EMA200","EMA50 o EMA200") and float(c.get("swing_ema200_touch_dist_current",999.0))<=_tol and float(c.get("swing_ema200_touch_dist_previous_min",999.0))>_tol
-        if not (_ok50 or _ok200):return False
-        c["swing_objetivo_detectado"]="EMA50" if _ok50 and not _ok200 else ("EMA200" if _ok200 and not _ok50 else "EMA50 + EMA200")
-        return True
-
     for n in (20, 50, 200):
         pedido = p.get(f"ema{n}_estado", "Neutro")
         cond = p.get(f"ema{n}_cond", "Naciendo" if n == 20 else "Ninguna")
@@ -2532,8 +2134,6 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
             if getattr(data_client, "_bars_retraso", False):
                 solicitud = StockBarsRequest(symbol_or_symbols=lote, timeframe=tf, start=inicio, end=_fin_retraso)
             try:
-                _owner_metricas = getattr(data_client, "_scanner_metricas_owner", None); _t_metric_bars = time.monotonic()
-                if _owner_metricas is not None: _owner_metricas._metrica_sumar("bars")
                 barras = data_client.get_stock_bars(solicitud)
             except Exception as _e1:
                 _m1 = str(_e1).lower()
@@ -2545,13 +2145,7 @@ def descargar_cierres(data_client, tickers, timeframe_label="1m"):
                 else:
                     raise
             datos = getattr(barras, "df", None)
-            if _owner_metricas is not None: _owner_metricas._metrica_tiempo("tiempo_bars", _t_metric_bars)
         except Exception as e:
-            try:
-                if "_owner_metricas" in locals() and _owner_metricas is not None:
-                    _owner_metricas._metrica_tiempo("tiempo_bars", _t_metric_bars); _owner_metricas._metrica_sumar("errores_alpaca")
-                    if "429" in str(e).lower() or "rate limit" in str(e).lower(): _owner_metricas._metrica_sumar("alpaca_429")
-            except Exception: pass
             print(f"⚠️ Error descargando velas de Alpaca (lote {len(lote)}): {e}")
             try:
                 data_client._ultimo_error_barras = str(e)
@@ -2658,13 +2252,6 @@ def filtrar_eventos(eventos, p):
     return salida
 
 
-# Yahoo Finance es solo respaldo. Estos controles son GLOBALES al proceso
-# para que una recreación de ServicioScanner no vuelva a golpear Yahoo después
-# de un 401/403/429 ya detectado.
-_YAHOO_FALLBACK_LOCK = threading.Lock()
-_YAHOO_FALLBACK_PAUSADO_HASTA = 0.0
-_YAHOO_FALLBACK_ULTIMA_PETICION = 0.0
-
 # ==========================================
 # ⚡️ MOTOR COMPARTIDO (un solo hilo para TODOS los usuarios)
 # ==========================================
@@ -2683,38 +2270,10 @@ class ServicioScanner:
         self.trading = TradingClient(api_key, secret_key)
         self.data = StockHistoricalDataClient(api_key=api_key, secret_key=secret_key)
 
-        # Motor de velas en tiempo real: una sola conexión compartida y solo
-        # para los candidatos que el scanner publica. No toma decisiones de trading.
-        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed="iex", max_symbols=30)
-
-        self.motor_velas = None
-        if MotorVelasBridge is not None:
-            try:
-                self.motor_velas = MotorVelasBridge(
-                    api_key,
-                    secret_key,
-                    market_stream=self.market_stream,
-                )
-            except Exception as _e_mv:
-                print(f"⚠️ Motor de velas no pudo iniciar: {_e_mv}")
-
-        # Bot LONG: se carga de forma tolerante para que un fallo del componente
-        # experimental del robot NO derribe la pagina completa del scanner.
-        self.bot_long = None
-        self.bot_long_error = None
-        try:
-            if self.motor_velas is None:
-                raise RuntimeError("motor de velas no disponible")
-            from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
-            self.bot_long = BotLongRealtime(self.motor_velas, intervalo_segundos=1.0)
-            self.bot_long.iniciar()
-        except Exception as exc:
-            self.bot_long_error = str(exc)
-            print(f"⚠️ Bot LONG no pudo iniciar: {exc}")
-
-        self.encendido = cargar_estado_motor_guardado()
+        self.encendido = True
         # Control manual del administrador: si se apaga, el horario automático NO lo vuelve a encender.
-        # El estado ON/OFF se carga desde disco para que un reinicio no lo vuelva a encender.
+        # El horario se carga desde disco si el administrador ya lo guardó antes;
+        # si no hay nada guardado, usa los valores por defecto del código.
         self.hora_inicio_auto_min, self.hora_fin_auto_min = cargar_horario_guardado()
         self.resultados = []
         self.ultima_actualizacion = None
@@ -2772,8 +2331,6 @@ class ServicioScanner:
         self.tf_principal = str(self.timeframe or "1m").lower()
         self.tfs_activos = {self.tf_principal: time.time()}
         self.resultados_por_tf = {}
-        # Pool técnico amplio y compartido; cada usuario filtra su propia vista.
-        self.pool_por_tf = {}
         self.diag_por_tf = {}
         self.cache_tecnico_por_tf = {}
         self.cache_ema_extra_por_tf = {}
@@ -2790,8 +2347,6 @@ class ServicioScanner:
         self._bulk_float_running = False
         self._bulk_float_lock = threading.Lock()
         self._lock_fmp = threading.Lock()
-        # Yahoo es solo respaldo; evitar que varios workers disparen .info simultaneamente.
-        self._lock_yahoo = threading.Lock()
 
         self._lock_ritmo = threading.Lock()
         self._ultima_peticion = 0.0
@@ -2799,105 +2354,8 @@ class ServicioScanner:
         # Control del hilo para permitir un reinicio limpio desde el panel de administrador.
         self._detener_hilo = threading.Event()
         self._lock_reinicio = threading.Lock()
-        self._metricas_lock = threading.Lock()
-        self.metricas = {
-            "inicio": time.time(), "ciclos": 0, "ciclos_por_tf": {},
-            "duracion_ciclo_total": 0.0, "duracion_ciclo_min": None, "duracion_ciclo_max": 0.0,
-            "universo_cargas": 0, "simbolos_universo": 0, "snapshots": 0, "bars": 0, "calendario": 0,
-            "fmp_bulk": 0, "fmp_individual": 0, "fmp_429": 0, "fmp_errores": 0,
-            "fmp_cache_hits": 0, "fmp_cache_misses": 0, "errores_alpaca": 0, "alpaca_429": 0,
-            "tiempo_snapshots": 0.0, "tiempo_bars": 0.0, "tiempo_fmp": 0.0,
-            "resultados_publicados": 0, "simbolos_procesados": 0,
-            "ultimo_ciclo_ts": None, "ultimo_ciclo_duracion": None,
-        }
-        self.data._scanner_metricas_owner = self
         self._hilo = threading.Thread(target=self._bucle, daemon=True)
         self._hilo.start()
-
-    # ---------- puente scanner -> motor de velas ----------
-    def _sincronizar_motor_velas(self, resultados):
-        """Entrega al motor de velas únicamente los candidatos publicados.
-
-        El motor de velas observa trades y arma velas; no decide entradas/salidas.
-        La lógica del bot real queda desacoplada y podrá consumir estos snapshots.
-        """
-        try:
-            # BotLongRealtime sincroniza a su vez el puente de market-data.
-            # Asi evitamos suscribir/procesar los mismos candidatos dos veces.
-            if self.bot_long is not None:
-                self.bot_long.sync_candidates(resultados)
-        except Exception as exc:
-            self.bot_long_error = str(exc)
-            print(f"⚠️ Puente motor/bot LONG: {exc}")
-
-    def estado_bot_long(self):
-        """Estado publico/visual del bot LONG; no expone credenciales."""
-        try:
-            if self.bot_long is None:
-                return {
-                    "disponible": False,
-                    "hilo_vivo": False,
-                    "error": self.bot_long_error or "Bot LONG no inicializado",
-                    "candidatos": [],
-                    "ciclos": 0,
-                    "posiciones_paper": [],
-                    "posiciones_observadas": [],
-                    "decisiones_guardadas": 0,
-                }
-            estado = dict(self.bot_long.status())
-            estado["disponible"] = True
-            if self.bot_long_error and not estado.get("ultimo_error"):
-                estado["ultimo_error"] = self.bot_long_error
-            return estado
-        except Exception as exc:
-            return {
-                "disponible": False,
-                "hilo_vivo": False,
-                "error": str(exc),
-                "candidatos": [],
-                "ciclos": 0,
-                "posiciones_paper": [],
-                "posiciones_observadas": [],
-                "decisiones_guardadas": 0,
-            }
-
-    def decisiones_bot_long(self, limite=20):
-        try:
-            if self.bot_long is None:
-                return []
-            return self.bot_long.decisiones_recientes(limite)
-        except Exception:
-            return []
-
-    def snapshot_motor_velas(self, ticker):
-        try:
-            return self.motor_velas.snapshot(ticker)
-        except Exception:
-            return {"simbolo": str(ticker).upper(), "sin_datos": True}
-
-    def estado_motor_velas(self):
-        try:
-            return self.motor_velas.status()
-        except Exception as exc:
-            return {"stream_hilo_vivo": False, "error": str(exc)}
-
-    # ---------- instrumentación Fase 1 ----------
-    def _metrica_sumar(self, clave, valor=1):
-        try:
-            with self._metricas_lock:
-                self.metricas[clave] = self.metricas.get(clave, 0) + valor
-        except Exception: pass
-
-    def _metrica_tiempo(self, clave, inicio):
-        self._metrica_sumar(clave, max(0.0, time.monotonic() - inicio))
-
-    def metricas_snapshot(self):
-        with self._metricas_lock:
-            m = dict(self.metricas); m["ciclos_por_tf"] = dict(self.metricas.get("ciclos_por_tf", {}))
-        m["uptime_segundos"] = max(0.0, time.time() - float(m.get("inicio", time.time())))
-        m["ciclo_promedio"] = m["duracion_ciclo_total"] / m["ciclos"] if m.get("ciclos") else 0.0
-        m["fmp_total"] = m.get("fmp_bulk", 0) + m.get("fmp_individual", 0)
-        return m
 
     # ---------- utilidades ----------
     def _esperar_turno(self):
@@ -2934,7 +2392,6 @@ class ServicioScanner:
             )
             self.dias_mercado_cache = {c.date for c in calendario}
             self.calendario_ts = time.time()
-            self._metrica_sumar("calendario")
         except Exception as e:
             # El calendario es una ayuda para evitar ejecutar en fines de semana/feriados,
             # pero un fallo temporal de la consulta de calendario NO debe detener el scanner.
@@ -2985,7 +2442,7 @@ class ServicioScanner:
             self._despertar.set()   # calcularla ya, sin esperar al siguiente ciclo
 
     def _filtros_para(self, tf):
-        """Filtros del motor global para una temporalidad."""
+        """Filtros vigentes para UNA temporalidad (los suyos; si no hay, los generales)."""
         f = dict(self.filtros_dueno)
         propios = self.filtros_por_tf.get(str(tf or "").lower())
         if propios:
@@ -3019,10 +2476,10 @@ class ServicioScanner:
         self._actualizar_calendario(ahora_et)
         es_dia_mercado = ahora_et.date() in self.dias_mercado_cache
         minuto_actual = ahora_et.hour * 60 + ahora_et.minute + ahora_et.second / 60
-        # La ventana global se mantiene en el estado del motor y solo la administra
-        # el administrador. Cada usuario normal aplica su propia ventana a su vista.
-        inicio = int(getattr(self, "hora_inicio_auto_min", 4 * 60))
-        fin = int(getattr(self, "hora_fin_auto_min", 20 * 60))
+        # La sesión seleccionada define la ventana real del scanner.
+        # Ventana única del scanner: 04:00–20:00 ET.
+        # No se divide en pre-market, mercado regular ni after-market.
+        inicio, fin = 4 * 60, 20 * 60
         self.hora_inicio_auto_min = inicio
         self.hora_fin_auto_min = fin
         if inicio == fin:
@@ -3044,16 +2501,11 @@ class ServicioScanner:
         return self.auto_en_horario
 
     def configurar_horario(self, inicio=None, fin=None):
-        """Configura el horario global; solo el administrador debe llamarlo."""
-        try:
-            inicio = int(inicio); fin = int(fin)
-        except Exception:
-            inicio, fin = 4 * 60, 20 * 60
-        inicio = max(0, min(1439, inicio)); fin = max(0, min(1439, fin))
-        self.hora_inicio_auto_min = inicio
-        self.hora_fin_auto_min = fin
-        guardar_horario_en_disco(inicio, fin)
-        self.auto_motivo = f"Ventana global · {inicio//60:02d}:{inicio%60:02d}–{fin//60:02d}:{fin%60:02d} ET"
+        """Mantiene la ventana única fija de 04:00–20:00 ET."""
+        self.hora_inicio_auto_min = 4 * 60
+        self.hora_fin_auto_min = 20 * 60
+        guardar_horario_en_disco(self.hora_inicio_auto_min, self.hora_fin_auto_min)
+        self.auto_motivo = "Ventana fija del scanner · 04:00–20:00 ET"
 
     def reiniciar_scanner(self):
         """Reinicia de forma segura el motor compartido del scanner.
@@ -3108,7 +2560,6 @@ class ServicioScanner:
             self.cache_tecnico = {}
             self.cache_tecnico_por_tf = {}
             self.cache_ema_extra_por_tf = {}
-            self.pool_por_tf = {}
             self.resultados_por_tf = {}
             self.diag_por_tf = {}
             self._raw_prev_por_tf = {}
@@ -3134,8 +2585,6 @@ class ServicioScanner:
                 and "-" not in a.symbol
             ]
             self.universo_ts = time.time()
-            self._metrica_sumar("universo_cargas")
-            self._metrica_sumar("simbolos_universo", len(self.universo))
             print(f"🌐 Universo cargado: {len(self.universo)} tickers.")
         except Exception as e:
             self.ultimo_error = f"Universo: {e}"
@@ -3146,14 +2595,12 @@ class ServicioScanner:
         lotes = [self.universo[i:i + TAMANO_LOTE_SNAPSHOT] for i in range(0, len(self.universo), TAMANO_LOTE_SNAPSHOT)]
 
         def pedir(lote):
-            self._esperar_turno(); _t_metric = time.monotonic(); self._metrica_sumar("snapshots")
+            self._esperar_turno()
             try:
-                _resp = self.data.get_stock_snapshot(StockSnapshotRequest(symbol_or_symbols=lote)) or {}
-                self._metrica_tiempo("tiempo_snapshots", _t_metric); return _resp
+                return self.data.get_stock_snapshot(StockSnapshotRequest(symbol_or_symbols=lote)) or {}
             except Exception as e:
-                self._metrica_tiempo("tiempo_snapshots", _t_metric); self._metrica_sumar("errores_alpaca")
-                if "429" in str(e).lower() or "rate limit" in str(e).lower(): self._metrica_sumar("alpaca_429")
-                self.ultimo_error = f"Snapshot: {e}"; return {}
+                self.ultimo_error = f"Snapshot: {e}"
+                return {}
 
         snapshots = {}
         with ThreadPoolExecutor(max_workers=WORKERS_SNAPSHOT) as ex:
@@ -3231,7 +2678,6 @@ class ServicioScanner:
                     if espera > 0:
                         time.sleep(espera)
                     self._ultima_peticion_fmp = time.time()
-                    self._metrica_sumar("fmp_bulk"); _t_metric_fmp = time.monotonic()
                     respuesta = requests.get(
                         FMP_BULK_FLOAT_URL,
                         params={
@@ -3241,18 +2687,14 @@ class ServicioScanner:
                         },
                         timeout=20,
                     )
-                self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
-                if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
                 if respuesta.status_code == 429:
                     self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
                     self.ultimo_error = "FMP bulk devolvió HTTP 429; se usará la caché existente y luego el endpoint individual."
                     break
                 if respuesta.status_code in (401, 403):
-                    self._metrica_sumar("fmp_errores")
                     self.ultimo_error = f"FMP bulk rechazó la API (HTTP {respuesta.status_code}); se mantiene el respaldo individual."
                     break
                 if respuesta.status_code != 200:
-                    self._metrica_sumar("fmp_errores")
                     self.ultimo_error = f"FMP bulk devolvió HTTP {respuesta.status_code}; se mantiene la caché existente."
                     break
                 try:
@@ -3318,14 +2760,11 @@ class ServicioScanner:
                 if espera_fmp > 0:
                     time.sleep(espera_fmp)
                 self._ultima_peticion_fmp = time.time()
-                self._metrica_sumar("fmp_individual"); _t_metric_fmp = time.monotonic()
                 respuesta = requests.get(
                     FMP_API_URL,
                     params={"symbol": ticker, "apikey": self.fmp_api_key},
                     timeout=8,
                 )
-            self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
-            if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
             if respuesta.status_code == 429:
                 self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
                 self.ultimo_error = (
@@ -3335,14 +2774,12 @@ class ServicioScanner:
                 print(f"⚠️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s")
                 return None
             if respuesta.status_code in (401, 403):
-                self._metrica_sumar("fmp_errores")
                 self.ultimo_error = (
                     f"FMP rechazó la API para {ticker} (HTTP {respuesta.status_code}). "
                     "Revisa que FMP_API_KEY sea válida y tenga acceso a shares-float."
                 )
                 return None
             if respuesta.status_code != 200:
-                self._metrica_sumar("fmp_errores")
                 self.ultimo_error = f"FMP devolvió HTTP {respuesta.status_code} para {ticker}."
                 return None
             try:
@@ -3362,9 +2799,36 @@ class ServicioScanner:
             return None
 
     def _float_yahoo(self, ticker):
-        """Yahoo pausado temporalmente: no realiza peticiones externas."""
-        self._yahoo_estado = "desactivado temporalmente"
-        return None
+        """Respaldo 1: floatShares de Yahoo Finance (yfinance). No es oficial: puede fallar o limitar."""
+        if getattr(self, "_yahoo_pausado_hasta", 0) > time.time():
+            return None
+        try:
+            import yfinance as yf
+        except Exception:
+            self._yahoo_estado = "yfinance no instalado (agrega yfinance a requirements.txt)"
+            self._yahoo_pausado_hasta = time.time() + 3600
+            return None
+        try:
+            espera = getattr(self, "_yahoo_ultima", 0.0) + 0.4 - time.time()
+            if espera > 0:
+                time.sleep(espera)
+            self._yahoo_ultima = time.time()
+            info = yf.Ticker(ticker).info or {}
+            valor = info.get("floatShares")
+            valor = float(valor) if valor not in (None, "", 0) else None
+            if valor is not None and valor <= 0:
+                valor = None
+            self._yahoo_fallos = 0
+            self._yahoo_estado = "ok"
+            return valor
+        except Exception as e:
+            txt = str(e)
+            self._yahoo_fallos = getattr(self, "_yahoo_fallos", 0) + 1
+            self._yahoo_estado = f"error: {txt[:80]}"
+            if "429" in txt or "Too Many" in txt or self._yahoo_fallos >= 5:
+                self._yahoo_pausado_hasta = time.time() + 1800
+                self._yahoo_fallos = 0
+            return None
 
     def _circulacion_finnhub(self, ticker):
         """Respaldo 2: acciones en circulacion (Finnhub). La flotacion nunca es mayor que este numero,
@@ -3411,10 +2875,8 @@ class ServicioScanner:
         for t in tickers:
             e = self.cache_fund.get(t)
             if e is None:
-                self._metrica_sumar("fmp_cache_misses")
                 faltan.append(t)
                 continue
-            self._metrica_sumar("fmp_cache_hits")
             ts = float(e.get("ts", 0))
             if e.get("float") is None and ahora - ts > REINTENTO_FUNDAMENTALES:
                 faltan.append(t)
@@ -3487,9 +2949,7 @@ class ServicioScanner:
                 pendientes.append(t)
                 continue
             ts_cache = float(entrada[0]) if entrada else 0.0
-            _swing_req = _filtro_activo(self._filtros_para(tf_actual), "swing_activo", False)
-            _extra = self._cache_ema_extra(tf_actual).get(t, {})
-            if ahora - ts_cache > ttl or (_swing_req and "swing_cross_ago" not in _extra):
+            if ahora - ts_cache > ttl:
                 pendientes.append(t)
 
         if not pendientes:
@@ -3511,7 +2971,6 @@ class ServicioScanner:
         extras_ema = self._cache_ema_extra(tf_actual)
         for t in pendientes:
             extras_ema[t] = evaluar_ema_condiciones(series.get(t))
-            extras_ema[t].update(evaluar_swing(series.get(t)))
             (cruz_arriba, cruz_abajo, macd_pos, macd_neg, precio_act, ema_act,
              macd_val, barras_count, precio_prev, ema_prev, precio_actual,
              ema_actual, bb_upper, bb_dist_pct, rsi_val, ema50_act, ema200_act) = evaluar_tecnico(series.get(t))
@@ -3568,10 +3027,104 @@ class ServicioScanner:
 
     # ---------- Telegram ----------
     def _enviar_telegram(self, texto_tabla):
-        """Telegram desactivado permanentemente en el scanner."""
-        self.telegram_estado = "DESACTIVADO"
-        self.telegram_ultimo_error = None
-        return
+        """Envía/actualiza la señal en el grupo de Telegram.
+        El token y el chat_id nunca se muestran en la interfaz.
+        """
+        if not self.tg_token:
+            self.telegram_estado = "ERROR: TELEGRAM_BOT_TOKEN no configurado"
+            self.telegram_ultimo_error = self.telegram_estado
+            print("❌ Telegram: falta TELEGRAM_BOT_TOKEN en st.secrets")
+            return
+        if not self.tg_chat:
+            self.telegram_estado = "ERROR: TELEGRAM_CHAT_ID no configurado"
+            self.telegram_ultimo_error = self.telegram_estado
+            print("❌ Telegram: falta TELEGRAM_CHAT_ID en st.secrets")
+            return
+
+        hash_actual = hashlib.md5(texto_tabla.encode("utf-8")).hexdigest()
+        if hash_actual == self.tg_ultimo_hash:
+            self.telegram_estado = "OK: sin cambios; se conserva el mensaje actual"
+            return
+        try:
+            payload = {
+                "chat_id": self.tg_chat,
+                "text": f"⚡️ <b>SCANNER</b>\n<pre>{html_escape(texto_tabla)}</pre>",
+                "parse_mode": "HTML",
+            }
+            cabeceras = {"User-Agent": "TradeScanner/1.0"}
+            if self.tg_msg_id is None:
+                url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
+                r = requests.post(url, json=payload, headers=cabeceras, timeout=15)
+                if r.ok:
+                    data = r.json()
+                    self.tg_msg_id = data.get("result", {}).get("message_id")
+                    self.tg_ultimo_hash = hash_actual
+                    self.telegram_estado = "OK: mensaje enviado al grupo"
+                    self.telegram_ultimo_error = None
+                else:
+                    detalle = r.text[:500]
+                    self.telegram_estado = f"ERROR Telegram {r.status_code}: {detalle}"
+                    self.telegram_ultimo_error = self.telegram_estado
+                    print(self.telegram_estado)
+            else:
+                url = f"https://api.telegram.org/bot{self.tg_token}/editMessageText"
+                payload["message_id"] = self.tg_msg_id
+                r = requests.post(url, json=payload, headers=cabeceras, timeout=15)
+                if r.ok or "message is not modified" in r.text:
+                    self.tg_ultimo_hash = hash_actual
+                    self.telegram_estado = "OK: mensaje de Telegram actualizado"
+                    self.telegram_ultimo_error = None
+                elif "message is not modified" in r.text:
+                    self.tg_ultimo_hash = hash_actual
+                    self.telegram_estado = "OK: Telegram sin cambios"
+                elif (
+                    "message to edit not found" in r.text.lower()
+                    or "message not found" in r.text.lower()
+                    or "message_id_invalid" in r.text.lower()
+                    or "message id invalid" in r.text.lower()
+                ):
+                    # Telegram puede conservar en memoria un message_id que ya no
+                    # existe. Invalidamos el ID y creamos inmediatamente un mensaje nuevo.
+                    self.tg_msg_id = None
+                    send_url = f"https://api.telegram.org/bot{self.tg_token}/sendMessage"
+                    send_payload = dict(payload)
+                    send_payload.pop("message_id", None)
+                    r_nuevo = requests.post(
+                        send_url,
+                        json=send_payload,
+                        headers=cabeceras,
+                        timeout=15,
+                    )
+                    if r_nuevo.ok:
+                        try:
+                            data_nuevo = r_nuevo.json()
+                            self.tg_msg_id = data_nuevo.get("result", {}).get("message_id")
+                        except Exception:
+                            self.tg_msg_id = None
+                        if self.tg_msg_id is not None:
+                            self.tg_ultimo_hash = hash_actual
+                            self.telegram_estado = "OK: mensaje de Telegram recreado"
+                            self.telegram_ultimo_error = None
+                        else:
+                            self.telegram_estado = "ERROR Telegram: respuesta sin message_id"
+                            self.telegram_ultimo_error = self.telegram_estado
+                    else:
+                        detalle_nuevo = r_nuevo.text[:500]
+                        self.telegram_estado = (
+                            f"ERROR Telegram al recrear {r_nuevo.status_code}: {detalle_nuevo}"
+                        )
+                        self.telegram_ultimo_error = self.telegram_estado
+                    if self.telegram_ultimo_error:
+                        print(self.telegram_estado)
+                else:
+                    detalle = r.text[:500]
+                    self.telegram_estado = f"ERROR al editar Telegram {r.status_code}: {detalle}"
+                    self.telegram_ultimo_error = self.telegram_estado
+                    print(self.telegram_estado)
+        except Exception as e:
+            self.telegram_estado = f"ERROR de red Telegram: {e}"
+            self.telegram_ultimo_error = self.telegram_estado
+            print(self.telegram_estado)
 
     def _escribir_html(self, texto_tabla):
         contenido = f"""<!DOCTYPE html>
@@ -3748,18 +3301,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
     # ---------- ciclo principal ----------
     def _ciclo(self, tf=None, snapshots_pre=None):
-        inicio = time.monotonic(); self._metrica_sumar("ciclos")
-        _tf_metric = str(tf or self.tf_principal or self.timeframe or "1m").lower()
-        with self._metricas_lock: self.metricas["ciclos_por_tf"][_tf_metric] = self.metricas["ciclos_por_tf"].get(_tf_metric, 0) + 1
+        inicio = time.monotonic()
         tf = str(tf or self.tf_principal or self.timeframe or "1m").lower()
         es_principal = (tf == str(self.tf_principal).lower())
         cache_tf = self.cache_tecnico_por_tf.setdefault(tf, {})
         # Filtros de ESTA temporalidad (precio, gap, volumen, float...). Se toman una vez
         # al inicio para que todo el ciclo use un conjunto coherente.
         filtros_tf = self._filtros_para(tf)
-        # Inicializar siempre la duración para que las métricas no comparen
-        # None contra float en ciclos donde el universo ya está cargado.
-        self.duracion_ciclo = time.monotonic() - inicio
         if es_principal:
             self.ultimo_error = None
 
@@ -3768,18 +3316,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         if not self.universo:
             self.ultima_actualizacion = datetime.now(ET)
             self.duracion_ciclo = time.monotonic() - inicio
-            self._metrica_sumar("duracion_ciclo_total", self.duracion_ciclo)
-            with self._metricas_lock:
-                self.metricas["duracion_ciclo_min"] = self.duracion_ciclo if self.metricas["duracion_ciclo_min"] is None else min(self.metricas["duracion_ciclo_min"], self.duracion_ciclo)
-                self.metricas["duracion_ciclo_max"] = max(self.metricas["duracion_ciclo_max"], self.duracion_ciclo)
-                self.metricas["ultimo_ciclo_ts"] = time.time(); self.metricas["ultimo_ciclo_duracion"] = self.duracion_ciclo
-                self.metricas["simbolos_procesados"] += 0
-                if not self.ultimo_error:
-                    self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
-                self.resultados_por_tf[tf] = []
-                if es_principal:
-                    self.resultados = []
-                return
+            if not self.ultimo_error:
+                self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
+            self.resultados_por_tf[tf] = []
+            if es_principal:
+                self.resultados = []
+            return
 
         # El float masivo se actualiza en un hilo auxiliar: NUNCA bloquea el radar.
         # Mientras termina, los candidatos nuevos usan el endpoint individual como respaldo.
@@ -4069,15 +3611,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 
         # Publicar exactamente la lista final del mismo ciclo. Así la tabla,
         # Telegram y el diagnóstico parten del mismo conjunto de señales.
-        # Guardar el pool antes de los filtros personales permite que cada usuario
-        # vea su propia configuración sin reconfigurar el motor compartido.
-        self.pool_por_tf[tf] = list(enriquecidos)
         self.resultados_por_tf[tf] = list(resultados_finales_hist)
         if es_principal:
-            self.resultados = list(resultados_finales_hist); self._metrica_sumar("resultados_publicados", len(resultados_finales_hist))
-            # Conectar los candidatos publicados al motor de velas en tiempo real.
-            # Esto ocurre fuera del navegador y no depende del refresh de los usuarios.
-            self._sincronizar_motor_velas(resultados_finales_hist)
+            self.resultados = list(resultados_finales_hist)
         self.float_pendientes = sum(
             1 for c in enriquecidos
             if c.get("float_shares") is None and c.get("float_status") == "pending"
@@ -4095,8 +3631,51 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         if not es_principal:
             return
 
-        # Telegram eliminado: no se construyen ni envían mensajes.
-
+        # TELEGRAM INMEDIATO: usa exactamente los resultados que el motor acaba
+        # de publicar en self.resultados. No hace una segunda pasada de filtros
+        # que pueda dejar la pantalla con datos y Telegram sin datos.
+        top = sorted(
+            list(resultados_finales_hist),
+            key=lambda x: x.get("actualizado") or datetime.min.replace(tzinfo=ET),
+            reverse=True,
+        )[:10]
+        if top:
+            # Telegram usa la misma información que la tabla de RESULTADOS,
+            # pero en una versión compacta de ancho fijo para que todos los
+            # campos queden en una sola fila horizontal por ticker.
+            tabla = (
+                f"{'TICK':<7} {'SEC':<9} {'PREC':>6} {'CHG%':>6} "
+                f"{'VOL':>6} {'GAP%':>6} {'FLT':>6} {'E20':>4} "
+                f"{'E50':>4} {'E200':>4} {'MACD':>5}\n"
+                + "-" * 83 + "\n"
+            )
+            for c in top:
+                ticker = str(c.get("ticker", ""))[:6]
+                sector = str(c.get("sector", "N/A"))[:8]
+                noticia = "🔥" if c.get("tiene_noticia") else ""
+                ticker_txt = (noticia + ticker)[:6]
+                precio = float(c.get("precio") or 0)
+                cambio = float(c.get("cambio_pct") or 0)
+                gap = float(c.get("gap_pct") or 0)
+                volumen = _big(c.get("volumen_dia") or 0)
+                flotacion = _big(c.get("float_shares") or 0)
+                ema20 = ("UP" if c.get("cruzando_ema20") else
+                         ("DN" if c.get("cruzando_ema20_abajo") else "--"))
+                ema50_raw = str(c.get("ema50_estado", "Neutro"))
+                ema200_raw = str(c.get("ema200_estado", "Neutro"))
+                ema50 = "UP" if ema50_raw == "Por encima" else ("DN" if ema50_raw == "Por debajo" else "--")
+                ema200 = "UP" if ema200_raw == "Por encima" else ("DN" if ema200_raw == "Por debajo" else "--")
+                macd = "POS" if c.get("macd_positivo") else ("NEG" if c.get("macd_negativo") else "--")
+                tabla += (
+                    f"{ticker_txt:<7} {sector:<9} {precio:>6.2f} {cambio:>+5.1f}% "
+                    f"{volumen:>6} {gap:>+5.1f}% {flotacion:>6} {ema20:>4} "
+                    f"{ema50:>4} {ema200:>4} {macd:>5}\n"
+                )
+            # Un solo mensaje de Telegram: el primer ciclo lo crea y los
+            # siguientes ciclos EDITAN ese mismo mensaje. El hash evita llamadas
+            # cuando las 10 filas no cambiaron.
+            self._enviar_telegram(tabla)
+            self._escribir_html(tabla)
         else:
             self.telegram_estado = "Sin resultados para Telegram en este ciclo"
 
@@ -4118,9 +3697,6 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                         except Exception as _e_tf:
                             self.ultimo_error = f"Ciclo {_tf}: {_e_tf}"
                             print(f"⚠️ Error en escaneo {_tf}: {_e_tf}")
-                            # Diagnóstico temporal: conservar la lógica del scanner intacta
-                            # y mostrar la línea exacta que origina la excepción.
-                            traceback.print_exc()
                         _snaps = self._ultimos_snapshots or None
             except Exception as e:
                 self.ultimo_error = f"Ciclo: {e}"
@@ -4138,7 +3714,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
 @st.cache_resource
 def obtener_servicio(api_key, secret_key, tg_token, tg_chat, fmp_api_key):
     print("⚙️ Iniciando el motor del scanner (una sola vez para todos los usuarios)...")
-    return ServicioScanner(api_key, secret_key, tg_token, tg_chat, fmp_api_key, cargar_config_motor_compartido())
+    return ServicioScanner(api_key, secret_key, tg_token, tg_chat, fmp_api_key, cargar_config())
 
 
 servicio = obtener_servicio(
@@ -4148,55 +3724,8 @@ servicio = obtener_servicio(
     st.secrets.get("TELEGRAM_CHAT_ID", "-1004440734539"),
     st.secrets.get("FMP_API_KEY", None),
 )
-
-# TELEGRAM: bloqueo de emergencia a nivel de instancia.
-# El motor vive en st.cache_resource y puede conservar una instancia/hilo creado
-# con una versión anterior del código. Aunque el método actual ya no envía,
-# blindamos la instancia cacheada para que NUNCA vuelva a hacer una llamada a Telegram.
-def _telegram_desactivado_runtime(_self, _texto_tabla=""):
-    _self.telegram_estado = "DESACTIVADO"
-    _self.telegram_ultimo_error = None
-    return None
-
-try:
-    servicio.tg_token = None
-    servicio.tg_chat = None
-    servicio._enviar_telegram = _telegram_desactivado_runtime.__get__(servicio, type(servicio))
-except Exception as _e_tg_block:
-    print(f"⚠️ No se pudo blindar Telegram en la instancia cacheada: {_e_tg_block}")
-
-# CONTROL EXCLUSIVO DEL MOTOR CENTRAL: solo una orden proveniente de una sesión
-# que ya fue identificada como ADMIN puede cambiar el motor compartido.
-if ES_ADMIN:
-    try:
-        _admin_motor_evento = st.session_state.pop("_admin_motor_evento", None)
-        if _admin_motor_evento in ("True", "False"):
-            servicio.encendido = (_admin_motor_evento == "True")
-            guardar_estado_motor_en_disco(servicio.encendido)
-    except Exception:
-        pass
 # El motor se guarda en cache y conserva el codigo VIEJO aunque subas un app.py nuevo.
 # Aqui se le reasignan los metodos de la version actual para que los cambios apliquen sin reiniciar.
-# Fase 1: si Streamlit conserva una instancia antigua en st.cache_resource,
-# inicializamos las métricas sin reconstruir ni alterar el motor existente.
-try:
-    if not hasattr(servicio, "_metricas_lock"):
-        servicio._metricas_lock = threading.Lock()
-    if not hasattr(servicio, "metricas"):
-        servicio.metricas = {
-            "inicio": time.time(), "ciclos": 0, "ciclos_por_tf": {},
-            "duracion_ciclo_total": 0.0, "duracion_ciclo_min": None, "duracion_ciclo_max": 0.0,
-            "universo_cargas": 0, "simbolos_universo": 0, "snapshots": 0, "bars": 0, "calendario": 0,
-            "fmp_bulk": 0, "fmp_individual": 0, "fmp_429": 0, "fmp_errores": 0,
-            "fmp_cache_hits": 0, "fmp_cache_misses": 0, "errores_alpaca": 0, "alpaca_429": 0,
-            "tiempo_snapshots": 0.0, "tiempo_bars": 0.0, "tiempo_fmp": 0.0,
-            "resultados_publicados": 0, "simbolos_procesados": 0,
-            "ultimo_ciclo_ts": None, "ultimo_ciclo_duracion": None,
-        }
-    servicio.data._scanner_metricas_owner = servicio
-except Exception as _metricas_init_error:
-    print(f"⚠️ No se pudo inicializar la instrumentación Fase 1: {_metricas_init_error}")
-
 try:
     import types as _types
     for _nombre, _fn in list(vars(ServicioScanner).items()):
@@ -4209,18 +3738,24 @@ try:
 except Exception:
     servicio.finnhub_api_key = None
 
-# Ventana operativa global: se conserva la configurada por el administrador.
-# Los usuarios normales tienen su propia ventana de visualización.
+# Ventana operativa única e invariable del scanner. Los filtros son editables;
+# el horario no se divide por sesión.
+servicio.hora_inicio_auto_min = 4 * 60
+servicio.hora_fin_auto_min = 20 * 60
 servicio.sesion = "TODO EL MERCADO"
 
-# Vigilancia del hilo: solo reiniciar si el hilo realmente murió.
-# No reiniciamos por "stale" durante un F5/rerun: una demora temporal de Alpaca/FMP
-# no significa que el hilo esté muerto y reiniciar aquí puede crear reconexiones,
-# duplicar trabajo y elevar el consumo de CPU de Streamlit Cloud.
+# Vigilancia del hilo: si el hilo se detuvo, la siguiente ejecución lo vuelve a levantar.
 try:
     _hilo_ok = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
-    if not _hilo_ok:
-        print("⚠️ Watchdog: reiniciando hilo del scanner porque está detenido.")
+    _ultima = getattr(servicio, "ultima_actualizacion", None)
+    _stale = False
+    if _ultima is not None:
+        try:
+            _stale = (datetime.now(ET) - _ultima).total_seconds() > 45
+        except Exception:
+            _stale = False
+    if (not _hilo_ok) or (_ultima is not None and _stale and not getattr(servicio, "ultimo_error", None)):
+        print("⚠️ Watchdog: reiniciando hilo del scanner por detención o falta de actualización.")
         servicio.reiniciar_scanner()
 except Exception as _watchdog_error:
     print(f"⚠️ Watchdog del scanner: {_watchdog_error}")
@@ -4617,30 +4152,7 @@ st.markdown("""
 # ==============================================================================
 
 _JS_COLUMNAS = r'''
-var TS_LAYOUT_DEFAULT_COLORS={L1:'#e53935',L2:'#1e88e5',L3:'#43a047',L4:'#f9a825',L5:'#8e44ad',L6:'#fb8c00',L7:'#f5f5f5',L8:'#212121',L9:'#00acc1',L10:'#ec407a'};
-function _layoutKey(){try{return String(TS_USER_KEY).replace('tradeScannerLastState','tradeScannerLayouts')}catch(e){return 'tradeScannerLayouts'}}
-function _layoutColorsLoad(){
-  var raw='';try{raw=window.top.localStorage.getItem(_layoutKey())||''}catch(e){}
-  if(!raw){try{raw=localStorage.getItem(_layoutKey())||''}catch(e){}}
-  var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e){o={}}
-  Object.keys(TS_LAYOUT_DEFAULT_COLORS).forEach(function(id){if(!o[id])o[id]=TS_LAYOUT_DEFAULT_COLORS[id]});
-  return o;
-}
-function _layoutColorsSave(o){var txt=JSON.stringify(o);try{window.top.localStorage.setItem(_layoutKey(),txt)}catch(e1){}try{localStorage.setItem(_layoutKey(),txt)}catch(e2){}}
-function _layoutColor(layout){var o=_layoutColorsLoad();return o[String(layout)]||TS_LAYOUT_DEFAULT_COLORS[String(layout)]||'#777777'}
-function guardarColorLayout(layout,color){
-  var id=String(layout||'');if(!/^L([1-9]|10)$/.test(id))return;
-  var col=String(color||'').trim();if(!/^#[0-9a-fA-F]{6}$/.test(col))return;
-  var o=_layoutColorsLoad();o[id]=col;_layoutColorsSave(o);
-  document.querySelectorAll('[data-layout-color="'+id+'"]').forEach(function(el){el.style.accentColor=col;el.value=col});
-  document.querySelectorAll('[data-layout-chain="'+id+'"]').forEach(function(el){el.style.color=col;el.style.borderColor=col});
-}
-function aplicarColoresLayouts(){
-  var o=_layoutColorsLoad();
-  document.querySelectorAll('[data-layout-color]').forEach(function(el){var id=el.getAttribute('data-layout-color');var col=o[id]||TS_LAYOUT_DEFAULT_COLORS[id];if(col){el.value=col;el.style.accentColor=col;}});
-  document.querySelectorAll('[data-layout-chain]').forEach(function(el){var id=el.getAttribute('data-layout-chain');var col=o[id]||TS_LAYOUT_DEFAULT_COLORS[id];if(col){el.style.color=col;el.style.borderColor=col;}});
-}
-var COLS=[['layout','🔗 Layout'],['ticker','Ticker'],['sector','Sector'],['precio','Precio ($)'],['cambio','Cambio %'],['volumen','Volumen'],['gap','Gap %'],['flot','Flotación (M)'],['ema20','EMA20'],['ema50','EMA50'],['ema200','EMA200'],['macd','MACD']];
+var COLS=[['layout','⚙️ Layout'],['ticker','Ticker'],['sector','Sector'],['precio','Precio ($)'],['cambio','Cambio %'],['volumen','Volumen'],['gap','Gap %'],['flot','Flotación (M)'],['ema20','EMA20'],['ema50','EMA50'],['ema200','EMA200'],['macd','MACD']];
 function _colKey(){try{return String(TS_USER_KEY).replace('tradeScannerLastState','tradeScannerCols')}catch(e){return 'tradeScannerCols'}}
 function _colLoad(){
   var ids=COLS.map(function(c){return c[0]});var raw='';
@@ -4694,23 +4206,7 @@ document.addEventListener('change',function(ev){
   if(t.checked){if(k>=0)s.hidden.splice(k,1)}else{if(k<0)s.hidden.push(id)}
   _colSave(s);aplicarColumnas();
 });
-document.addEventListener('DOMContentLoaded',function(){
-  renderColumnas();aplicarColumnas();aplicarColoresLayouts();
-  // Los campos numéricos del panel gris no llevan onchange individual.
-  // Guardarlos al cambiar evita que el siguiente rerun los reconstruya con
-  // el valor anterior.
-  try{
-    var _cfgIds=['price_min','price_max','gap_min','gap_max','float_max','txt_vol','ema_dist_max','rsi_min','rsi_max','ema20_dist','ema50_dist','ema200_dist'];
-    _cfgIds.forEach(function(_id){
-      var _el=document.getElementById(_id);
-      if(!_el)return;
-      _el.addEventListener('change',function(){try{pushConfig()}catch(e){}});
-      _el.addEventListener('keydown',function(ev){
-        if(ev.key==='Enter'){try{ev.preventDefault();pushConfig()}catch(e){}}
-      });
-    });
-  }catch(e){}
-});
+document.addEventListener('DOMContentLoaded',function(){renderColumnas();aplicarColumnas();});
 window.addEventListener('storage',function(e){if(e&&e.key===_colKey()){aplicarColumnas();renderColumnas();}});
 function _ajustarMarco(){
   try{
@@ -4776,16 +4272,6 @@ def _render_scanner():
         ema_dist_ui[_n] = max(0.0, min(25.0, _qfloat(f"ema{_n}_dist", 0.5)))
     macd_ui = _qtxt("f_mac", "Positivo")
     orden_ui = _qtxt("f_order", "Actualizado")
-    swing_activo_ui = _qtxt("swing_activo", "OFF") == "ON"
-    swing_origen_ui = _qtxt("swing_origen", "Bollinger inferior + debajo de EMA20")
-    swing_objetivo_ui = _qtxt("swing_objetivo", "EMA50 o EMA200")
-    swing_ventana_ui = max(1, min(30, _qint("swing_ventana", 10)))
-    swing_tol_ui = max(0.0, min(10.0, _qfloat("swing_tolerancia", 1.0)))
-    swing_origen_tol_ui = max(0.0, min(10.0, _qfloat("swing_origen_tolerancia", 1.0)))
-    swing_multitimeframe_ui = _qtxt("swing_multitimeframe", "OFF") == "ON"
-    _swing_tfs_raw = _qtxt("swing_tfs", "1d,1w,1mo")
-    swing_tfs_ui = [x for x in [v.strip().lower() for v in _swing_tfs_raw.split(",")] if x in ("1d","1w","1mo")]
-    if not swing_tfs_ui: swing_tfs_ui = ["1d","1w","1mo"]
     sesion_ui = "TODO EL MERCADO"
     timeframe_ui = _qtxt("timeframe", "1m")
     ema_dist_max_ui = _qfloat("ema_dist_max", 0.0)
@@ -4845,14 +4331,6 @@ def _render_scanner():
         "ema20_dist": ema_dist_ui[20],
         "ema50_dist": ema_dist_ui[50],
         "ema200_dist": ema_dist_ui[200],
-        "swing_activo": swing_activo_ui,
-        "swing_origen": swing_origen_ui,
-        "swing_objetivo": swing_objetivo_ui,
-        "swing_ventana": swing_ventana_ui,
-        "swing_tolerancia": swing_tol_ui,
-        "swing_origen_tolerancia": swing_origen_tol_ui,
-        "swing_multitimeframe": swing_multitimeframe_ui,
-        "swing_tfs": ",".join(swing_tfs_ui),
         "gap_activo": _qtxt("f_gap_on", "OFF") == "ON",
         "flotacion_activa": _qtxt("f_float_on", "OFF") == "ON",
         "volumen_activo": _qtxt("f_vol_on", "OFF") == "ON",
@@ -4862,88 +4340,56 @@ def _render_scanner():
     # IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
     # Antes el motor podía conservar una configuración vieja de cargar_config(),
     # mientras la pantalla mostraba otra, dejando el scanner aparentemente vacío.
-    # Solo el administrador modifica el motor global. Un usuario normal registra
-    # las temporalidades que necesita sobre el pool amplio, sin escribir sus filtros
-    # en el singleton compartido.
-    try:
-        if ES_ADMIN:
-            servicio.filtros_dueno.update(params_ui)
-            servicio.sesion = sesion_ui
-            if swing_activo_ui and swing_multitimeframe_ui:
-                _tf_swing=swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]
-                for _i_tf,_tf_s in enumerate(_tf_swing):
-                    servicio.configurar_modo_operacion("TODO EL MERCADO",_tf_s,ema_dist_max_ui,principal=(_i_tf==0),filtros=params_ui)
-                if _tf_swing:
-                    timeframe_ui=_tf_swing[0]; params_ui["timeframe"]=timeframe_ui
-            else:
-                servicio.configurar_modo_operacion("TODO EL MERCADO", timeframe_ui, ema_dist_max_ui, principal=True, filtros=params_ui)
-        elif USUARIO_AUTENTICADO:
-            _pool_cfg = cargar_config_motor_compartido()
-            if swing_activo_ui and swing_multitimeframe_ui:
-                for _tf_s in swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]:
-                    servicio.registrar_timeframe(_tf_s, principal=False, filtros=_pool_cfg)
-                if swing_tfs_ui:
-                    timeframe_ui=swing_tfs_ui[0]; params_ui["timeframe"]=timeframe_ui
-            else:
-                servicio.registrar_timeframe(timeframe_ui, principal=False, filtros=_pool_cfg)
-    except Exception:
+    if not PUBLIC_PREVIEW:
+      try:
+        servicio.filtros_dueno.update(params_ui)
+        servicio.sesion = sesion_ui
+      except Exception:
+        pass
+      # Solo usuarios con acceso reconfiguran el motor compartido. Un visitante (con
+      # valores por defecto en 1m) no debe pisar la temporalidad elegida por otro.
+      # La temporalidad viaja CON sus filtros: el motor escanea esa temporalidad
+      # con precio/gap/float/volumen/EMA/MACD de esta pantalla.
+      try:
+        servicio.configurar_modo_operacion(
+            "TODO EL MERCADO", timeframe_ui, ema_dist_max_ui,
+            principal=bool(ES_ADMIN), filtros=params_ui,
+        )
+      except Exception:
         pass
 
     _guardar_ultima_configuracion_servidor()
 
 
-    # Estado personal: ON/OFF y horario del usuario no modifican el singleton global.
-    if ES_ADMIN:
-        _usuario_motor_activo = True
-        _usuario_hora_ini = int(getattr(servicio, "hora_inicio_auto_min", 4*60))
-        _usuario_hora_fin = int(getattr(servicio, "hora_fin_auto_min", 20*60))
-    elif USUARIO_AUTENTICADO:
-        _usuario_motor_activo = _qtxt("c_active", "True") == "True"
-        def _hora_min_ui(_v, _d):
-            try:
-                _hh, _mm = str(_v).strip().split(":")
-                return max(0, min(1439, int(_hh)*60 + int(_mm)))
-            except Exception:
-                return _d
-        _usuario_hora_ini = _hora_min_ui(_qtxt("c_start", "04:00"), 4*60)
-        _usuario_hora_fin = _hora_min_ui(_qtxt("c_end", "20:00"), 20*60)
-    else:
-        _usuario_motor_activo = True
-        _usuario_hora_ini, _usuario_hora_fin = 4*60, 20*60
-    _ahora_et_ui = datetime.now(ET)
-    _min_actual_ui = _ahora_et_ui.hour*60 + _ahora_et_ui.minute
-    if _usuario_hora_ini == _usuario_hora_fin:
-        _usuario_en_horario = False
-    elif _usuario_hora_ini < _usuario_hora_fin:
-        _usuario_en_horario = _usuario_hora_ini <= _min_actual_ui < _usuario_hora_fin
-    else:
-        _usuario_en_horario = _min_actual_ui >= _usuario_hora_ini or _min_actual_ui < _usuario_hora_fin
-    if PUBLIC_PREVIEW or not _usuario_motor_activo or not _usuario_en_horario:
+    if PUBLIC_PREVIEW:
+        # La carátula pública muestra el diseño y las 10 líneas, pero no expone
+        # resultados reales del motor antes del registro/inicio de sesión.
         filas_reales = []
     else:
         try:
-            _pool_tf = getattr(servicio, "pool_por_tf", {}) or {}
-            _res_tf = getattr(servicio, "resultados_por_tf", {}) or {}
-            _source_tf = _res_tf if ES_ADMIN else _pool_tf
-            if swing_activo_ui and swing_multitimeframe_ui:
-                _agrupados={}
-                for _tf_mix in swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]:
-                    for _rr in filtrar_resultados(list(_source_tf.get(_tf_mix, [])), dict(params_ui,timeframe=_tf_mix)):
-                        _key_mix=str(_rr.get("ticker",""))
-                        if _key_mix not in _agrupados:
-                            _agrupados[_key_mix]=dict(_rr); _agrupados[_key_mix]["_swing_timeframes"]=[]
-                        if _tf_mix not in _agrupados[_key_mix]["_swing_timeframes"]:
-                            _agrupados[_key_mix]["_swing_timeframes"].append(_tf_mix)
-                filas_reales=list(_agrupados.values())
+            # El motor ya entrega candidatos que pasaron el embudo real del scanner.
+            # Reaplicar aquí filtros técnicos históricos era una segunda puerta que
+            # podía vaciar la tabla aunque el motor hubiera detectado una señal.
+            # Solo se conserva el filtro final común para los valores editables.
+            _res_tf = getattr(servicio, "resultados_por_tf", None)
+            if isinstance(_res_tf, dict):
+                _lista_tf = list(_res_tf.get(timeframe_ui, []))
             else:
-                _lista_tf=list(_source_tf.get(timeframe_ui, []))
-                if not _lista_tf and ES_ADMIN:
-                    _lista_tf=list(getattr(servicio, "resultados", []) or [])
-                filas_reales=filtrar_resultados(_lista_tf, params_ui)
-            filas_reales=sorted(list(filas_reales),key=lambda x:x.get("actualizado") or datetime.min.replace(tzinfo=ET),reverse=True)[:10]
+                _lista_tf = list(servicio.resultados)
+            filas_reales = filtrar_resultados(_lista_tf, params_ui)
+            # La tabla visible siempre usa exactamente las 10 señales más recientes.
+            # El orden "Actualizado" es fijo para que la primera fila sea la más nueva.
+            filas_reales = sorted(
+                list(filas_reales),
+                key=lambda x: x.get("actualizado") or datetime.min.replace(tzinfo=ET),
+                reverse=True,
+            )[:10]
         except Exception as _ex_ui:
-            filas_reales=[]
-            print(f"⚠️ Filtro de pantalla: {_ex_ui}")
+            filas_reales = list(getattr(servicio, "resultados", []) or [])
+            try:
+                servicio.ultimo_error = f"Filtro de pantalla: {_ex_ui}"
+            except Exception:
+                pass
 
 
     def _num(v, default=0.0):
@@ -4985,10 +4431,7 @@ def _render_scanner():
         return f"{n:.0f}"
 
 
-    _show_ema20=(_qtxt("ema20_on","OFF")=="ON" or ema20_estado_ui!="Neutro" or swing_activo_ui)
-    _show_ema50=(ema50_estado_ui!="Neutro" or (swing_activo_ui and swing_objetivo_ui in ("EMA50","EMA50 o EMA200")))
-    _show_ema200=(ema200_estado_ui!="Neutro" or (swing_activo_ui and swing_objetivo_ui in ("EMA200","EMA50 o EMA200")))
-    def _row_html(row, indice=None):
+    def _row_html(row):
         ticker = _safe_text(row.get("ticker", ""))
         sector = _safe_text(row.get("sector", "N/A"))
         precio = _num(row.get("precio"))
@@ -5016,28 +4459,26 @@ def _render_scanner():
         mac_txt = "Positivo" if mac_pos else ("Negativo" if mac_neg else "Neutro")
         mac_cls = "macd-positivo" if mac_pos else ("macd-negativo" if mac_neg else "macd-neutro")
         news = f" <button type='button' class='news-btn' title='Ver noticias' onclick='verNoticias(&quot;{ticker}&quot;)'>🔥</button>" if noticia else ""
-        _layout_id = f"L{max(1, min(10, int(indice or 1)))}"
-        _swing_tfs = row.get("_swing_timeframes") or []
-        if isinstance(_swing_tfs, str):
-            _swing_tfs = [_swing_tfs]
-        _tf_badge=_safe_text(" · ".join(_swing_tfs))
-        _ticker_extra=f" <span class='tf-badge'>{_tf_badge}</span>" if _tf_badge else ""
         return (
             f"<tr class='{fila}'>"
-            f"<td class='layout-col' data-col='layout'><div class='chain-cell'>"
-            f"<button type='button' class='layout-chain' data-layout-chain='{_layout_id}' title='{_layout_id} · enviar {ticker}' onclick='enviarLayoutLocal(&quot;{ticker}&quot;,&quot;{_layout_id}&quot;,_layoutColor(&quot;{_layout_id}&quot;))'>🔗</button>"
-            f"<button type='button' class='layout-color-picker' data-layout-color='{_layout_id}' title='Color de {_layout_id} · abrir paleta' onclick='abrirPaletaLayout(event,&quot;{_layout_id}&quot;)'>▾</button>"
-            f"</div></td>"
-            f"<td data-col='ticker'><button type='button' class='ticker-layout-link' title='Enviar {ticker} a {_layout_id}' onclick='enviarLayoutLocal(&quot;{ticker}&quot;,&quot;{_layout_id}&quot;,_layoutColor(&quot;{_layout_id}&quot;))'><b>{ticker}</b></button>{_ticker_extra}{news}</td>"
+            f"<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout(&quot;{ticker}&quot;,this)'>"
+            f"<option value=''>⚙️ Layout</option>"
+            f"<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
+            f"<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
+            f"<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
+            f"<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
+            f"<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
+            f"</select></td>"
+            f"<td data-col='ticker'><b>{ticker}</b>{news}</td>"
             f"<td data-col='sector'>{sector}</td>"
             f"<td class='num-col' data-col='precio'>{_money(precio)}</td>"
             f"<td class='num-col' data-col='cambio'>{_pct(cambio)}</td>"
             f"<td class='num-col' data-col='volumen'>{_big(volumen)}</td>"
             f"<td class='num-col' data-col='gap'>{_pct(row.get('gap_pct'))}</td>"
             f"<td class='num-col' data-col='flot'>{flotacion:.2f}M</td>"
-            + (f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>" if _show_ema20 else "") +
-            (f"<td data-col='ema50'>{_safe_text(ema50_txt)}</td>" if _show_ema50 else "") +
-            (f"<td data-col='ema200'>{_safe_text(ema200_txt)}</td>" if _show_ema200 else "") +
+            f"<td data-col='ema20'>{_safe_text(ema_txt)}</td>"
+            f"<td data-col='ema50'>{_safe_text(ema50_txt)}</td>"
+            f"<td data-col='ema200'>{_safe_text(ema200_txt)}</td>"
             f"<td class='{mac_cls}' data-col='macd'>{mac_txt}</td></tr>"
         )
 
@@ -5054,40 +4495,40 @@ def _render_scanner():
         if item is None:
             return (
                 "<tr class='fila-vacia'>"
-                f"<td class='layout-col' data-col='layout'><div class='chain-cell'>"
-                f"<button type='button' class='layout-chain' data-layout-chain='L{indice}' title='L{indice} · línea {indice}'>🔗</button>"
-                f"<button type='button' class='layout-color-picker' data-layout-color='L{indice}' title='Color de L{indice} · abrir paleta' onclick='abrirPaletaLayout(event,&quot;L{indice}&quot;)'>▾</button>"
-                f"</div></td>"
-                f"<td data-col='ticker'><b>—</b></td><td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
+                "<td class='layout-col' data-col='layout'><select class='engranaje-select' onchange='cambiarLayout("",this)'>"
+                "<option value=''>⚙️ Layout</option>"
+                "<option value='L1'>L1 Rojo</option><option value='L2'>L2 Azul</option>"
+                "<option value='L3'>L3 Verde</option><option value='L4'>L4 Amarillo</option>"
+                "<option value='L5'>L5 Morado</option><option value='L6'>L6 Naranja</option>"
+                "<option value='L7'>L7 Blanco</option><option value='L8'>L8 Negro</option>"
+                "<option value='L9'>L9 Cian</option><option value='L10'>L10 Rosa</option>"
+                "</select></td>"
+                "<td data-col='ticker'><b>—</b></td><td data-col='sector'>—</td><td class='num-col' data-col='precio'>—</td>"
                 "<td class='num-col' data-col='cambio'>—</td><td class='num-col' data-col='volumen'>—</td><td class='num-col' data-col='gap'>—</td>"
-                "<td class='num-col' data-col='flot'>—</td>"
-                + ("<td data-col='ema20'>—</td>" if _show_ema20 else "")
-                + ("<td data-col='ema50'>—</td>" if _show_ema50 else "")
-                + ("<td data-col='ema200'>—</td>" if _show_ema200 else "")
-                + "<td class='macd-neutro' data-col='macd'>—</td></tr>"
+                "<td class='num-col' data-col='flot'>—</td><td data-col='ema20'>—</td><td data-col='ema50'>—</td><td data-col='ema200'>—</td><td class='macd-neutro' data-col='macd'>—</td></tr>"
             )
-        return _row_html(item, indice)
+        return _row_html(item)
 
 
     rows_html = "".join(_row_visualizacion(r, i + 1) for i, r in enumerate(filas_visualizacion))
 
-    hora_ini, hora_fin = _usuario_hora_ini, _usuario_hora_fin
+    try:
+        hora_ini = int(servicio.hora_inicio_auto_min)
+        hora_fin = int(servicio.hora_fin_auto_min)
+    except Exception:
+        hora_ini, hora_fin = 240, 960
+
     _hora_txt = f"{hora_ini//60:02d}:{hora_ini%60:02d} - {hora_fin//60:02d}:{hora_fin%60:02d} ET"
-    _estado_txt = (
-        ("ON" if _usuario_motor_activo and _usuario_en_horario else "OFF")
-        if not ES_ADMIN
-        else ("ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA"))
-    )
+    _estado_txt = "ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA")
+
     start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
     end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
-    # ADMIN ve siempre el estado real del motor central guardado en el servicio.
-    # Los usuarios normales siguen usando su MOTOR personal, aislado del motor central.
-    active_val = (
-        "True" if getattr(servicio, "encendido", True) else "False"
-    ) if ES_ADMIN else _qtxt("c_active", "True")
+
+    active_val = _qtxt("c_active", "True" if getattr(servicio, "encendido", True) else "False")
     try:
-        if ES_ADMIN:
-            servicio.configurar_horario(_usuario_hora_ini, _usuario_hora_fin)
+        # El motor es COMPARTIDO: un visitante sin sesion no debe poder apagarlo para todos.
+        if not PUBLIC_PREVIEW:
+            servicio.encendido = (active_val == "True")
     except Exception:
         pass
     lang_val = _qtxt("c_lang", "ESP")
@@ -5101,8 +4542,7 @@ def _render_scanner():
     # ningún token OAuth al HTML/JavaScript.
     _pending_ticker = str(st.query_params.get("layout_send_ticker", "")).strip()
     _pending_layout = str(st.query_params.get("layout_send_color", "")).strip()
-    _layout_from_browser = str(st.query_params.get("layout_from_browser", "")).strip() == "1"
-    if _pending_ticker and _pending_layout and not _layout_from_browser:
+    if _pending_ticker and _pending_layout:
         try:
             if broker_val == "Charles Schwab" and not _schwab_access_token():
                 _ok_layout, _msg_layout = False, "Charles Schwab no está conectado. Autoriza Schwab antes de enviar activos."
@@ -5141,9 +4581,9 @@ def _render_scanner():
     h += "<title>TradeScanner</title>"
     h += "<style>"
     h += "*{box-sizing:border-box;}"
-    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:4px;}"
-    h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:4px;}"
-    h += ".topbar{background:#20242a;border:1px solid #777;padding:7px 10px;margin-bottom:5px;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-height:54px;position:sticky;top:0;z-index:1000;overflow:visible;}"
+    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow-y:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:8px;}"
+    h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:6px;}"
+    h += ".topbar{background:#20242a;border:1px solid #777;padding:9px 10px;margin-bottom:6px;display:flex;flex-direction:column;align-items:stretch;gap:6px;min-height:58px;position:sticky;top:0;z-index:1000;overflow:visible;}"
     h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
     h += ".top-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}.auth-link{display:inline-flex;align-items:center;height:27px;padding:0 9px;border:1px solid #555;background:#222;color:#fff;text-decoration:none;font-size:10px;font-weight:900;white-space:nowrap}.auth-link:hover{background:#333}.refresh-box{display:flex;align-items:center;gap:4px;font-size:9px;font-weight:bold;white-space:nowrap}.refresh-box select{width:82px;min-width:82px;height:25px;font-size:9px}"
     h += ".status-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border-top:1px solid #3c424a;padding-top:4px;}.status{font-weight:bold;white-space:nowrap;}.status.on{color:#3ddc84}.status.off{color:#ff6b6b}.status.wait{color:#f0b429}.date-time{font-size:9px;font-weight:bold;color:#b8c0ca;white-space:nowrap;margin-left:auto;}"
@@ -5159,8 +4599,8 @@ def _render_scanner():
     h += ".engine{font-weight:bold;}.subline{background:#252b33;border:1px solid #8b949e;padding:7px 9px;margin-bottom:6px;font-size:11px;font-weight:700;color:#f0f2f4 !important;display:flex;gap:16px;flex-wrap:wrap;line-height:1.35;}.subline span,.subline span *{color:#f0f2f4 !important;opacity:1 !important;text-shadow:none !important;}.subline b{color:#f0f2f4 !important;font-weight:900;opacity:1 !important;text-shadow:none !important;}"
     h += ".result-title{background:#2d333b;color:#f0f2f4 !important;border:1px solid #777;border-bottom:0;padding:5px 8px;font-size:11px;font-weight:900;letter-spacing:.2px;opacity:1 !important;text-shadow:none !important;}"
     h += ".table-wrapper{width:100%;overflow-x:auto;background:#171a1f;border:1px solid #777;}table{width:100%;min-width:930px;border-collapse:collapse;table-layout:auto;}"
-    h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:5px 6px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
-    h += "td{padding:4px 6px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:25px;}"
+    h += "th{background:#2d333b;color:#f0f2f4;font-weight:bold;padding:7px 7px;border:1px solid #888;font-size:10px;text-align:left;white-space:nowrap;}"
+    h += "td{padding:5px 7px;border:1px solid #3b424b;font-size:11px;color:#dce1e6;white-space:nowrap;height:27px;}"
     h += ".fila-alza{background:#1e3325}.fila-baja{background:#3a2426}.fila-vacia{background:#1c2025;color:#7f8995}.num-col{text-align:right}.empty-row{text-align:center!important;padding:18px!important;color:#9aa3ad;font-style:italic;}"
     h += ".macd-positivo{background:#b7dca0;color:#155724;font-weight:bold;text-align:center}.macd-negativo{background:#f4b084;color:#721c24;font-weight:bold;text-align:center}.macd-neutro{background:#e2e3e5;text-align:center;}"
     h += ".layout-col{width:120px;text-align:center;background:#242930;}.engranaje-select{width:112px;font-size:9px;height:21px;}"
@@ -5179,54 +4619,8 @@ def _render_scanner():
         h += _css_ocultar
     h += "#news-panel{display:none;position:fixed;top:0;right:0;width:350px;height:100%;overflow-y:auto;background:#1d2127;border-left:2px solid #f59e0b;z-index:999;padding:8px;box-sizing:border-box;color:#e5e9ee}.news-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;color:#fbbf24;font-size:13px}.news-close{background:#333;color:#fff;border:1px solid #777;cursor:pointer}.news-item{background:#171a1f;border:1px solid #555;padding:7px;margin-bottom:7px}.news-title{font-weight:bold;color:#fff;font-size:12px;margin-bottom:3px}.news-meta{color:#9aa3ad;font-size:10px;margin-bottom:4px}.news-sum{color:#d0d7e0;font-size:11px;margin-bottom:5px}.news-item a{color:#60a5fa;font-size:11px}.news-btn{background:transparent;border:0;cursor:pointer;font-size:14px;padding:0 2px}.float-btn{background:#2d3748;color:#fff;border:1px solid #888;cursor:pointer;font-size:10px;padding:4px 8px;margin-left:auto}"
     h += ".refresh-bar{display:flex;align-items:center;gap:8px;background:#1d2127;border:1px solid #888;padding:5px 8px;margin-bottom:6px}.refresh-bar label{font-weight:bold;color:#d8dde3;font-size:10px;white-space:nowrap}.refresh-bar span{color:#b8c0ca;font-size:10px}"
-    # ===== FINVIZ-STYLE DESKTOP SHELL =====
-    # Solo presentación: no modifica filtros, motor, persistencia ni eventos.
-    h += "<style>";
-    h += "html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden;background:#1f232b;color:#dfe3e8;}";
-    h += "body{font-size:11px;padding-top:0;font-family:Arial,Verdana,sans-serif;}";
-    h += ".main-container{width:calc(100% - 68px);max-width:1284px;min-width:0;margin:0 auto;padding:0 0 10px;}";
-    h += ".topbar{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-rows:auto auto;align-items:center;gap:4px 10px;min-height:50px;padding:5px 8px;margin:0 0 4px;background:#252a32;border:1px solid #3f4650;box-shadow:none;position:relative;}";
-    h += ".brand{grid-column:1;grid-row:1;font-size:21px;line-height:1;font-weight:900;text-align:left;padding:0;letter-spacing:.2px;}";
-    h += ".brand small{font-size:8px;color:#8993a0;margin-left:5px;}";
-    h += ".top-actions{grid-column:2;grid-row:1;display:flex;align-items:center;justify-content:flex-end;gap:4px;}";
-    h += ".status-line{grid-column:1/-1;grid-row:2;height:19px;min-height:19px;border-top:1px solid #353b44;padding-top:3px;display:flex;align-items:center;gap:8px;font-size:9px;}";
-    h += ".status{font-size:9px;}.date-time{font-size:9px;}";
-    h += ".tabs{display:flex;align-items:stretch;gap:1px;height:30px;min-height:30px;overflow:hidden;background:#252a32;border:1px solid #414852;padding:2px;margin:0 0 4px;}";
-    h += ".tab{height:24px;min-width:92px;padding:3px 10px;border:0;border-right:1px solid #414852;background:#2d333c;color:#cbd1d8;font-size:10px;font-weight:700;line-height:18px;}";
-    h += ".tab:hover{background:#353c46;}.tab.active{background:#2476d8;color:#fff;border:1px solid #4a9cff;border-bottom:2px solid #68b0ff;}";
-    h += ".tab-panel{border:1px solid #414852;border-top:0;background:#252a32;padding:5px;margin:0 0 4px;font-size:9px;}";
-    h += ".panel-grid{gap:3px;}.panel-card{background:#2b3038;border:1px solid #414852;padding:5px;min-height:34px;}";
-    h += ".filtros-grid{grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;background:#252a32;border:1px solid #414852;padding:4px;margin:0 0 4px;}";
-    h += ".filtro-item{min-width:0;min-height:31px;height:31px;padding:3px 5px;gap:4px;background:#2b3038;border:1px solid #3d444e;}";
-    h += ".filtro-item label{font-size:9px;color:#bfc6cf;line-height:1;}.filtro-item>span{font-size:9px;line-height:1.1;}";
-    h += "input,select,button{height:23px;font-size:10px;border-radius:2px;}input{width:82px;padding:1px 3px;}select{min-width:82px;max-width:135px;padding:1px 3px;}.range{gap:1px;}";
-    h += ".range input{width:60px;}.logo{min-height:31px;height:31px;font-size:12px;background:#303640;border:1px solid #4a515c;}";
-    h += ".refresh-bar{height:28px;min-height:28px;padding:3px 6px;margin:0 0 4px;background:#252a32;border:1px solid #414852;gap:6px;}.refresh-bar label,.refresh-bar span{font-size:9px;}";
-    h += ".subline{min-height:28px;height:auto;padding:5px 7px;margin:0 0 4px;background:#252a32;border:1px solid #414852;font-size:9px;gap:12px;line-height:1.1;}";
-    h += ".result-title{height:28px;line-height:17px;padding:5px 7px;margin:0;background:#303640;color:#eef2f6!important;border:1px solid #4a515c;border-bottom:0;font-size:10px;}";
-    h += ".table-wrapper{width:100%;max-width:100%;overflow-x:auto;overflow-y:hidden;background:#20252c;border:1px solid #4a515c;}";
-    h += "table{width:100%;min-width:0;table-layout:auto;border-collapse:collapse;}";
-    h += "th{height:27px;padding:4px 5px;background:#303640;color:#e7ebef;border:1px solid #505864;font-size:9px;font-weight:700;white-space:nowrap;}";
-    h += "td{height:25px;padding:3px 5px;border:1px solid #363d47;font-size:10px;line-height:18px;white-space:nowrap;}";
-    h += "tbody tr:nth-child(even){background:#292e36;}tbody tr:nth-child(odd){background:#242a31;}";
-    h += ".layout-col{width:86px;text-align:center}.chain-cell{display:flex;align-items:center;justify-content:center;gap:3px}.layout-chain{width:28px;height:22px;padding:0;border:1px solid #666;background:#20252b;color:#fff;border-radius:4px;font-size:15px;line-height:20px;cursor:pointer}.layout-chain:hover{filter:brightness(1.2)}.layout-color-picker{width:22px;height:22px;padding:1px;border:1px solid #555;background:#20252b;cursor:pointer}.ticker-layout-link{border:0;background:transparent;color:inherit;padding:0;font:inherit;cursor:pointer}.ticker-layout-link:hover{text-decoration:underline}.engranaje-select{width:70px;height:20px;font-size:8px;}";
-    h += ".layout-color-picker{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:22px;padding:0;border:0;background:transparent !important;color:#d51f1f;font-size:15px;font-weight:900;line-height:20px;cursor:pointer;border-radius:3px;}";
-    h += ".layout-color-picker:hover{filter:brightness(1.25);transform:scale(1.08)}";
-    h += ".layout-palette{position:fixed;display:none;z-index:100000;background:#20242a;border:1px solid #6b737d;border-radius:5px;padding:5px;box-shadow:0 8px 24px rgba(0,0,0,.55);width:178px;}";
-    h += ".layout-palette.open{display:grid;grid-template-columns:1fr 1fr;gap:3px;}";
-    h += ".layout-palette button{height:28px;display:flex;align-items:center;gap:6px;padding:2px 5px;background:#2b3038;border:1px solid #4a515b;color:#eef2f6;font-size:9px;font-weight:700;text-align:left;cursor:pointer;}";
-    h += ".layout-palette button:hover{background:#3a414b;border-color:#8b949e;}";
-    h += ".layout-palette .swatch{width:18px;height:18px;border-radius:3px;border:1px solid rgba(255,255,255,.5);flex:0 0 auto;}";
-    h += ".layout-palette .num{width:13px;text-align:center;color:#d7dce2;font-size:9px;}";
-    h += "@media(max-width:520px){.layout-palette{width:170px;}}";
-    h += ".schwab-item{grid-column:span 2;align-items:center;}.schwab-item label{flex:0 0 auto;}.schwab-item>span{flex:1 1 auto;min-width:0;text-align:left;}.schwab-item button{white-space:nowrap;}";
-    h += ".footer-note{margin-top:3px;font-size:8px;color:#7f8995;}";
-    h += "@media(max-width:1100px){.main-container{width:calc(100% - 24px);}.filtros-grid{grid-template-columns:repeat(4,minmax(0,1fr));}.tab{min-width:82px;padding-left:7px;padding-right:7px;}}";
-    h += "@media(max-width:900px){.main-container{width:100%;padding:0 3px 8px;}.filtros-grid{grid-template-columns:repeat(3,minmax(0,1fr));}.brand{font-size:18px;}}";
-    h += "@media(max-width:640px){.main-container{width:100%;padding:0 3px 8px;}.topbar{display:flex;flex-direction:column;min-height:78px;padding:7px 6px;}.brand{width:100%;text-align:center;font-size:18px;}.top-actions{width:100%;justify-content:center;}.status-line{width:100%;}.tabs{height:auto;overflow-x:auto;}.tab{min-width:82px;}.filtros-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.filtro-item{height:32px;min-height:32px;}.table-wrapper{overflow-x:auto;}.table-wrapper table{min-width:930px;}}";
-    h += "</style>";
     h += "</style>"
-    h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');var _tabPersist=_leerPestana(TS_ACTIVE_TAB_KEY);var _subPersist=_leerPestana(TS_ACTIVE_SUBTAB_KEY);if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
+    h += "<script>window.addEventListener('load',function(){try{var raw=window.top.localStorage.getItem(TS_USER_KEY)||localStorage.getItem(TS_USER_KEY)||'';var o=JSON.parse(raw||'{}');if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);window.parent.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},180);}}catch(e){}});"
     h += "function setQ(k,v){var q=_qtop();q.set(k,v);_goto(q);}"
     h += "function cambiarTimeframeTecnico(v){var q=_qtop();q.set('timeframe',v);q.set('technical_timeframe',v);_goto(q);}"
     h += "var TS_AUTH=" + ("true" if USUARIO_AUTENTICADO else "false") + ";"
@@ -5236,20 +4630,19 @@ def _render_scanner():
     h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
     h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
     h += "function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_BASE_QUERY||{});return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
-    h += "function abrirRobotLong(){try{var q=_qtop();q.set('robot','1');var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);window.top.location.href='/?'+q.toString();}catch(e){try{window.top.location.href='/?robot=1'}catch(_e){}}}"
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
-    h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];var TS_ACTIVE_TAB_KEY='tradeScannerActiveTab_'+TS_USER_KEY;var TS_ACTIVE_SUBTAB_KEY='tradeScannerActiveSubTab_'+TS_USER_KEY;function _guardarPestanas(tabId,subId){try{if(tabId){window.top.localStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId));try{sessionStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId))}catch(e){}}if(subId){window.top.localStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId));try{sessionStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId))}catch(e){}}}catch(e){}}function _leerPestana(clave){var v='';try{v=window.top.localStorage.getItem(clave)||''}catch(e1){}if(!v){try{v=sessionStorage.getItem(clave)||''}catch(e2){}}return v;}function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');var sub=document.querySelector('.technical-subtab.active');o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
+    h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
-    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}catch(_ce){try{window.top.postMessage({tsNav:1,q:q.toString()},'*');return;}catch(_cte){}}}var u='/?'+q.toString();try{window.top.location.replace(u);return;}catch(e1){}try{window.parent.location.replace(u);return;}catch(e2){}try{window.location.replace(u);return;}catch(e3){try{console.warn('TS: navegacion bloqueada',e3);}catch(_e){}}}catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;/* Primero el puente nativo: actualiza la URL y provoca un rerun de la MISMA sesion (no se pierde el estado). */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();/* Si tras unos segundos este iframe sigue vivo, el rerun no ocurrio: respaldo con navegacion real. */setTimeout(function(){try{P.location.replace(u);}catch(_e){}},8000);return;}}catch(brErr){}try{P.location.replace(u);return;}catch(navErr){}try{window.top.location.replace(u);}catch(_e){}}catch(e){}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
-    h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));_guardarUltimaConfiguracion(q);_goto(q);}"
-    h += "function _configStorageKey(){return 'tradeScannerConfigs_'+TS_USER_KEY;}function _leerConfiguracionesPersonal(){var a=[];var raw='';try{raw=window.top.localStorage.getItem(_configStorageKey())||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(_configStorageKey())||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(_configStorageKey())||''}catch(e3){}}if(!raw){try{raw=localStorage.getItem('tradeScannerConfigs')||''}catch(e4){}}try{a=JSON.parse(raw||'[]')}catch(e5){a=[]}return Array.isArray(a)?a:[];}function _guardarConfiguracionesPersonal(a){var txt=JSON.stringify(a.slice(0,50));try{window.top.localStorage.setItem(_configStorageKey(),txt)}catch(e1){}try{window.parent.localStorage.setItem(_configStorageKey(),txt)}catch(e2){}try{localStorage.setItem(_configStorageKey(),txt)}catch(e3){}try{localStorage.setItem('tradeScannerConfigs',txt)}catch(e4){}}function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));var o={};q.forEach(function(v,k){o[k]=v});o.nombre=n;o._savedAt=Date.now();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==n.toLowerCase()});a.unshift(o);_guardarConfiguracionesPersonal(a);_guardarUltimaConfiguracion(q);document.getElementById('config_name').value='';renderConfiguraciones();_goto(q);}"
-    h += "function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');try{var q=_qtop();q.set('_active_subtab',String(id));var u='/?'+q.toString();try{window.top.location.href=u;}catch(e){try{window.parent.location.href=u;}catch(_e){window.location.href=u;}}}catch(e){}if(id==='load-config-panel')renderConfiguraciones();}"
+    h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});_guardarUltimaConfiguracion(q);_goto(q);}"
+    h += "function _configStorageKey(){return 'tradeScannerConfigs_'+TS_USER_KEY;}function _leerConfiguracionesPersonal(){var a=[];var raw='';try{raw=window.top.localStorage.getItem(_configStorageKey())||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(_configStorageKey())||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(_configStorageKey())||''}catch(e3){}}if(!raw){try{raw=localStorage.getItem('tradeScannerConfigs')||''}catch(e4){}}try{a=JSON.parse(raw||'[]')}catch(e5){a=[]}return Array.isArray(a)?a:[];}function _guardarConfiguracionesPersonal(a){var txt=JSON.stringify(a.slice(0,50));try{window.top.localStorage.setItem(_configStorageKey(),txt)}catch(e1){}try{window.parent.localStorage.setItem(_configStorageKey(),txt)}catch(e2){}try{localStorage.setItem(_configStorageKey(),txt)}catch(e3){}try{localStorage.setItem('tradeScannerConfigs',txt)}catch(e4){}}function guardarConfiguracionPersonal(){var n=(document.getElementById('config_name').value||'').trim();if(!n){alert('Escribe un nombre.');return}var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var o={};q.forEach(function(v,k){o[k]=v});o.nombre=n;o._savedAt=Date.now();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==n.toLowerCase()});a.unshift(o);_guardarConfiguracionesPersonal(a);_guardarUltimaConfiguracion(q);document.getElementById('config_name').value='';renderConfiguraciones();_goto(q);}"
+    h += "function cargarConfiguracionPersonal(n){var a=_leerConfiguracionesPersonal();var o=a.find(function(x){return String(x.nombre||'')===String(n||'')});if(!o)return;var q=_qtop();Object.keys(o).forEach(function(k){if(k!=='nombre'&&k!=='auth_session'&&k!=='_savedAt')q.set(k,o[k])});_goto(q)}function borrarConfiguracionPersonal(n){var objetivo=String(n==null?'':n).trim().toLowerCase();if(!objetivo)return;try{var a=_leerConfiguracionesPersonal();var restantes=a.filter(function(x){return String((x&&x.nombre)||'').trim().toLowerCase()!==objetivo;});_guardarConfiguracionesPersonal(restantes);renderConfiguraciones();}catch(e){alert('No se pudo eliminar la configuración: '+e.message);}}function showTechnicalSubTab(id,btn){document.querySelectorAll('.technical-subpanel').forEach(function(x){x.classList.remove('active')});document.querySelectorAll('.technical-subtab').forEach(function(x){x.classList.remove('active')});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(id==='load-config-panel')renderConfiguraciones();}"
     h += "function renderConfiguraciones(){var b=document.getElementById('saved_configs_list');if(!b)return;var t=(document.getElementById('config_search').value||'').toLowerCase();var a=_leerConfiguracionesPersonal();a=a.filter(function(x){return String((x&&x.nombre)||'').toLowerCase().indexOf(t)>=0});b.innerHTML=a.length?a.map(function(x){var n=String((x&&x.nombre)||'').replace(/[<>]/g,'');var key=encodeURIComponent(String((x&&x.nombre)||''));return '<div class=\"saved-config\"><b>'+n+'</b><span>'+String(x.timeframe||'1m')+' · EMA20 '+String(x.ema20_estado||'Neutro')+' · EMA50 '+String(x.ema50_estado||'Neutro')+' · EMA200 '+String(x.ema200_estado||'Neutro')+'</span><button type=\"button\" class=\"btn-cargar-config\" data-config-name=\"'+key+'\">CARGAR</button><button type=\"button\" class=\"btn-eliminar-config\" data-config-name=\"'+key+'\">ELIMINAR</button></div>'}).join(''):'<span class=\"saved-empty\">No hay configuraciones guardadas.</span>'; }var _tsScrollTimer=null;window.addEventListener('scroll',function(){if(!TS_AUTH)return;if(_tsScrollTimer)return;_tsScrollTimer=setTimeout(function(){_tsScrollTimer=null;try{_guardarUltimaConfiguracion(_qtop());}catch(e){}},250);},{passive:true});"
-    h += """document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){try{_restaurarUltimaConfiguracion()}catch(e){};try{renderConfiguraciones();try{var lg=(document.getElementById(\'cfg_lang\')||{}).value||\'\';if(lg&&TS_LANGS[lg])aplicarIdioma(lg);}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'technical_timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\',\'f_gap_on\',\'f_float_on\',\'f_vol_on\',\'ema20_on\',\'refresh_sec_inside\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{if(id===\'refresh_sec_inside\')cambiarRefresh(el.value);else if(id===\'timeframe\'||id===\'technical_timeframe\'){var _tfv=String(el.value||\'1m\');var _qtf=_qtop();_qtf.set(\'timeframe\',_tfv);_qtf.set(\'technical_timeframe\',_tfv);_guardarUltimaConfiguracion(_qtf);_goto(_qtf);}else if([\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\'].indexOf(id)>=0){pushConfig();}else pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',technical_timeframe:\'technical_timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',ema20_cond:\'ema20_cond\',ema50_cond:\'ema50_cond\',ema200_cond:\'ema200_cond\',ema20_dist:\'ema20_dist\',ema50_dist:\'ema50_dist\',ema200_dist:\'ema200_dist\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\',f_gap_on:\'f_gap_on\',f_float_on:\'f_float_on\',f_vol_on:\'f_vol_on\',ema20_on:\'ema20_on\',refresh_sec_inside:\'refresh_sec\'};var k=map[id];if(id==='bridge_url_conn'){q.set('c_url',el.value);_guardarUltimaConfiguracion(q)}else if(k){q.set(k,el.value);_guardarUltimaConfiguracion(q);}}catch(e){}});});},100)});"""
+    h += 'document.addEventListener(\'DOMContentLoaded\',function(){setTimeout(function(){try{_restaurarUltimaConfiguracion()}catch(e){};try{renderConfiguraciones();var raw=localStorage.getItem(TS_USER_KEY)||\'\';if(!raw){try{raw=window.top.localStorage.getItem(TS_USER_KEY)||\'\'}catch(_e1){}}var o=JSON.parse(raw||\'{}\');if(o&&o._activeTab){var b=document.querySelector(\'.tab[data-tab-target="\'+o._activeTab+\'"]\');if(b)showTab(o._activeTab,b)}if(o&&o._technicalSubtab){var sb=document.querySelector(\'.technical-subtab[data-subtab-target="\'+o._technicalSubtab+\'"]\');if(sb)showTechnicalSubTab(o._technicalSubtab,sb)}if(o&&o._scrollY!=null){setTimeout(function(){try{window.scrollTo(0,Number(o._scrollY)||0);}catch(e){}},120);}}catch(e){};try{var lg=(document.getElementById(\'cfg_lang\')||{}).value||\'\';if(lg&&TS_LANGS[lg])aplicarIdioma(lg);}catch(e){};var ids=[\'price_min\',\'price_max\',\'gap_min\',\'gap_max\',\'float_max\',\'txt_vol\',\'sel_ema\',\'sel_mac\',\'sel_order\',\'cfg_active\',\'cfg_start\',\'cfg_end\',\'cfg_lang\',\'cfg_wnd\',\'timeframe\',\'technical_timeframe\',\'ema_dist_max\',\'rsi_min\',\'rsi_max\',\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\',\'f_gap_on\',\'f_float_on\',\'f_vol_on\',\'ema20_on\',\'refresh_sec_inside\',\'cfg_broker\',\'cfg_url\'];ids.forEach(function(id){var el=document.getElementById(id);if(!el)return;el.addEventListener(\'change\',function(){try{if(id===\'refresh_sec_inside\')cambiarRefresh(el.value);else if([\'ema20_estado\',\'ema50_estado\',\'ema200_estado\',\'ema20_cond\',\'ema50_cond\',\'ema200_cond\',\'ema20_dist\',\'ema50_dist\',\'ema200_dist\'].indexOf(id)>=0)return;else pushConfig();}catch(e){try{_guardarUltimaConfiguracion(_qtop());}catch(_e){}}});el.addEventListener(\'input\',function(){try{var q=_qtop();var map={price_min:\'f_price_min\',price_max:\'f_price_max\',gap_min:\'f_gap_min\',gap_max:\'f_gap_max\',float_max:\'f_float_max\',txt_vol:\'f_vol\',sel_ema:\'f_ema\',sel_mac:\'f_mac\',sel_order:\'f_order\',market_session:\'market_session\',timeframe:\'timeframe\',technical_timeframe:\'technical_timeframe\',ema_dist_max:\'ema_dist_max\',rsi_min:\'rsi_min\',rsi_max:\'rsi_max\',ema20_estado:\'ema20_estado\',ema50_estado:\'ema50_estado\',ema200_estado:\'ema200_estado\',ema20_cond:\'ema20_cond\',ema50_cond:\'ema50_cond\',ema200_cond:\'ema200_cond\',ema20_dist:\'ema20_dist\',ema50_dist:\'ema50_dist\',ema200_dist:\'ema200_dist\',cfg_active:\'c_active\',cfg_start:\'c_start\',cfg_end:\'c_end\',cfg_lang:\'c_lang\',cfg_wnd:\'c_wnd\',cfg_broker:\'c_broker\',cfg_url:\'c_url\',f_gap_on:\'f_gap_on\',f_float_on:\'f_float_on\',f_vol_on:\'f_vol_on\',ema20_on:\'ema20_on\',refresh_sec_inside:\'refresh_sec\'};var k=map[id];if(k){q.set(k,el.value);_guardarUltimaConfiguracion(q);}}catch(e){}});});},100)});'
     h += "document.addEventListener('click',function(ev){var tab=ev.target.closest?ev.target.closest('.tab[data-tab-target]'):null;if(tab){ev.preventDefault();showTab(tab.getAttribute('data-tab-target'),tab);return;}var sub=ev.target.closest?ev.target.closest('.technical-subtab[data-subtab-target]'):null;if(sub){ev.preventDefault();showTechnicalSubTab(sub.getAttribute('data-subtab-target'),sub);return;}var save=ev.target.closest?ev.target.closest('.btn-guardar-config'):null;if(save){ev.preventDefault();guardarConfiguracionPersonal();return;}var btn=ev.target.closest?ev.target.closest('.btn-eliminar-config'):null;if(btn){ev.preventDefault();ev.stopPropagation();borrarConfiguracionPersonal(decodeURIComponent(btn.getAttribute('data-config-name')||''));return;}var cargar=ev.target.closest?ev.target.closest('.btn-cargar-config'):null;if(cargar){ev.preventDefault();ev.stopPropagation();cargarConfiguracionPersonal(decodeURIComponent(cargar.getAttribute('data-config-name')||''));return;}});"
-    h += "var TS_LANGS={ESP:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'CONFIGURACIÓN','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUMNAS','PRECIO ($)':'PRECIO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTACIÓN ≤','VOLUMEN ≥':'VOLUMEN ≥','MACD':'MACD','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'VENTANA','TEMPORALIDAD':'TEMPORALIDAD','MOTOR':'MOTOR','HORARIO (ET)':'HORARIO (ET)','HORARIO DEL SCANNER':'HORARIO DEL SCANNER','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'PUENTE DE LAYOUT','🔌 CONEXIONES':'🔌 CONEXIONES','GUARDAR':'GUARDAR','ELIMINAR':'ELIMINAR','CARGAR':'CARGAR'},ENG:{'RADAR':'RADAR','TÉCNICOS':'TECHNICALS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'SETTINGS','RESULTADOS':'RESULTS','COLUMNAS':'COLUMNS','PRECIO ($)':'PRICE ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','MACD':'MACD','ORDENAR':'SORT','IDIOMA':'LANGUAGE','VENTANA':'WINDOW','TEMPORALIDAD':'TIMEFRAME','MOTOR':'ENGINE','HORARIO (ET)':'SCHEDULE (ET)','HORARIO DEL SCANNER':'SCANNER SCHEDULE','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'LAYOUT BRIDGE','GUARDAR':'SAVE','ELIMINAR':'DELETE','CARGAR':'LOAD'},POR:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TÉCNICO','CONFIGURACIÓN':'CONFIGURAÇÃO','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUNAS','PRECIO ($)':'PREÇO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'JANELA','TEMPORALIDAD':'PERÍODO','MOTOR':'MOTOR','GUARDAR':'SALVAR','ELIMINAR':'EXCLUIR','CARGAR':'CARREGAR'},FRA:{'RADAR':'RADAR','TÉCNICOS':'TECHNIQUES','TECHNICAL':'TECHNIQUE','CONFIGURACIÓN':'CONFIGURATION','RESULTADOS':'RÉSULTATS','COLUMNAS':'COLONNES','PRECIO ($)':'PRIX ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTATION ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'TRIER','IDIOMA':'LANGUE','VENTANA':'FENÊTRE','TEMPORALIDAD':'UNITÉ DE TEMPS','MOTOR':'MOTEUR','GUARDAR':'ENREGISTRER','ELIMINAR':'SUPPRIMER','CARGAR':'CHARGER'},DEU:{'RADAR':'RADAR','TÉCNICOS':'TECHNIK','TECHNICAL':'TECHNIK','CONFIGURACIÓN':'EINSTELLUNGEN','RESULTADOS':'ERGEBNISSE','COLUMNAS':'SPALTEN','PRECIO ($)':'PREIS ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUMEN','ORDENAR':'SORTIEREN','IDIOMA':'SPRACHE','VENTANA':'FENSTER','TEMPORALIDAD':'ZEITRAHMEN','MOTOR':'MOTOR','GUARDAR':'SPEICHERN','ELIMINAR':'LÖSCHEN','CARGAR':'LADEN'},ITA:{'RADAR':'RADAR','TÉCNICOS':'TECNICI','TECHNICAL':'TECNICO','CONFIGURACIÓN':'CONFIGURAZIONE','RESULTADOS':'RISULTATI','COLUMNAS':'COLONNE','PRECIO ($)':'PREZZO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME','ORDENAR':'ORDINA','IDIOMA':'LINGUA','VENTANA':'FINESTRA','TEMPORALIDAD':'TIMEFRAME','MOTOR':'MOTORE','GUARDAR':'SALVA','ELIMINAR':'ELIMINA','CARGAR':'CARICA'},CHN:{'RADAR':'雷达','TÉCNICOS':'技术','TECHNICAL':'技术分析','CONFIGURACIÓN':'设置','RESULTADOS':'结果','COLUMNAS':'列','PRECIO ($)':'价格 ($)','GAP (%)':'跳空 (%)','FLOTACIÓN ≤':'流通股 ≤','VOLUMEN ≥':'成交量 ≥','ORDENAR':'排序','IDIOMA':'语言','VENTANA':'窗口','TEMPORALIDAD':'时间周期','MOTOR':'引擎','GUARDAR':'保存','ELIMINAR':'删除','CARGAR':'加载'},JPN:{'RADAR':'レーダー','TÉCNICOS':'テクニカル','TECHNICAL':'テクニカル分析','CONFIGURACIÓN':'設定','RESULTADOS':'結果','COLUMNAS':'列','PRECIO ($)':'価格 ($)','GAP (%)':'ギャップ (%)','FLOTACIÓN ≤':'浮動株 ≤','VOLUMEN ≥':'出来高 ≥','ORDENAR':'並べ替え','IDIOMA':'言語','VENTANA':'ウィンドウ','TEMPORALIDAD':'時間足','MOTOR':'エンジン','GUARDAR':'保存','ELIMINAR':'削除','CARGAR':'読み込み'}};"
+    h += "var TS_LANGS={ESP:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'CONFIGURACIÓN','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUMNAS','PRECIO ($)':'PRECIO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTACIÓN ≤','VOLUMEN ≥':'VOLUMEN ≥','MACD':'MACD','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'VENTANA','TEMPORALIDAD':'TEMPORALIDAD','MOTOR':'MOTOR','HORARIO (ET)':'HORARIO (ET)','HORARIO DEL SCANNER':'HORARIO DEL SCANNER','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'PUENTE DE LAYOUT','GUARDAR':'GUARDAR','ELIMINAR':'ELIMINAR','CARGAR':'CARGAR'},ENG:{'RADAR':'RADAR','TÉCNICOS':'TECHNICALS','TECHNICAL':'TECHNICAL','CONFIGURACIÓN':'SETTINGS','RESULTADOS':'RESULTS','COLUMNAS':'COLUMNS','PRECIO ($)':'PRICE ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','MACD':'MACD','ORDENAR':'SORT','IDIOMA':'LANGUAGE','VENTANA':'WINDOW','TEMPORALIDAD':'TIMEFRAME','MOTOR':'ENGINE','HORARIO (ET)':'SCHEDULE (ET)','HORARIO DEL SCANNER':'SCANNER SCHEDULE','LAYOUT':'LAYOUT','BROKER':'BROKER','PUENTE DE LAYOUT':'LAYOUT BRIDGE','GUARDAR':'SAVE','ELIMINAR':'DELETE','CARGAR':'LOAD'},POR:{'RADAR':'RADAR','TÉCNICOS':'TÉCNICOS','TECHNICAL':'TÉCNICO','CONFIGURACIÓN':'CONFIGURAÇÃO','RESULTADOS':'RESULTADOS','COLUMNAS':'COLUNAS','PRECIO ($)':'PREÇO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'ORDENAR','IDIOMA':'IDIOMA','VENTANA':'JANELA','TEMPORALIDAD':'PERÍODO','MOTOR':'MOTOR','GUARDAR':'SALVAR','ELIMINAR':'EXCLUIR','CARGAR':'CARREGAR'},FRA:{'RADAR':'RADAR','TÉCNICOS':'TECHNIQUES','TECHNICAL':'TECHNIQUE','CONFIGURACIÓN':'CONFIGURATION','RESULTADOS':'RÉSULTATS','COLUMNAS':'COLONNES','PRECIO ($)':'PRIX ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOTATION ≤','VOLUMEN ≥':'VOLUME ≥','ORDENAR':'TRIER','IDIOMA':'LANGUE','VENTANA':'FENÊTRE','TEMPORALIDAD':'UNITÉ DE TEMPS','MOTOR':'MOTEUR','GUARDAR':'ENREGISTRER','ELIMINAR':'SUPPRIMER','CARGAR':'CHARGER'},DEU:{'RADAR':'RADAR','TÉCNICOS':'TECHNIK','TECHNICAL':'TECHNIK','CONFIGURACIÓN':'EINSTELLUNGEN','RESULTADOS':'ERGEBNISSE','COLUMNAS':'SPALTEN','PRECIO ($)':'PREIS ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUMEN','ORDENAR':'SORTIEREN','IDIOMA':'SPRACHE','VENTANA':'FENSTER','TEMPORALIDAD':'ZEITRAHMEN','MOTOR':'MOTOR','GUARDAR':'SPEICHERN','ELIMINAR':'LÖSCHEN','CARGAR':'LADEN'},ITA:{'RADAR':'RADAR','TÉCNICOS':'TECNICI','TECHNICAL':'TECNICO','CONFIGURACIÓN':'CONFIGURAZIONE','RESULTADOS':'RISULTATI','COLUMNAS':'COLONNE','PRECIO ($)':'PREZZO ($)','GAP (%)':'GAP (%)','FLOTACIÓN ≤':'FLOAT ≤','VOLUMEN ≥':'VOLUME','ORDENAR':'ORDINA','IDIOMA':'LINGUA','VENTANA':'FINESTRA','TEMPORALIDAD':'TIMEFRAME','MOTOR':'MOTORE','GUARDAR':'SALVA','ELIMINAR':'ELIMINA','CARGAR':'CARICA'},CHN:{'RADAR':'雷达','TÉCNICOS':'技术','TECHNICAL':'技术分析','CONFIGURACIÓN':'设置','RESULTADOS':'结果','COLUMNAS':'列','PRECIO ($)':'价格 ($)','GAP (%)':'跳空 (%)','FLOTACIÓN ≤':'流通股 ≤','VOLUMEN ≥':'成交量 ≥','ORDENAR':'排序','IDIOMA':'语言','VENTANA':'窗口','TEMPORALIDAD':'时间周期','MOTOR':'引擎','GUARDAR':'保存','ELIMINAR':'删除','CARGAR':'加载'},JPN:{'RADAR':'レーダー','TÉCNICOS':'テクニカル','TECHNICAL':'テクニカル分析','CONFIGURACIÓN':'設定','RESULTADOS':'結果','COLUMNAS':'列','PRECIO ($)':'価格 ($)','GAP (%)':'ギャップ (%)','FLOTACIÓN ≤':'浮動株 ≤','VOLUMEN ≥':'出来高 ≥','ORDENAR':'並べ替え','IDIOMA':'言語','VENTANA':'ウィンドウ','TEMPORALIDAD':'時間足','MOTOR':'エンジン','GUARDAR':'保存','ELIMINAR':'削除','CARGAR':'読み込み'}};"
     h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var o=el.getAttribute('data-orig');var t=(el.textContent||'').trim();if(!o){if(TS_LANGS.ESP[t]!==undefined){o=t;el.setAttribute('data-orig',t)}else return}var tr=(lang&&lang!=='ESP'&&d[o])?d[o]:o;if(el.textContent!==tr)el.textContent=tr});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}"
     h += "function _sq(q,k,id){var e=document.getElementById(id);if(e&&e.value!==undefined&&e.value!==null)q.set(k,e.value)}"
     h += "function pushConfig(){var q=_qtop();"
@@ -5259,19 +4652,13 @@ def _render_scanner():
     h += "_sq(q,'f_ema','sel_ema');_sq(q,'f_mac','sel_mac');"
     h += "_sq(q,'f_order','sel_order');_sq(q,'c_active','cfg_active');"
     h += "['f_gap_on','f_float_on','f_vol_on','ema20_on'].forEach(function(id){var e=document.getElementById(id);if(e)q.set(id,e.value)});"
-    h += "if(!q.get('c_start'))q.set('c_start','04:00');if(!q.get('c_end'))q.set('c_end','20:00');"
-    h += "_sq(q,'c_lang','cfg_lang');_sq(q,'c_wnd','cfg_wnd');q.set('market_session','TODO EL MERCADO');var _tfEl=document.getElementById('timeframe');var _ttfEl=document.getElementById('technical_timeframe');var _tfVal=(_tfEl&&_tfEl.value)?_tfEl.value:((_ttfEl&&_ttfEl.value)?_ttfEl.value:'1m');q.set('timeframe',_tfVal);q.set('technical_timeframe',_tfVal);_sq(q,'ema_dist_max','ema_dist_max');_sq(q,'rsi_min','rsi_min');_sq(q,'rsi_max','rsi_max');['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));"
+    h += "q.set('c_start','04:00');q.set('c_end','20:00');"
+    h += "_sq(q,'c_lang','cfg_lang');_sq(q,'c_wnd','cfg_wnd');q.set('market_session','TODO EL MERCADO');_sq(q,'timeframe','timeframe');q.set('technical_timeframe',document.getElementById('technical_timeframe')?document.getElementById('technical_timeframe').value:document.getElementById('timeframe').value);_sq(q,'ema_dist_max','ema_dist_max');_sq(q,'rsi_min','rsi_min');_sq(q,'rsi_max','rsi_max');['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});"
     h += "_sq(q,'c_broker','cfg_broker');_sq(q,'c_url','cfg_url');"
-    h += "try{var _dbg={t:Date.now(),fields:{}};['price_min','price_max','gap_min','gap_max','float_max','txt_vol','sel_mac','sel_order','timeframe'].forEach(function(id){var e=document.getElementById(id);if(e)_dbg.fields[id]=String(e.value)});q.set('_ts_diag',JSON.stringify(_dbg));}catch(_de){}"
     h += "_guardarUltimaConfiguracion(q);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(e){_navegarMismaApp(q);}}"
     h += "function conectarSchwab(){var q=_qtop();q.set('schwab_connect','1');_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
-    h += "function _bridgeUrlUi(){var e=document.getElementById('bridge_url_conn')||document.getElementById('cfg_url');var u=e&&e.value?String(e.value).trim():'';return u.replace(/\\/$/,'')}";
-    h += "function _bridgeFetch(url,opts){opts=opts||{};try{opts.targetAddressSpace='loopback'}catch(e){}return fetch(url,opts)}";
-    h += "function probarPuente(){var u=_bridgeUrlUi();var s=document.getElementById('bridge_status');if(!u){if(s)s.innerHTML='🔴 Escribe la dirección del puente';return;}if(s)s.innerHTML='🟡 Probando...';var health=u.replace(/\\/layout\\/?$/i,'/health');_bridgeFetch(health,{method:'GET',mode:'cors'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(function(d){if(s)s.innerHTML='🟢 PUENTE CONECTADO · '+(d.service||'Listo');try{var q=_qtop();q.set('c_url',u);_guardarUltimaConfiguracion(q)}catch(e){}}).catch(function(e){if(s)s.innerHTML='🔴 No se pudo conectar al puente';});}";
-    h += "function enviarLayoutLocal(t,layout,color){var u=_bridgeUrlUi();if(!u||!t)return;var s=document.getElementById('bridge_status');var col=color||_layoutColor(layout);_bridgeFetch(u,{method:'POST',mode:'cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({broker:document.getElementById('cfg_broker')?document.getElementById('cfg_broker').value:'Charles Schwab',ticker:String(t),layout:String(layout),layout_color:String(layout),color:String(col),timestamp:Date.now()/1000})}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json().catch(function(){return {ok:true}})}).then(function(){if(s)s.innerHTML='🟢 '+String(t)+' → '+String(layout)+' · '+String(col)}).catch(function(){if(s)s.innerHTML='🔴 Puente no disponible · verifica que esté abierto en tu PC';});}";
-    h += '''var TS_LAYOUT_LINK_COLORS=[{n:1,name:'Red',c:'#d51f1f'},{n:2,name:'Yellow',c:'#f1cf16'},{n:3,name:'Blue',c:'#178fca'},{n:4,name:'Green',c:'#159447'},{n:5,name:'Purple',c:'#9a4de3'},{n:6,name:'Maroon',c:'#8b2f18'},{n:7,name:'Orange',c:'#d86b08'},{n:8,name:'Brown',c:'#8b5a2b'},{n:9,name:'Lilac',c:'#b56bd9'},{n:10,name:'Cyan',c:'#11a9b5'}];function _layoutColorsLoad(){var o={};try{o=JSON.parse(localStorage.getItem('tsLayoutColors_'+TS_USER_KEY)||'{}')||{}}catch(e){}return o;}function _layoutColorsSave(o){try{localStorage.setItem('tsLayoutColors_'+TS_USER_KEY,JSON.stringify(o))}catch(e){}try{window.top.localStorage.setItem('tsLayoutColors_'+TS_USER_KEY,JSON.stringify(o))}catch(e){}}function _layoutColor(layout){var o=_layoutColorsLoad();if(o[layout])return o[layout];var x=TS_LAYOUT_LINK_COLORS.find(function(v){return 'L'+v.n===layout});return x?x.c:'#d51f1f';}function guardarColorLayout(layout,color){var o=_layoutColorsLoad();o[String(layout)]=String(color);_layoutColorsSave(o);aplicarColoresLayouts();}function aplicarColoresLayouts(){document.querySelectorAll('[data-layout-color]').forEach(function(el){var l=el.getAttribute('data-layout-color');var c=_layoutColor(l);el.style.setProperty('color',c);el.style.setProperty('border-color',c);el.setAttribute('data-current-color',c);});}function cerrarPaletaLayout(){var p=document.getElementById('layout-palette');if(p){p.classList.remove('open');p.style.display='none';}}function seleccionarColorLayout(layout,color){guardarColorLayout(layout,color);cerrarPaletaLayout();}function abrirPaletaLayout(ev,layout){try{ev.preventDefault();ev.stopPropagation();}catch(e){}var old=document.getElementById('layout-palette');if(old)old.remove();var p=document.createElement('div');p.id='layout-palette';p.className='layout-palette open';TS_LAYOUT_LINK_COLORS.forEach(function(v){var b=document.createElement('button');b.type='button';b.title=v.n+' · '+v.name;b.innerHTML='<span class="num">'+v.n+'</span><span class="swatch" style="background:'+v.c+'"></span><span>'+v.name+'</span>';b.onclick=function(e){e.preventDefault();e.stopPropagation();seleccionarColorLayout(layout,v.c);};p.appendChild(b);});document.body.appendChild(p);var r=ev.currentTarget.getBoundingClientRect();var left=Math.min(Math.max(6,r.left),window.innerWidth-184);var top=r.bottom+4;if(top+184>window.innerHeight)top=Math.max(6,r.top-184);p.style.left=left+'px';p.style.top=top+'px';p.style.display='grid';}document.addEventListener('click',function(e){var p=document.getElementById('layout-palette');if(p&&!p.contains(e.target)&&!e.target.closest('.layout-color-picker'))cerrarPaletaLayout();});document.addEventListener('DOMContentLoaded',function(){setTimeout(aplicarColoresLayouts,80);});''';
-    h += "function cambiarLayout(t,e){var v=e&&e.value;if(!v)return;enviarLayoutLocal(t,v,_layoutColor(v));try{var q=_qtop();q.set('c_url',_bridgeUrlUi());q.delete('layout_send_ticker');q.delete('layout_send_color');q.delete('layout_from_browser');_guardarUltimaConfiguracion(q)}catch(err){}}";
-    h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');try{var q=_qtop();q.set('_active_tab',String(id));var u='/?'+q.toString();try{window.top.location.href=u;}catch(e){try{window.parent.location.href=u;}catch(_e){window.location.href=u;}}}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
+    h += "function cambiarLayout(t,e){var v=e.value;if(!v)return;var q=_qtop();q.set('layout_send_ticker',t);q.set('layout_send_color',v);q.set('_ts',Date.now());try{_navegarMismaApp(q)}catch(err){_navegarMismaApp(q);}}"
+    h += "function showTab(id,btn){document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.remove('active');});document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});var p=document.getElementById(id);if(p)p.classList.add('active');if(btn)btn.classList.add('active');if(TS_AUTH)try{var q=_qtop();_guardarUltimaConfiguracion(q)}catch(e){}if(id==='panel-resultados'){var r=document.getElementById('resultados-tabla');if(r)r.scrollIntoView({behavior:'smooth',block:'start'});}}"
     h += "function abrirAutenticacion(){try{var q=new URLSearchParams();q.set('auth','1');_navegarMismaApp(q);}catch(e){try{window.top.location.href='/?auth=1';}catch(_e){window.location.href='/?auth=1';}}}"
     h += "function cambiarRefresh(v){var _n=Date.now();if(window._tsRf===String(v)&&_n-(window._tsRfT||0)<1500)return;window._tsRf=String(v);window._tsRfT=_n;var q=_qtop();q.set('refresh_sec',String(v));var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_u',String(Date.now()));q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += ""
@@ -5286,7 +4673,6 @@ def _render_scanner():
     h += "<div class='main-container'>"
     h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
-    h += "<a href='#' onclick='abrirRobotLong();return false;' style='display:inline-flex;align-items:center;justify-content:center;height:25px;padding:0 9px;margin-right:5px;border:1px solid #555;background:#252a31;color:#fff;border-radius:4px;text-decoration:none;font-size:10px;font-weight:700;'>🤖 ROBOT LONG</a>"
     # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
     h += "</div>"
     _status_line_html = f"<div class='status-line'><div class='status {'on' if _estado_txt=='ON' else ('off' if _estado_txt=='OFF' else 'wait')}'>{'🟢' if _estado_txt=='ON' else ('🔴' if _estado_txt=='OFF' else '🟡')} MOTOR {_estado_txt} · HORARIO {_safe_text(_hora_txt)}</div><div class='date-time'>🕒 {fecha_hora_actual}</div></div>"
@@ -5305,27 +4691,16 @@ def _render_scanner():
         f"<div>EMA{n}: <b>{_le.get(_estados_ema[n], _estados_ema[n])}</b> · {_cond_txt(n, ema_cond_ui[n])}</div>"
         for n in (20, 50, 200)
     )
-    _tab_validos = {"panel-radar", "panel-tecnicos", "panel-technical", "panel-config", "panel-conexiones", "panel-resultados", "panel-columnas"}
-    _active_tab_ui = str(st.query_params.get("_active_tab", "") or "").strip()
-    if _active_tab_ui not in _tab_validos or (_active_tab_ui == "panel-conexiones" and PUBLIC_PREVIEW):
-        _active_tab_ui = "panel-radar"
-    _subtab_validos = {"save-config-panel", "load-config-panel"}
-    _active_subtab_ui = str(st.query_params.get("_active_subtab", "") or "").strip()
-    if _active_subtab_ui not in _subtab_validos:
-        _active_subtab_ui = "save-config-panel"
-
     h += "<div class='tabs'>"
-    h += f"<button type='button' class='tab {'active' if _active_tab_ui == 'panel-radar' else ''}' data-tab-target='panel-radar'>RADAR</button>"
-    h += f"<button type='button' class='tab {'active' if _active_tab_ui == 'panel-tecnicos' else ''}' data-tab-target='panel-tecnicos'>TÉCNICOS</button>"
-    h += f"<button type='button' class='tab {'active' if _active_tab_ui == 'panel-technical' else ''}' data-tab-target='panel-technical'>TECHNICAL</button>"
-    h += f"<button type='button' class='tab {'active' if _active_tab_ui == 'panel-config' else ''}' data-tab-target='panel-config'>CONFIGURACIÓN</button>"
-    if not PUBLIC_PREVIEW:
-        h += f"<button type='button' class='tab {'active' if _active_tab_ui == 'panel-conexiones' else ''}' data-tab-target='panel-conexiones'>🔌 CONEXIONES</button>"
-    h += f"<button type='button' class='tab {'active' if _active_tab_ui == 'panel-resultados' else ''}' data-tab-target='panel-resultados'>RESULTADOS</button>"
-    h += f"<button type='button' class='tab {'active' if _active_tab_ui == 'panel-columnas' else ''}' data-tab-target='panel-columnas'>COLUMNAS</button>"
+    h += "<button type='button' class='tab active' data-tab-target='panel-radar'>RADAR</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-tecnicos'>TÉCNICOS</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-technical'>TECHNICAL</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-config'>CONFIGURACIÓN</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-resultados'>RESULTADOS</button>"
+    h += "<button type='button' class='tab' data-tab-target='panel-columnas'>COLUMNAS</button>"
     h += "</div>"
-    h += f"<div id='panel-radar' class='tab-panel {'active' if _active_tab_ui == 'panel-radar' else ''}'><b>RADAR</b><br>Filtros principales del radar: precio, gap, flotación y volumen.</div>"
-    h += f"<div id='panel-tecnicos' class='tab-panel {'active' if _active_tab_ui == 'panel-tecnicos' else ''}'><div class='panel-grid'>"
+    h += "<div id='panel-radar' class='tab-panel active'><b>RADAR</b><br>Filtros principales del radar: precio, gap, flotación y volumen.</div>"
+    h += "<div id='panel-tecnicos' class='tab-panel'><div class='panel-grid'>"
     if PUBLIC_PREVIEW:
         h += f"<div class='panel-card'><b>CRUCE EMA20</b><span>Condición actual: {_safe_text(ema_ui)} · vela nueva sobre EMA20.</span></div>"
     else:
@@ -5334,25 +4709,11 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>VOLUMEN</b><span>Mínimo configurado: {_big(volumen_min_ui)}.</span></div>"
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
     h += "</div></div>"
-    h += f"<div id='panel-technical' class='tab-panel {'active' if _active_tab_ui == 'panel-technical' else ''}'><div class='panel-grid'>"
-    h += "<div class='panel-card technical-control'><b>TIMEFRAME</b>"
-    if swing_activo_ui and swing_multitimeframe_ui:
-        h += "<select id='technical_timeframe' disabled><option>NEUTRO · MULTITEMPORAL</option></select><span>Neutral porque Swing multitemporal usa únicamente las temporalidades seleccionadas abajo.</span></div>"
-    else:
-        h += "<select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
-        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
-            h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
-        h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20/50/200, MACD y RSI.</span></div>"
-    h += "<div class='panel-card technical-control' style='grid-column:1/-1;'><b>SWING EMA20 → EMA50 / EMA200</b>"
-    h += f"<select id='swing_activo' onchange='aplicarTecnicas()'><option value='OFF' {'selected' if not swing_activo_ui else ''}>OFF · detector apagado</option><option value='ON' {'selected' if swing_activo_ui else ''}>ON · detectar swing</option></select>"
-    h += f"<select id='swing_origen' onchange='aplicarTecnicas()'><option value='Bollinger inferior + debajo de EMA20' {'selected' if swing_origen_ui=='Bollinger inferior + debajo de EMA20' else ''}>Bollinger inferior + debajo de EMA20</option><option value='Bollinger inferior' {'selected' if swing_origen_ui=='Bollinger inferior' else ''}>Bollinger inferior</option><option value='Debajo de EMA20' {'selected' if swing_origen_ui=='Debajo de EMA20' else ''}>Debajo de EMA20</option></select>"
-    h += f"<select id='swing_objetivo' onchange='aplicarTecnicas()'><option value='EMA50 o EMA200' {'selected' if swing_objetivo_ui=='EMA50 o EMA200' else ''}>Primer toque EMA50 o EMA200</option><option value='EMA50' {'selected' if swing_objetivo_ui=='EMA50' else ''}>Primer toque EMA50</option><option value='EMA200' {'selected' if swing_objetivo_ui=='EMA200' else ''}>Primer toque EMA200</option></select>"
-    h += f"<div class='range'><span>Máx. velas desde cruce</span><input type='number' min='1' max='30' step='1' id='swing_ventana' value='{swing_ventana_ui}' onchange='aplicarTecnicas()'><span>Toque %</span><input type='number' min='0' max='10' step='0.1' id='swing_tolerancia' value='{swing_tol_ui:g}' onchange='aplicarTecnicas()'><span>Origen %</span><input type='number' min='0' max='10' step='0.1' id='swing_origen_tolerancia' value='{swing_origen_tol_ui:g}' onchange='aplicarTecnicas()'></div>"
-    h += f"<select id='swing_multitimeframe' onchange='aplicarTecnicas()'><option value='OFF' {'selected' if not swing_multitimeframe_ui else ''}>Una temporalidad</option><option value='ON' {'selected' if swing_multitimeframe_ui else ''}>Multitemporal</option></select>"
-    h += "<div class='range'><span>Temporalidades:</span>"
-    for _mtf,_mtxt in (("1d","1D"),("1w","1W"),("1mo","1M")):
-        h += f"<label style='display:inline-flex;align-items:center;gap:3px;'><input type='checkbox' class='swing-tf-check' value='{_mtf}' {'checked' if _mtf in swing_tfs_ui else ''} onchange='aplicarTecnicas()'>{_mtxt}</label>"
-    h += "</div><span>Zona inferior → cruce EMA20 desde abajo → continuación → primer toque EMA50/EMA200. En multitemporal se agrupan los tickers.</span></div>"
+    h += "<div id='panel-technical' class='tab-panel'><div class='panel-grid'>"
+    h += "<div class='panel-card technical-control'><b>TIMEFRAME</b><select id='technical_timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
+    for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+        h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
+    h += "</select><span>La temporalidad seleccionada se aplica al motor, EMA20/50/200, MACD y RSI.</span></div>"
     _lbl_cond = (("Ninguna", "SIN CONDICIÓN EXTRA"), ("Naciendo", "PRIMERA VELA NACIENDO"),
                  ("Distancia", "A ≤ DISTANCIA % DE LA EMA"), ("Naciendo o distancia", "NACIENDO O ≤ DISTANCIA %"))
     for _n, _ename, _eval in ((20, "EMA20", ema20_estado_ui), (50, "EMA50", ema50_estado_ui), (200, "EMA200", ema200_estado_ui)):
@@ -5361,7 +4722,8 @@ def _render_scanner():
         h += f"<select id='{_eid}' onchange='aplicarTecnicas()'><option value='Por encima' {'selected' if _eval=='Por encima' else ''}>ARRIBA (vela sobre {_ename})</option><option value='Por debajo' {'selected' if _eval=='Por debajo' else ''}>ABAJO (vela bajo {_ename})</option><option value='Neutro' {'selected' if _eval=='Neutro' else ''}>NEUTRO</option></select>"
         h += f"<select id='ema{_n}_cond' onchange='aplicarTecnicas()'>"
         _opts_cond = list(_lbl_cond)
-        # Pullback EMA50/EMA200 reemplazado por el detector Swing.
+        if _n in (50, 200):
+            _opts_cond += [("Pullback a la baja", "VELA CON PULLBACK A LA BAJA"), ("Pullback a la alta", "VELA CON PULLBACK A LA ALTA")]
         for _v, _t in _opts_cond:
             h += f"<option value='{_v}' {'selected' if ema_cond_ui[_n]==_v else ''}>{_t}</option>"
         h += "</select>"
@@ -5379,7 +4741,7 @@ def _render_scanner():
     h += "<div class='technical-subtabs'><button type='button' class='technical-subtab active' data-subtab-target='save-config-panel'>💾 GUARDAR CONFIGURACIÓN</button><button type='button' class='technical-subtab' data-subtab-target='load-config-panel'>📂 MIS CONFIGURACIONES</button></div>"
     h += "<div id='save-config-panel' class='technical-subpanel active'><div class='panel-card technical-control'><b>💾 GUARDAR CONFIGURACIÓN PERSONAL</b><div class='range'><input id='config_name' type='text' placeholder='Nombre de configuración'><button type='button' class='btn-guardar-config'>GUARDAR</button></div><span>Los filtros y la posición de la pantalla se guardan automáticamente. Aquí puedes crear una copia con nombre.</span></div></div>"
     h += "<div id='load-config-panel' class='technical-subpanel'><div class='panel-card technical-control'><b>📂 MIS CONFIGURACIONES</b><input id='config_search' type='text' placeholder='Buscar configuración' oninput='renderConfiguraciones()'><div id='saved_configs_list'></div></div></div>"
-    h += f"<div id='panel-config' class='tab-panel {'active' if _active_tab_ui == 'panel-config' else ''}'><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
+    h += "<div id='panel-config' class='tab-panel'><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
     h += f"<b style='font-size:12px;color:#d4af37;'>🔗 BROKER ENTRELAZADO CON EL SCANNER</b><span style='display:block;margin-bottom:5px;'>Broker activo: <strong>{_safe_text(broker_val)}</strong> · Los activos encontrados pueden enviarse desde el engranaje de Layout.</span>"
     h += "<span style='display:block;'>Charles Schwab: OAuth 2.0 · Credenciales: <strong>SCHWAB_CLIENT_ID</strong>, <strong>SCHWAB_CLIENT_SECRET</strong> y <strong>SCHWAB_REDIRECT_URI</strong> en Streamlit Secrets.</span>"
     h += "</div><div class='panel-grid'>"
@@ -5388,20 +4750,9 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
     h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
     h += "</div></div>"
-    h += "<style>.tf-badge{font-size:9px;font-weight:900;color:#d4af37;margin-left:3px}.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
-    if PUBLIC_PREVIEW:
-        h += "<style>.filtros-grid select,.filtros-grid input,.filtros-grid button,.panel-card select,.panel-card input,.panel-card button,.technical-subtab,.engranaje-select{pointer-events:none!important;opacity:.58!important;cursor:not-allowed!important}.tab{pointer-events:auto!important;opacity:1!important}</style>"
-    h += f"<div id='panel-columnas' class='tab-panel {'active' if _active_tab_ui == 'panel-columnas' else ''}'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
-    if not PUBLIC_PREVIEW:
-        h += f"<div id='panel-conexiones' class='tab-panel {'active' if _active_tab_ui == 'panel-conexiones' else ''}'><div class='panel-grid'>"
-        h += "<div class='panel-card' style='grid-column:1/-1;'><b>🔌 PUENTE DE LAYOUT</b><span style='display:block;margin-top:6px;'>Escribe la dirección del puente que está funcionando en tu PC. Normalmente: <b>http://localhost:8080/layout</b></span>"
-        h += "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;'><input id='bridge_url_conn' type='text' value='" + _safe_text(bridge_val) + "' style='flex:1 1 320px;min-width:240px;height:30px;padding:4px 7px;box-sizing:border-box;'><button type='button' onclick=\"probarPuente()\" style='height:30px;padding:0 14px;font-weight:700;'>🔗 CONECTAR PUENTE</button></div>"
-        h += "<div id='bridge_status' style='margin-top:8px;font-size:11px;'>⚪ PUENTE SIN PROBAR</div>"
-        h += "<div style='margin-top:8px;font-size:10px;color:#8f98a3;'>El puente se ejecuta en la computadora del usuario. El scanner no necesita instalarse allí.</div></div>"
-        h += "<div class='panel-card' style='grid-column:1/-1;'><b>🏦 BROKER</b><span style='display:block;margin-top:6px;'>La conexión de la cuenta se añadirá en el siguiente paso con autorización segura. No se piden claves en esta fase.</span>"
-        h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
-        h += "</div></div>"
-    h += f"<div id='panel-resultados' class='tab-panel {'active' if _active_tab_ui == 'panel-resultados' else ''}'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
+    h += "<style>.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
+    h += "<div id='panel-columnas' class='tab-panel'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
+    h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
     def _ctl_res(label, texto, campos):
         def _v(i, d=""):
             for k, v in campos:
@@ -5409,22 +4760,19 @@ def _render_scanner():
                     return str(v)
             return d
         if label == "PRECIO ($)":
-            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.01' id='price_min' value='{_safe_text(_v('price_min', precio_min_ui))}' onchange='pushConfig()'><span>–</span><input type='number' step='0.01' id='price_max' value='{_safe_text(_v('price_max', precio_max_ui))}' onchange='pushConfig()'></div></div>"
+            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.01' id='price_min' value='{_safe_text(_v('price_min', precio_min_ui))}'><span>–</span><input type='number' step='0.01' id='price_max' value='{_safe_text(_v('price_max', precio_max_ui))}'></div></div>"
         if label == "GAP (%)":
-            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{_safe_text(_v('gap_min', gap_min_ui))}' onchange='pushConfig()'><span>–</span><input type='number' step='0.1' id='gap_max' value='{_safe_text(_v('gap_max', gap_max_ui))}' onchange='pushConfig()'></div></div>"
+            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{_safe_text(_v('gap_min', gap_min_ui))}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{_safe_text(_v('gap_max', gap_max_ui))}'></div></div>"
         if label == "FLOTACIÓN ≤":
-            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='float_max' value='{_safe_text(_v('float_max', float_max_ui))}' onchange='pushConfig()'></div>"
+            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='float_max' value='{_safe_text(_v('float_max', float_max_ui))}'></div>"
         if label == "VOLUMEN ≥":
-            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='txt_vol' value='{_safe_text(_v('txt_vol', volumen_min_ui))}' onchange='pushConfig()'></div>"
+            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='txt_vol' value='{_safe_text(_v('txt_vol', volumen_min_ui))}'></div>"
         if label == "MACD":
             v=_v('sel_mac', macd_ui)
             return f"<div class='filtro-item'><label>{label}</label><select id='sel_mac' onchange='pushConfig()'><option value='Positivo' {'selected' if v=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if v=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if v=='No exigir' else ''}>No exigir</option></select></div>"
         if label == "ORDENAR":
             v=_v('sel_order', orden_ui)
-            return f"<div class='filtro-item'><label>{label}</label><select id='sel_order' onchange='pushConfig()'><option value='Actualizado' {'selected' if v=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if v=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if v=='Volumen' else ''}>Volumen</select></div>"
-        if label in ("MOTOR CENTRAL", "MOTOR PERSONAL"):
-            v=_v('cfg_active', active_val)
-            return f"<div class='filtro-item'><label>{label}</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if v=='True' else ''}>🟢 ON</option><option value='False' {'selected' if v!='True' else ''}>🔴 OFF</option></select></div>"
+            return f"<div class='filtro-item'><label>{label}</label><select id='sel_order' onchange='pushConfig()'><option value='Actualizado' {'selected' if v=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if v=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if v=='Volumen' else ''}>Volumen</option></select></div>"
         if label == "IDIOMA":
             v=_v('cfg_lang', lang_val)
             langs=(('ESP','Español'),('ENG','English'),('POR','Português'),('FRA','Français'),('DEU','Deutsch'),('ITA','Italiano'),('CHN','中文'),('JPN','日本語'))
@@ -5444,29 +4792,14 @@ def _render_scanner():
             return f"<div class='filtro-item'><label>{label}</label><input type='text' id='cfg_url' value='{_safe_text(v)}' style='width:100%;' onchange='pushConfig()'></div>"
         return f"<div class='filtro-item'><label>{label}</label><span style='font-size:11px;'>{_safe_text(texto)}</span></div>"
 
-    if ES_ADMIN and not PUBLIC_PREVIEW:
-        _m1 = servicio.metricas_snapshot(); _up_h = int(_m1.get("uptime_segundos",0)//3600); _up_m = int((_m1.get("uptime_segundos",0)%3600)//60)
-        h += ("<div class='simple-card' style='margin:4px 0 6px;'><div class='simple-title'>📊 MOTOR · CONSUMO REAL · FASE 1</div>"
-              f"<div style='font-size:10px;line-height:1.55;color:#d7d0bd;'><b>Uptime:</b> {_up_h}h {_up_m}m · <b>Ciclos:</b> {int(_m1.get('ciclos',0))} · <b>Prom:</b> {_m1.get('ciclo_promedio',0):.2f}s · <b>Máx:</b> {_m1.get('duracion_ciclo_max',0):.2f}s<br>"
-              f"<b>Universo:</b> {int(_m1.get('simbolos_universo',0)):,} · <b>Snapshots:</b> {int(_m1.get('snapshots',0))} · <b>Bars:</b> {int(_m1.get('bars',0))} · <b>Resultados:</b> {int(_m1.get('resultados_publicados',0))}<br>"
-              f"<b>FMP:</b> {int(_m1.get('fmp_total',0))} · <b>Bulk:</b> {int(_m1.get('fmp_bulk',0))} · <b>Individual:</b> {int(_m1.get('fmp_individual',0))} · <b>429:</b> {int(_m1.get('fmp_429',0))} · <b>Cache H/M:</b> {int(_m1.get('fmp_cache_hits',0))}/{int(_m1.get('fmp_cache_misses',0))}<br>"
-              f"<b>Alpaca errores:</b> {int(_m1.get('errores_alpaca',0))} · <b>429:</b> {int(_m1.get('alpaca_429',0))} · <b>Tiempo Snap:</b> {_m1.get('tiempo_snapshots',0):.1f}s · <b>Bars:</b> {_m1.get('tiempo_bars',0):.1f}s · <b>FMP:</b> {_m1.get('tiempo_fmp',0):.1f}s</div></div>")
-
     h += "<div class='filtros-grid'>"
     h += "<div class='logo'>TRADE SCANNER</div>"
     # (El selector de REFRESH vive solo en la barra nativa superior; antes estaba duplicado aqui.)
     if PUBLIC_PREVIEW:
-        h += "<div class='filtro-item'><label>MOTOR</label><select disabled><option>👀 SOLO LECTURA</option></select></div>"
-    elif ES_ADMIN:
-        h += _ctl_res("MOTOR CENTRAL", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
+        h += f"<div class='filtro-item'><label>MOTOR</label><select id='cfg_active' onchange='pushConfig()'><option value='True' {'selected' if active_val=='True' else ''}>🟢 ON</option><option value='False' {'selected' if active_val=='False' else ''}>🔴 OFF</option></select></div>"
     else:
-        h += _ctl_res("MOTOR PERSONAL", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
-    if ES_ADMIN:
-        h += f"<div class='filtro-item'><label>HORARIO GLOBAL</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
-    elif USUARIO_AUTENTICADO:
-        h += f"<div class='filtro-item'><label>MI HORARIO</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
-    else:
-        h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · solo lectura</span></div>"
+        h += _ctl_res("MOTOR", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
+    h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · fijo</span></div>"
     if PUBLIC_PREVIEW:
         _langs_pub=(('ESP','Español'),('ENG','English'),('POR','Português'),('FRA','Français'),('DEU','Deutsch'),('ITA','Italiano'),('CHN','中文'),('JPN','日本語'))
         h += "<div class='filtro-item'><label>IDIOMA</label><select id='cfg_lang' onchange='pushConfig();aplicarIdioma(this.value)'>"
@@ -5479,28 +4812,12 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>VENTANA</label><select id='cfg_wnd' onchange='pushConfig();if(this.value===&quot;Flotante&quot;)abrirVentanaFlotante()'><option value='Incrustada' {'selected' if wnd_val=='Incrustada' else ''}>Incrustada</option><option value='Flotante' {'selected' if wnd_val=='Flotante' else ''}>Flotante</option></select></div>"
     else:
         h += _ctl_res("VENTANA", wnd_val, [("cfg_wnd", wnd_val)])
-    if ES_ADMIN:
-        h += f"<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>GLOBAL · {start_time}–{end_time} ET</span></div>"
-    elif USUARIO_AUTENTICADO:
-        h += f"<div class='filtro-item'><label>MI HORARIO</label><span>{start_time}–{end_time} ET</span></div>"
-    else:
-        h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · solo lectura</span></div>"
-    h += f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_float_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_float_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
-    if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
-    else:
-        h += f"<input type='hidden' id='ema_dist_max' value='{ema_dist_max_ui:g}'>"
-    h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}' onchange='pushConfig()'></div></div>"
-    h += f"<div class='filtro-item'><label>VOLUMEN · FILTRO</label><select id='f_vol_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_vol_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_vol_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    h += f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_float_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_float_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    h += f"<div class='filtro-item'><label>VOLUMEN · FILTRO</label><select id='f_vol_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_vol_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_vol_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += f"<div class='filtro-item'><label>EMA20 · FILTRO</label><select id='ema20_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('ema20_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('ema20_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
+    h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · ventana única</span></div>"
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}' onchange='pushConfig()'></div>"
-    else:
-        h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
-    if swing_activo_ui and swing_multitimeframe_ui:
-        h += "<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' disabled><option>NEUTRO · MULTITEMPORAL</option></select></div>"
-    elif PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>TEMPORALIDAD</label><select id='timeframe' onchange='pushConfig()'>"
         for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
             h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
@@ -5510,12 +4827,20 @@ def _render_scanner():
         for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
             h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
         h += "</select></div>"
-
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}' onchange='pushConfig()'></div>"
+        h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
+    else:
+        h += f"<input type='hidden' id='ema_dist_max' value='{ema_dist_max_ui:g}'>"
+    h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
+    h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
+    else:
+        h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
     else:
         h += _ctl_res("VOLUMEN ≥", f"{volumen_min_ui:,}", [("txt_vol", str(volumen_min_ui))])
-    h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}' onchange='pushConfig()'></div></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
     else:
@@ -5543,7 +4868,7 @@ def _render_scanner():
         h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
     else:
         h += "<div class='filtro-item'><label>CONTROLES</label><span style='font-size:10px;line-height:1.35;'>Los filtros, temporalidad, EMA, idioma y refresh se cambian directamente dentro de este cuadro gris.</span></div>"
-    h += "<div class='filtro-item schwab-item'><label>CHARLES SCHWAB</label><span style='font-size:10px;line-height:1.2;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:auto;min-width:190px;height:26px;flex:0 0 auto;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
+    h += "<div class='filtro-item'><label>CHARLES SCHWAB</label><span style='font-size:11px;'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:100%;height:26px;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
     _schwab_connected = bool(_schwab_access_token())
@@ -5568,7 +4893,7 @@ def _render_scanner():
             _rl = f"{_rv}s" if _rv < 60 else (f"{_rv//60} min" if _rv % 60 == 0 else f"{_rv}s")
             h += f"<option value='{_rv}' {'selected' if refresh_sec==_rv else ''}>⏱ {_rl}</option>"
         h += "</select><span>Cada cuánto se actualizan los resultados.</span><button type='button' class='float-btn' onclick='abrirVentanaFlotante()'>⧉ VENTANA FLOTANTE</button></div>"
-    h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Velas:</b> {'NEUTRO · MULTITEMPORAL' if (swing_activo_ui and swing_multitimeframe_ui) else timeframe_ui.upper()}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
+    h += f"<div class='subline'><span><b>Señales:</b> {len(filas_reales)}</span><span><b>Velas:</b> {timeframe_ui.upper()}</span><span><b>Precio:</b> ${precio_min_ui:.2f}–${precio_max_ui:.2f}</span><span><b>Gap:</b> {gap_min_ui:.1f}%–{gap_max_ui:.1f}%</span><span><b>Float:</b> ≤ {float_max_ui/1_000_000:.1f}M</span><span><b>Vol:</b> ≥ {_big(volumen_min_ui)}</span><span><b>EMA20:</b> { _safe_text(ema_ui) }</span><span><b>MACD:</b> { _safe_text(macd_ui) }</span><span><b>RSI:</b> {rsi_min_ui:.0f}–{rsi_max_ui:.0f}</span></div>"
     # El diagnóstico del embudo se conserva internamente en el motor y no se muestra
     # como un bloque fijo antes de RESULTADOS.
     # Un único marco HTML para TODO el scanner.
@@ -5582,11 +4907,7 @@ def _render_scanner():
     # No se muestra como texto fijo antes de RESULTADOS.
     h += "<div class='result-title'>RESULTADOS · VISUALIZACIÓN · 10 LÍNEAS</div>"
     h += "<div id='resultados-tabla' class='table-wrapper'><table><thead><tr>"
-    h += f"<th class='layout-col' data-col='layout'>🔗 Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th>"
-    if _show_ema20: h += f"<th data-col='ema20'>EMA20 ({timeframe_ui})</th>"
-    if _show_ema50: h += f"<th data-col='ema50'>EMA50 ({timeframe_ui})</th>"
-    if _show_ema200: h += f"<th data-col='ema200'>EMA200 ({timeframe_ui})</th>"
-    h += f"<th data-col='macd'>MACD ({timeframe_ui})</th>"
+    h += f"<th class='layout-col' data-col='layout'>⚙️ Layout</th><th data-col='ticker'>Ticker</th><th data-col='sector'>Sector</th><th data-col='precio'>Precio ($)</th><th data-col='cambio'>Cambio %</th><th data-col='volumen'>Volumen</th><th data-col='gap'>Gap %</th><th data-col='flot'>Flotación (M)</th><th data-col='ema20'>EMA20 ({timeframe_ui})</th><th data-col='ema50'>EMA50 ({timeframe_ui})</th><th data-col='ema200'>EMA200 ({timeframe_ui})</th><th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
     h += "<script>try{aplicarColumnas()}catch(e){}</script>"
     try:
@@ -5621,14 +4942,19 @@ def _render_scanner():
     # segundo marco blanco debajo.
     h = _panel_final
 
-    # ── Controles de cuenta y refresh ──
-    # Auth/Logout usan navegación normal de la misma página. Esto evita que
-    # un callback de Streamlit intente desmontar el iframe grande del scanner
-    # en el mismo rerun que abre/cierra autenticación.
+    # ── Controles NATIVOS de cuenta y refresh (fuera del iframe, no dependen de JS) ──
+    def _ts_abrir_auth():
+        st.session_state["mostrar_auth"] = True
+
     def _ts_salir():
-        # Se conserva solo para compatibilidad con sesiones antiguas; el control
-        # visible de SALIR usa un enlace normal y no este callback.
-        st.session_state["_ts_logout_requested"] = True
+        cerrar_sesion()
+        st.session_state.pop("_ts_query_elegida", None)
+        st.session_state.pop("_ts_u_visto", None)
+        st.session_state["mostrar_auth"] = False
+        try:
+            st.query_params.clear()
+        except Exception:
+            pass
 
     def _ts_cambiar_refresh():
         try:
@@ -5664,37 +4990,16 @@ def _render_scanner():
     )
     with st.container(key="ts_ctrl_bar"):
         if PUBLIC_PREVIEW:
-            st.markdown(
-                f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
-                'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-                'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
-                '📝 REGISTRO / INICIAR SESIÓN</a>',
-                unsafe_allow_html=True,
-            )
+            st.button("📝 REGISTRO / INICIAR SESIÓN", key="ts_btn_auth", on_click=_ts_abrir_auth)
         else:
             _n1, _n3, _n4 = st.columns([1.3, 1, 1])
             with _n1:
                 st.caption(f"👤 {_email_top}" if _email_top else "👤 Administrador")
             with _n3:
-                st.markdown(
-                    f'<a href="{_safe_text(_ts_auth_href("abrir"))}" target="_top" '
-                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
-                    'CUENTA / REGISTRO</a>',
-                    unsafe_allow_html=True,
-                )
+                st.button("CUENTA / REGISTRO", key="ts_btn_auth", on_click=_ts_abrir_auth)
             with _n4:
-                st.markdown(
-                    '<a href="/?logout=1" target="_top" '
-                    'style="display:inline-block;padding:6px 10px;border:1px solid #555;border-radius:4px;'
-                    'color:#fff;text-decoration:none;background:#20252c;font-size:11px;font-weight:700;">'
-                    'SALIR</a>',
-                    unsafe_allow_html=True,
-                )
+                st.button("SALIR", key="ts_btn_salir", on_click=_ts_salir)
 
-    # La autenticación se resuelve mediante navegación normal (?auth=1).
-    # Este bloque solo construye la página normal del scanner/robot.
-    
     # Filtros nativos críticos: Precio y GAP.
     # Se dibujan como una capa compacta sobre la carátula para que sigan
     # perteneciendo visualmente al scanner, pero su estado vive en Streamlit
@@ -5736,13 +5041,10 @@ def _render_scanner():
             pass
 
     if _USAR_FILTROS_NATIVOS and not PUBLIC_PREVIEW:
-        # Estos cuatro valores tienen una única fuente de verdad: widgets nativos
-        # de Streamlit. Se inicializan desde la URL solo cuando todavía no existe
-        # estado de sesión, evitando que un rerun restaure el valor anterior.
-        _pmin0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_min", precio_min_ui))
-        _pmax0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_max", precio_max_ui))
-        _gmin0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_min", gap_min_ui))
-        _gmax0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_max", gap_max_ui))
+        _pmin0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_min"))
+        _pmax0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_max"))
+        _gmin0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_min"))
+        _gmax0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_max"))
         for _k_nat, _v_nat, _v_def in (
             ("ts_f_price_min_native", _pmin0, precio_min_ui),
             ("ts_f_price_max_native", _pmax0, precio_max_ui),
@@ -5796,10 +5098,7 @@ def _render_scanner():
             if _vol:
                 _h_key = _h_key.replace(_vol, "")
         _h_key = _re_ifr.sub(r'"_(?:u|ts)":\s*"\d+"', "", _h_key)
-        # No invalidar el iframe por el paso del minuto: el reloj y el último
-        # escaneo ya se excluyeron arriba. Solo un cambio real del contenido
-        # debe reconstruir la carátula y su DOM/JavaScript.
-        _clave_ifr = hashlib.md5(_h_key.encode("utf-8", "ignore")).hexdigest()
+        _clave_ifr = hashlib.md5((_h_key + datetime.now().strftime("%Y%m%d%H%M")).encode("utf-8", "ignore")).hexdigest()
         if st.session_state.get("_ts_iframe_clave") == _clave_ifr and st.session_state.get("_ts_iframe_html"):
             h = st.session_state["_ts_iframe_html"]
         else:
@@ -5807,67 +5106,10 @@ def _render_scanner():
             st.session_state["_ts_iframe_html"] = h
     except Exception:
         pass
-    # El componente devuelve al servidor la configuración que el usuario acaba
-    # de cambiar. Ese retorno es la fuente de verdad de la interacción: se
-    # normaliza, se guarda en Session State + query params + persistencia por
-    # usuario, y solo después se repinta ESTE fragmento. Así el auto-refresh
-    # nunca puede resucitar una configuración anterior.
     if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_nav_result = _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
-        try:
-            if isinstance(_ts_nav_result, dict):
-                _ts_q_raw = str(_ts_nav_result.get("q", "") or "")
-                if _ts_q_raw:
-                    from urllib.parse import parse_qsl
-                    _ts_q_new = dict(parse_qsl(_ts_q_raw, keep_blank_values=True))
-                    _ts_cambios = {}
-                    for _ts_k in _CONFIG_USUARIO_KEYS:
-                        if _ts_k in _ts_q_new and str(_ts_q_new[_ts_k]) != "":
-                            _ts_cambios[_ts_k] = str(_ts_q_new[_ts_k])
-                    if _ts_cambios:
-                        # Mantener siempre la sesión de autenticación actual.
-                        _ts_auth_sid = str(st.query_params.get("auth_session", "") or "").strip()
-                        if _ts_auth_sid:
-                            _ts_cambios["auth_session"] = _ts_auth_sid
-                        _ts_prev_cfg = st.session_state.get("_ts_query_elegida")
-                        if not isinstance(_ts_prev_cfg, dict):
-                            _ts_prev_cfg = {}
-                        _ts_changed = any(
-                            str(_ts_prev_cfg.get(_k, "")) != str(_ts_v)
-                            for _ts_k, _ts_v in _ts_cambios.items()
-                            for _ts_k in [_ts_k]
-                        )
-                        # Comparar también contra lo que realmente está en la URL.
-                        _ts_changed = _ts_changed or any(
-                            str(_qp_valor(_ts_k) or "") != str(_ts_v)
-                            for _ts_k, _ts_v in _ts_cambios.items()
-                            if _ts_k != "auth_session"
-                        )
-                        if _ts_changed:
-                            _ts_prev_cfg.update(_ts_cambios)
-                            st.session_state["_ts_query_elegida"] = _ts_prev_cfg
-                            for _ts_k, _ts_v in _ts_cambios.items():
-                                if _ts_k != "auth_session":
-                                    st.query_params[_ts_k] = str(_ts_v)
-                            try:
-                                _guardar_ultima_configuracion_servidor()
-                            except Exception:
-                                pass
-                            # El evento llega después de construir el HTML de esta ejecución.
-                            # Forzamos UN solo rerun para que el cuadro se reconstruya
-                            # usando inmediatamente el valor recién confirmado.
-                            # No hay navegación ni segundo rerun en cadena.
-                            st.rerun()
-        except Exception as _e_ts_nav:
-            print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
+        _ts_scanner_ui(html=h, alto=1200, key="ts_scanner_ui", default=None)
     else:
-        # Render estable del scanner: h es HTML, no una URL. st.iframe(h) lo
-        # interpreta como src y puede dejar la pantalla completamente blanca.
-        try:
-            import streamlit.components.v1 as _stc_fb
-            _stc_fb.html(h, height=900, scrolling=True)
-        except Exception as _e_ifr:
-            st.error(f"No se pudo dibujar el scanner: {_e_ifr}")
+        st.iframe(h, height=1200)
 
     # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
     # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
@@ -5931,21 +5173,6 @@ def _render_scanner():
                     )
                 except Exception as _e_fmp:
                     st.caption(f"FMP: estado no disponible ({_e_fmp})")
-                try:
-                    _mv = servicio.estado_motor_velas()
-                    _mv_symbols = _mv.get("simbolos_cargados", []) or []
-                    _mv_last = _mv.get("ultimo_trade")
-                    st.caption(
-                        "Motor velas: "
-                        + ("🟢 conectado" if _mv.get("stream_hilo_vivo") and _mv.get("stream_iniciado") else "🔴 sin conexión")
-                        + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 30)}"
-                        + f" · trades: {_mv.get('total_trades', 0)}"
-                        + (f" · último: {_mv_last}" if _mv_last else "")
-                    )
-                    if _mv.get("error"):
-                        st.caption(f"Motor velas — último error: {_mv.get('error')}")
-                except Exception:
-                    pass
                 _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
                 if _err:
                     st.warning(f"Último error del motor: {_err}")
@@ -6080,7 +5307,6 @@ def _sincronizar_nativos(accion_js):
     """El widget nativo manda; la URL solo se acepta al cargar por primera vez o al
     cargar una configuración guardada. Así el refresh nunca revierte lo elegido."""
     almacen = st.session_state.get("_ts_query_elegida")
-    _qp_updates = {}
     for qk, wk, tipo, ops, defecto in _NATIVOS_TODOS:
         w = _norm_nativo(tipo, ops, st.session_state.get(wk))
         previo = st.session_state.get("_ts_prev_" + wk)
@@ -6117,15 +5343,9 @@ def _sincronizar_nativos(accion_js):
         if st.session_state.get(wk) != val:
             st.session_state[wk] = val
         if _qp_valor(qk) != txt:
-            _qp_updates[qk] = txt
+            st.query_params[qk] = txt
         if isinstance(almacen, dict):
             almacen[qk] = txt
-    if _qp_updates:
-        try:
-            st.query_params.update(_qp_updates)
-        except Exception:
-            for _k, _v in _qp_updates.items():
-                st.query_params[_k] = _v
 
 
 def _sincronizar_timeframe(tf_url, accion_js):
@@ -6156,10 +5376,7 @@ def _sincronizar_timeframe(tf_url, accion_js):
     if st.session_state.get("ts_tf_sel") != tf:
         st.session_state["ts_tf_sel"] = tf
     if _qp_valor("timeframe") != tf:
-        try:
-            st.query_params.update({"timeframe": tf})
-        except Exception:
-            st.query_params["timeframe"] = tf
+        st.query_params["timeframe"] = tf
     almacen = st.session_state.get("_ts_query_elegida")
     if isinstance(almacen, dict):
         almacen["timeframe"] = tf
@@ -6199,22 +5416,16 @@ def _sincronizar_query_con_sesion():
                 st.session_state["_ts_query_elegida"] = nuevo
         elif guardado:
             # No dejamos que el auto-refresh sustituya los valores elegidos.
-            # Preparar todo antes de tocar la URL evita una cascada de reruns
-            # durante la reconstrucción de una sesión después de un refresh.
-            _qp_restaurar = {}
             for k, v in guardado.items():
+                # refresh_sec tiene su propio arbitraje de prioridad más abajo.
+                # No lo reescribimos aquí, porque una selección nueva en la
+                # URL podría ser reemplazada por un valor antiguo de sesión.
                 if k in ("timeframe", "refresh_sec"):
                     continue
                 if _qp_valor(k) != v:
-                    _qp_restaurar[k] = v
+                    st.query_params[k] = v
             if guardado.get("timeframe") and _qp_valor("timeframe") != guardado.get("timeframe"):
-                _qp_restaurar["timeframe"] = guardado["timeframe"]
-            if _qp_restaurar:
-                try:
-                    st.query_params.update(_qp_restaurar)
-                except Exception:
-                    for _k, _v in _qp_restaurar.items():
-                        st.query_params[_k] = _v
+                st.query_params["timeframe"] = guardado["timeframe"]
         else:
             # Primera carga sin estado previo: tomar la URL existente.
             nuevo = {}
@@ -6255,98 +5466,25 @@ def _sincronizar_query_con_sesion():
 
 
 _sincronizar_query_con_sesion()
-_ts_diag_add(
-    "PYTHON: DESPUÉS DEL SINCRONIZADOR",
-    "Así quedó el estado después de _sincronizar_query_con_sesion()",
-    _ts_diag_snapshot()
-)
 
-# ESTABILIZACIÓN: el scanner usa un componente iframe (Components V1).
-# No lo ejecutamos dentro de st.fragment/run_every: en esta arquitectura el
-# ciclo fragmentado puede desmontar/recrear el iframe mientras el componente
-# está enviando navegación a Python y dejar la página en blanco.
-# El motor de mercado sigue trabajando en segundo plano; la actualización de
-# configuración se produce por setComponentValue y el usuario puede refrescar
-# la vista sin reconstruir un iframe activo dentro de un fragmento.
-
-
-def _render_robot_long_page(servicio):
-    _robot_q = {str(k): str(v) for k, v in st.query_params.items() if str(k) != "robot"}
-    _robot_href = "/?" + "&".join(f"{quote(k)}={quote(v)}" for k, v in _robot_q.items()) if _robot_q else "/"
-    st.markdown(f'<a href="{_robot_href}" target="_top" style="display:inline-block;margin:4px 0 12px 0;font-weight:700;text-decoration:none;">← VOLVER AL SCANNER</a>', unsafe_allow_html=True)
-    # ================================================================
-    # 🤖 PANEL VISIBLE DEL ROBOT LONG
-    # El robot trabaja en segundo plano cada ~1 s, independiente del
-    # refresh visual del scanner. Esta sección permite verlo en la misma
-    # página y comprobar qué está haciendo sin exponer claves.
-    # ================================================================
-    try:
-        _rb = servicio.estado_bot_long()
-        st.markdown("### 🤖 Robot LONG — tiempo real")
-        if _rb.get("hilo_vivo"):
-            st.success("🟢 Robot activo y evaluando continuamente")
-        elif _rb.get("disponible"):
-            st.warning("🟡 Robot cargado, pero su hilo no está activo")
-        else:
-            st.error("🔴 Robot no disponible")
-            if _rb.get("error"):
-                st.caption(f"Error del robot: {_rb.get('error')}")
-
-        # Tarjetas de estado del robot: alto contraste y lectura clara en PC/móvil.
-        # Solo cambia la presentación; no modifica ninguna variable del motor.
-        _ciclos = _rb.get("ciclos", 0)
-        _candidatos = len(_rb.get("candidatos", []) or [])
-        _posiciones = len(_rb.get("posiciones_paper", []) or [])
-        _observadas = len(_rb.get("posiciones_observadas", []) or [])
-        _decisiones = _rb.get("decisiones_guardadas", 0)
-        st.markdown("""
-        <style>
-        .ts-robot-panel{background:#1b2027;border:1px solid #3b4652;border-radius:12px;padding:14px 14px 10px;margin:4px 0 14px 0;box-shadow:0 2px 10px rgba(0,0,0,.18)}
-        .ts-robot-title{font-size:1.15rem;font-weight:700;color:#f2f5f8;margin-bottom:12px}
-        .ts-robot-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
-        .ts-robot-card{background:#252c35;border:1px solid #4a5663;border-radius:9px;padding:10px 8px;text-align:center;min-height:68px}
-        .ts-robot-label{font-size:.76rem;color:#b9c3ce;text-transform:uppercase;letter-spacing:.03em}
-        .ts-robot-value{font-size:1.45rem;font-weight:800;color:#ffffff;line-height:1.35;margin-top:2px}
-        @media(max-width:800px){.ts-robot-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
-        @media(max-width:520px){.ts-robot-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.ts-robot-value{font-size:1.25rem;}}
-        </style>
-        <div class="ts-robot-panel">
-          <div class="ts-robot-title">📊 Estado del robot</div>
-          <div class="ts-robot-grid">
-            <div class="ts-robot-card"><div class="ts-robot-label">Ciclos</div><div class="ts-robot-value">""" + str(_ciclos) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Candidatos</div><div class="ts-robot-value">""" + str(_candidatos) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Posiciones</div><div class="ts-robot-value">""" + str(_posiciones) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Observadas</div><div class="ts-robot-value">""" + str(_observadas) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Decisiones</div><div class="ts-robot-value">""" + str(_decisiones) + """</div></div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        _dec = servicio.decisiones_bot_long(20)
-        if _dec:
-            _filas_bot = []
-            for _d in reversed(_dec):
-                _filas_bot.append({
-                    "Hora": datetime.fromtimestamp(float(_d.get("ts", time.time())), tz=ET).strftime("%H:%M:%S"),
-                    "Ticker": _d.get("simbolo", ""),
-                    "Acción": _d.get("accion", ""),
-                    "Estado": _d.get("estado", ""),
-                    "Motivo": _d.get("motivo", ""),
-                    "Precio": _d.get("precio", ""),
-                    "Stop": _d.get("stop_loss", ""),
-                })
-            st.dataframe(pd.DataFrame(_filas_bot), use_container_width=True, hide_index=True)
-        else:
-            st.info("El robot está encendido pero todavía no tiene decisiones para mostrar.")
-    except Exception as _e_robot_ui:
-        st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
-
-
-# URL independiente del Robot LONG: mantiene su interfaz separada del Scanner.
-_ROBOT_MODE = str(st.query_params.get("robot", "") or "").lower() in ("1", "true", "yes")
-if _ROBOT_MODE:
-    _render_robot_long_page(servicio)
-    st.stop()
+if True:  # el visitante también se refresca (cada 3 min); el usuario registrado elige su intervalo
+    _st_fragment = getattr(st, "fragment", None)
+    if _st_fragment is not None:
+        @_st_fragment(run_every=f"{_refresh_segundos_global()}s")
+        def _refresco_nativo_scanner():
+            # La primera ejecución del fragmento ocurre inmediatamente al cargar
+            # la página. No debemos hacer rerun en ese instante porque produciría
+            # un ciclo de reruns. Las siguientes ejecuciones llegan por run_every.
+            if not st.session_state.get("_ts_refresh_fragment_started", False):
+                st.session_state["_ts_refresh_fragment_started"] = True
+                return
+            # run_every vuelve a ejecutar solamente este fragmento; st.rerun()
+            # (sin scope) solicita un rerun completo de la aplicación.
+            st.session_state["_ts_refresh_fragment_started"] = False
+            # Marca este rerun como AUTOMÁTICO: así _sincronizar_query_con_sesion()
+            # vuelve a imponer la temporalidad/filtros que el usuario eligió.
+            st.session_state["_ts_rerun_auto"] = True
+            st.rerun()
+        _refresco_nativo_scanner()
 
 _render_scanner()
-
