@@ -1714,6 +1714,7 @@ try:
 except Exception:
     pass
 _CONFIG_USUARIO_KEYS = (
+    "_active_tab", "_active_subtab",
     "f_price_min", "f_price_max", "f_gap_min", "f_gap_max",
     "f_float_max", "f_vol", "f_ema", "f_mac", "f_order",
     "market_session", "timeframe", "ema_dist_max",
