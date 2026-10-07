@@ -41,7 +41,7 @@ except Exception as _e_motor_import:
 st.set_page_config(page_title="Scanner Pre Market", layout="wide")
 
 # Precio y gap viven DENTRO del cuadro gris (iframe). Los controles nativos de afuera quedan apagados.
-_USAR_FILTROS_NATIVOS = False
+_USAR_FILTROS_NATIVOS = True
 
 # ------------------------------------------------------------------
 # Canal fiable cuadro gris -> Python.
@@ -5736,10 +5736,13 @@ def _render_scanner():
             pass
 
     if _USAR_FILTROS_NATIVOS and not PUBLIC_PREVIEW:
-        _pmin0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_min"))
-        _pmax0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_max"))
-        _gmin0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_min"))
-        _gmax0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_max"))
+        # Estos cuatro valores tienen una única fuente de verdad: widgets nativos
+        # de Streamlit. Se inicializan desde la URL solo cuando todavía no existe
+        # estado de sesión, evitando que un rerun restaure el valor anterior.
+        _pmin0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_min", precio_min_ui))
+        _pmax0 = _norm_nativo("flt", (0.0, 100000.0), st.session_state.get("ts_f_price_max", precio_max_ui))
+        _gmin0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_min", gap_min_ui))
+        _gmax0 = _norm_nativo("flt", (-100.0, 10000.0), st.session_state.get("ts_f_gap_max", gap_max_ui))
         for _k_nat, _v_nat, _v_def in (
             ("ts_f_price_min_native", _pmin0, precio_min_ui),
             ("ts_f_price_max_native", _pmax0, precio_max_ui),
