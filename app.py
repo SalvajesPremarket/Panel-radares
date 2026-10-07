@@ -3952,6 +3952,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         )
         self.ultima_actualizacion = datetime.now(ET)
         self.duracion_ciclo = time.monotonic() - inicio
+        self._metrica_sumar("duracion_ciclo_total", self.duracion_ciclo)
+        with self._metricas_lock:
+            self.metricas["duracion_ciclo_min"] = self.duracion_ciclo if self.metricas["duracion_ciclo_min"] is None else min(self.metricas["duracion_ciclo_min"], self.duracion_ciclo)
+            self.metricas["duracion_ciclo_max"] = max(self.metricas["duracion_ciclo_max"], self.duracion_ciclo)
+            self.metricas["ultimo_ciclo_ts"] = time.time()
+            self.metricas["ultimo_ciclo_duracion"] = self.duracion_ciclo
+            self.metricas["simbolos_procesados"] += len(enriquecidos)
         if es_principal:
             self._registrar_eventos(enriquecidos)
 
