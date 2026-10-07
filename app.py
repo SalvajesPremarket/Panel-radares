@@ -5504,6 +5504,9 @@ def _render_scanner():
     else:
         h += _ctl_res("BROKER", broker_val, [("cfg_broker", broker_val)])
     if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>BROKER</label><select id='cfg_broker'><option value='Interactive Brokers' {'selected' if broker_val in ('Interactive Brokers','Interactive Brokers (TWS)') else ''}>Interactive Brokers</option><option value='Tradestation' {'selected' if broker_val=='Tradestation' else ''}>Tradestation</option><option value='Charles Schwab' {'selected' if broker_val=='Charles Schwab' else ''}>Charles Schwab</option><option value='Otro' {'selected' if broker_val in ('Otro','Otro (webhook)') else ''}>Otro</option></select></div>"
+    else:
+        h += _ctl_res("BROKER", broker_val, [("cfg_broker", broker_val)])
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += f"<div class='filtro-item'><label>EMA20 · FILTRO</label><select id='ema20_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('ema20_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('ema20_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
@@ -5519,12 +5522,10 @@ def _render_scanner():
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}' onchange='pushConfig()'></div></div>"
     else:
-        h += "<input type='hidden' id='gap_min' value='" + _safe_text(gap_min_ui) + "'><input type='hidden' id='gap_max' value='" + _safe_text(gap_max_ui) + '">'
+        h += "<input type='hidden' id='gap_min' value='" + _safe_text(gap_min_ui) + "'><input type='hidden' id='gap_max' value='" + _safe_text(gap_max_ui) + "'>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
     else:
-        # Las condiciones EMA se muestran una sola vez en el panel TÉCNICOS.
-        # Aquí no se repite el resumen ni se presenta un valor "fijo".
         h += "<input type='hidden' id='sel_ema' value='" + _safe_text(ema_ui) + "'>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
@@ -5536,10 +5537,10 @@ def _render_scanner():
         h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
     else:
         h += _ctl_res("FLOAT · FILTRO", _qtxt('f_float_on','OFF'), [("f_float_on", _qtxt('f_float_on','OFF'))])
+    if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>PUENTE DE LAYOUT</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
     else:
         h += _ctl_res("PUENTE DE LAYOUT", bridge_val, [("cfg_url", bridge_val)])
-    if PUBLIC_PREVIEW:
         h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
     else:
 
