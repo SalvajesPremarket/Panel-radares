@@ -5310,7 +5310,7 @@ def _render_scanner():
         f"<div>EMA{n}: <b>{_le.get(_estados_ema[n], _estados_ema[n])}</b> · {_cond_txt(n, ema_cond_ui[n])}</div>"
         for n in (20, 50, 200)
     )
-    _tab_validos = {"panel-radar", "panel-tecnicos", "panel-technical", "panel-config", "panel-conexiones", "panel-resultados", "panel-columnas"}
+    _tab_validos = {"panel-radar", "panel-tecnicos", "panel-technical", "panel-config", "panel-conexiones", "panel-resultados"}
     _active_tab_ui = str(st.query_params.get("_active_tab", "") or "").strip()
     if _active_tab_ui not in _tab_validos:
         _active_tab_ui = "panel-radar"
@@ -5387,7 +5387,7 @@ def _render_scanner():
     h += "<style>.tf-badge{font-size:9px;font-weight:900;color:#d4af37;margin-left:3px}.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
     if PUBLIC_PREVIEW:
         h += "<style>.filtros-grid select,.filtros-grid input,.filtros-grid button,.panel-card select,.panel-card input,.panel-card button,.technical-subtab,.engranaje-select{pointer-events:none!important;opacity:.58!important;cursor:not-allowed!important}.tab{pointer-events:auto!important;opacity:1!important}</style>"
-    h += f"<div id='panel-columnas' class='tab-panel {'active' if _active_tab_ui == 'panel-columnas' else ''}'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
+
     if not PUBLIC_PREVIEW:
         h += f"<div id='panel-conexiones' class='tab-panel {'active' if _active_tab_ui == 'panel-conexiones' else ''}'><div class='panel-grid'>"
         h += "<div class='panel-card' style='grid-column:1/-1;'><b>🔌 PUENTE DE LAYOUT</b><span style='display:block;margin-top:6px;'>Escribe la dirección del puente que está funcionando en tu PC. Normalmente: <b>http://localhost:8080/layout</b></span>"
