@@ -5415,6 +5415,9 @@ def _render_scanner():
         if label == "MACD":
             v=_v('sel_mac', macd_ui)
             return f"<div class='filtro-item'><label>{label}</label><select id='sel_mac' onchange='pushConfig()'><option value='Positivo' {'selected' if v=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if v=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if v=='No exigir' else ''}>No exigir</option></select></div>"
+        if label == "FLOAT · FILTRO":
+            v=_v('f_float_on', 'OFF')
+            return f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if v=='OFF' else ''}>OFF</option><option value='ON' {'selected' if v=='ON' else ''}>ON</option></select></div>"
         if label == "ORDENAR":
             v=_v('sel_order', orden_ui)
             return f"<div class='filtro-item'><label>{label}</label><select id='sel_order' onchange='pushConfig()'><option value='Actualizado' {'selected' if v=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if v=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if v=='Volumen' else ''}>Volumen</select></div>"
