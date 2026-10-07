@@ -5762,13 +5762,32 @@ def _render_scanner():
 
     st.markdown("""<style>
     .st-key-ts_filter_native{position:relative !important;height:0 !important;min-height:0 !important;z-index:80 !important;pointer-events:none !important;}
-    .st-key-ts_filter_native > div{position:relative !important;top:290px !important;pointer-events:auto !important;margin:0 !important;}
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"]{justify-content:center !important;align-items:center !important;gap:4px !important;flex-wrap:nowrap !important;}
+    /* Los filtros nativos siguen al filtro visual al que pertenecen:
+       PRECIO debajo de HORARIO DEL SCANNER y GAP debajo de GAP · FILTRO. */
+    .st-key-ts_filter_native > div{position:relative !important;top:360px !important;pointer-events:auto !important;margin:0 !important;}
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"]{position:relative !important;display:block !important;width:100% !important;height:88px !important;}
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div{position:absolute !important;top:0 !important;flex:none !important;min-width:0 !important;width:12.5% !important;}
+    /* Precio: dos controles bajo HORARIO DEL SCANNER (columna 2). */
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(1){left:25% !important;}
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(2){left:37.5% !important;}
+    /* Gap: dos controles bajo GAP · FILTRO (columna 4), una fila debajo. */
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(3){left:75% !important;top:48px !important;}
+    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(4){left:87.5% !important;top:48px !important;}
     .st-key-ts_filter_native [data-testid="stNumberInput"]{width:72px !important;min-width:72px !important;}
     .st-key-ts_filter_native [data-testid="stNumberInput"] input{width:100% !important;max-width:none !important;min-width:0 !important;height:25px !important;font-size:10px !important;}
     .st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:8px !important;line-height:1 !important;margin:0 !important;white-space:nowrap !important;}
-    .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div{flex:0 0 auto !important;min-width:0 !important;}
-    @media(max-width:640px){.st-key-ts_filter_native > div{top:235px !important;}.st-key-ts_filter_native [data-testid="stNumberInput"]{width:54px !important;min-width:54px !important;}.st-key-ts_filter_native [data-testid="stNumberInput"] input{height:21px !important;font-size:8px !important;padding:1px 2px !important;}.st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:6px !important;}}
+    @media(max-width:640px){
+      .st-key-ts_filter_native > div{top:300px !important;}
+      .st-key-ts_filter_native [data-testid="stHorizontalBlock"]{height:78px !important;}
+      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div{width:25% !important;}
+      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(1){left:25% !important;}
+      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(2){left:50% !important;}
+      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(3){left:50% !important;top:42px !important;}
+      .st-key-ts_filter_native [data-testid="stHorizontalBlock"] > div:nth-child(4){left:75% !important;top:42px !important;}
+      .st-key-ts_filter_native [data-testid="stNumberInput"]{width:54px !important;min-width:54px !important;}
+      .st-key-ts_filter_native [data-testid="stNumberInput"] input{height:21px !important;font-size:8px !important;padding:1px 2px !important;}
+      .st-key-ts_filter_native [data-testid="stWidgetLabel"] p{font-size:6px !important;}
+    }
     </style>""", unsafe_allow_html=True)
     if _USAR_FILTROS_NATIVOS and not PUBLIC_PREVIEW:
         with st.container(key="ts_filter_native"):
@@ -6356,4 +6375,3 @@ if _ROBOT_MODE:
     st.stop()
 
 _render_scanner()
-
