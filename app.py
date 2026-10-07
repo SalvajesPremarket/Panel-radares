@@ -5540,7 +5540,7 @@ def _render_scanner():
         h += "<div class='filtro-item' style='justify-content:center;'><button onclick='pushConfig()' style='width:100%;height:22px;'>APLICAR / GUARDAR CONEXIÓN</button></div>"
     else:
 
-    h += "<div class='filtro-item schwab-item'><label>CHARLES SCHWAB</label><span class='schwab-info'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:auto;min-width:190px;height:26px;flex:0 0 auto;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
+        h += "<div class='filtro-item schwab-item'><label>CHARLES SCHWAB</label><span class='schwab-info'>OAuth 2.0 · La API oficial no expone layouts de thinkorswim; el envío al layout se realiza mediante el PUENTE configurado.</span><button type='button' onclick='conectarSchwab()' style='width:auto;min-width:190px;height:26px;flex:0 0 auto;'>🔐 CONECTAR / AUTORIZAR SCHWAB</button></div>"
     h += "</div>"
     _schwab_status_txt = str(st.session_state.get("schwab_status", ""))
     _schwab_connected = bool(_schwab_access_token())
