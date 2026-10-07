@@ -90,10 +90,12 @@ class AlpacaMarketStream:
             self._stream = StockDataStream(self.api_key, self.secret_key, feed=self._feed_enum(), data_timeout=90)
 
     def _run_stream(self):
+        with self._lock:
+            stream = self._stream
+            self._running = True
         try:
-            with self._lock:
-                self._running = True
-            self._stream.run()
+            if stream is not None:
+                stream.run()
         except Exception as exc:
             with self._lock:
                 self._errors += 1
@@ -103,6 +105,11 @@ class AlpacaMarketStream:
             with self._lock:
                 self._running = False
                 self._connected = False
+                # Si la conexión murió por error, no conservamos un objeto
+                # StockDataStream muerto: el siguiente start() podrá crear uno nuevo.
+                if self._stream is stream:
+                    self._stream = None
+                    self._symbols.clear()
 
     def start(self, tickers: Iterable[str]):
         symbols: List[str] = []
