@@ -389,13 +389,33 @@ class MotorVelas:
     def conectar_stream_compartido(self, market_stream):
         """Conecta este motor al websocket ya existente del scanner."""
         self._stream_compartido = market_stream
-        market_stream.add_consumer(self._recibir_trade_compartido, self._recibir_quote_compartido)
+        if hasattr(market_stream, "add_consumer"):
+            market_stream.add_consumer(self._recibir_trade_compartido, self._recibir_quote_compartido)
+        else:
+            # Compatibilidad con una instancia antigua del stream durante
+            # hot-reload/deploy: reutilizamos sus listas de consumidores si existen.
+            trade_consumers = getattr(market_stream, "_trade_consumers", None)
+            quote_consumers = getattr(market_stream, "_quote_consumers", None)
+            if isinstance(trade_consumers, list) and self._recibir_trade_compartido not in trade_consumers:
+                trade_consumers.append(self._recibir_trade_compartido)
+            if isinstance(quote_consumers, list) and self._recibir_quote_compartido not in quote_consumers:
+                quote_consumers.append(self._recibir_quote_compartido)
         self._iniciado = True
 
     def desconectar_stream_compartido(self):
         stream = getattr(self, "_stream_compartido", None)
         if stream is not None:
-            stream.remove_consumer(self._recibir_trade_compartido, self._recibir_quote_compartido)
+            if hasattr(stream, "remove_consumer"):
+                stream.remove_consumer(self._recibir_trade_compartido, self._recibir_quote_compartido)
+            else:
+                trade_consumers = getattr(stream, "_trade_consumers", None)
+                quote_consumers = getattr(stream, "_quote_consumers", None)
+                if isinstance(trade_consumers, list):
+                    while self._recibir_trade_compartido in trade_consumers:
+                        trade_consumers.remove(self._recibir_trade_compartido)
+                if isinstance(quote_consumers, list):
+                    while self._recibir_quote_compartido in quote_consumers:
+                        quote_consumers.remove(self._recibir_quote_compartido)
         self._stream_compartido = None
         self._iniciado = False
 
