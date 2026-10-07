@@ -99,6 +99,14 @@ class MotorVelasBridge:
         deseados = set(candidatos)
         if deseados:
             self._arrancar_stream()
+            # En modo compartido, el websocket lo administra el scanner.
+            # El bridge solo entrega la lista deseada para que el mismo stream
+            # reciba trades/quotes de candidatos y posiciones activas.
+            if getattr(self, "market_stream", None) is not None:
+                try:
+                    self.market_stream.start(candidatos[: self.MAX_SIMBOLOS_BASIC])
+                except Exception as exc:
+                    self._ultima_error = str(exc)
         with self._lock:
             self._simbolos_deseados = deseados
 
