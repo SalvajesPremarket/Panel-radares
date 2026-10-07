@@ -335,6 +335,7 @@ class MotorVelas:
         self._historial_precargado: set = set()
         # Ultima cotizacion real bid/ask, separada de las velas.
         self._quotes: dict[str, dict] = {}
+        self._stream_compartido = None
 
         # Diagnóstico de la conexión (útil para validar que llegan datos)
         self.total_trades: int = 0
@@ -384,6 +385,19 @@ class MotorVelas:
             motor.cargar_historial(barras)
 
             self._historial_precargado.add(simbolo)
+
+    def conectar_stream_compartido(self, market_stream):
+        """Conecta este motor al websocket ya existente del scanner."""
+        self._stream_compartido = market_stream
+        market_stream.add_consumer(self._al_recibir_trade, self._al_recibir_quote)
+        self._iniciado = True
+
+    def desconectar_stream_compartido(self):
+        stream = getattr(self, "_stream_compartido", None)
+        if stream is not None:
+            stream.remove_consumer(self._al_recibir_trade, self._al_recibir_quote)
+        self._stream_compartido = None
+        self._iniciado = False
 
     async def _al_recibir_quote(self, quote):
         """Guarda el ultimo bid/ask real recibido por Alpaca."""
