@@ -4814,10 +4814,18 @@ function _columnasClick(ev){
   var act=b.getAttribute('data-col-act');
   var id=b.getAttribute('data-col-id');
 
-  if(!act||!id)return;
+  if(!act)return;
 
   ev.preventDefault();
   ev.stopPropagation();
+  if(act==='reset'){
+    TS_COLUMNAS_STATE.order=TS_COLUMNAS.map(function(c){return c[0]});
+    TS_COLUMNAS_STATE.hidden=[];
+    renderColumnas();
+    aplicarColumnas();
+    return;
+  }
+  if(!id)return;
   moverColumna(act,id);
 }
 
@@ -5574,7 +5582,7 @@ def _render_scanner():
         h += "<div class='panel-card' style='grid-column:1/-1;'><b>🏦 BROKER</b><span style='display:block;margin-top:6px;'>La conexión de la cuenta se añadirá en el siguiente paso con autorización segura. No se piden claves en esta fase.</span>"
         h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
         h += "</div></div>"
-    h += "<div id='panel-columnas' class='tab-panel " + ("active" if _active_tab_ui == 'panel-columnas' else "") + "'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>🧩 COLUMNAS DEL RADAR</b><span style='display:block;margin-bottom:6px;'>Activa/desactiva columnas y cambia su orden. El cambio se aplica directamente a la tabla del radar.</span><div id='cols_list'><div class='col-row'><label><input type='checkbox' data-col-vis='layout' checked> 🔗 Layout</label><span><button type='button' data-col-act='up' data-col-id='layout' onclick='moverColumna(\"up\",\"layout\");return false;' disabled>▲</button><button type='button' data-col-act='down' data-col-id='layout' onclick='moverColumna(\"down\",\"layout\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='ticker' checked> Ticker</label><span><button type='button' data-col-act='up' data-col-id='ticker' onclick='moverColumna(\"up\",\"ticker\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='ticker' onclick='moverColumna(\"down\",\"ticker\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='sector' checked> Sector</label><span><button type='button' data-col-act='up' data-col-id='sector' onclick='moverColumna(\"up\",\"sector\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='sector' onclick='moverColumna(\"down\",\"sector\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='precio' checked> Precio ($)</label><span><button type='button' data-col-act='up' data-col-id='precio' onclick='moverColumna(\"up\",\"precio\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='precio' onclick='moverColumna(\"down\",\"precio\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='cambio' checked> Cambio %</label><span><button type='button' data-col-act='up' data-col-id='cambio' onclick='moverColumna(\"up\",\"cambio\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='cambio' onclick='moverColumna(\"down\",\"cambio\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='volumen' checked> Volumen</label><span><button type='button' data-col-act='up' data-col-id='volumen' onclick='moverColumna(\"up\",\"volumen\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='volumen' onclick='moverColumna(\"down\",\"volumen\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='gap' checked> Gap %</label><span><button type='button' data-col-act='up' data-col-id='gap' onclick='moverColumna(\"up\",\"gap\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='gap' onclick='moverColumna(\"down\",\"gap\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='flot' checked> Flotación (M)</label><span><button type='button' data-col-act='up' data-col-id='flot' onclick='moverColumna(\"up\",\"flot\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='flot' onclick='moverColumna(\"down\",\"flot\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='ema20' checked> EMA20</label><span><button type='button' data-col-act='up' data-col-id='ema20' onclick='moverColumna(\"up\",\"ema20\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='ema20' onclick='moverColumna(\"down\",\"ema20\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='ema50' checked> EMA50</label><span><button type='button' data-col-act='up' data-col-id='ema50' onclick='moverColumna(\"up\",\"ema50\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='ema50' onclick='moverColumna(\"down\",\"ema50\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='ema200' checked> EMA200</label><span><button type='button' data-col-act='up' data-col-id='ema200' onclick='moverColumna(\"up\",\"ema200\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='ema200' onclick='moverColumna(\"down\",\"ema200\");return false;'>▼</button></span></div><div class='col-row'><label><input type='checkbox' data-col-vis='macd' checked> MACD</label><span><button type='button' data-col-act='up' data-col-id='macd' onclick='moverColumna(\"up\",\"macd\");return false;'>▲</button><button type='button' data-col-act='down' data-col-id='macd' onclick='moverColumna(\"down\",\"macd\");return false;' disabled>▼</button></span></div></div><button type='button' data-col-act='reset' style='margin-top:6px;'>↺ RESTABLECER COLUMNAS</button></div></div></div>"
+    h += "<div id='panel-columnas' class='tab-panel " + ("active" if _active_tab_ui == 'panel-columnas' else "") + "'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>🧩 COLUMNAS DEL RADAR</b><span style='display:block;margin-bottom:6px;'>Activa/desactiva columnas y cambia su orden. El cambio se aplica directamente a la tabla del radar.</span><div id='cols_list'></div></div></div></div>"
     h += "<script>try{renderColumnas()}catch(e){console.warn('COLUMNAS: '+e)}</script>"
     def _ctl_res(label, texto, campos):
         def _v(i, d=""):
@@ -5764,65 +5772,6 @@ def _render_scanner():
     if _show_ema200: h += f"<th data-col='ema200'>EMA200 ({timeframe_ui})</th>"
     h += f"<th data-col='macd'>MACD ({timeframe_ui})</th>"
     h += "</tr></thead><tbody>" + rows_html + "</tbody></table></div>"
-    h += """<script>
-(function(){
-  var orden=['layout','ticker','sector','precio','cambio','volumen','gap','flot','ema20','ema50','ema200','macd'];
-  var ocultas=[];
-  function tabla(){
-    var b=document.getElementById('resultados-tabla');
-    return b ? b.querySelector('table') : null;
-  }
-  function aplicar(){
-    var t=tabla();
-    if(!t)return;
-    t.querySelectorAll('tr').forEach(function(tr){
-      var mapa={};
-      Array.prototype.forEach.call(tr.children,function(td){
-        var id=td.getAttribute('data-col');
-        if(id)mapa[id]=td;
-      });
-      orden.forEach(function(id){
-        var td=mapa[id];
-        if(td){
-          td.style.display=ocultas.indexOf(id)>=0?'none':'';
-          tr.appendChild(td);
-        }
-      });
-    });
-  }
-  window.moverColumna=function(dir,id){
-    var i=orden.indexOf(String(id));
-    if(i<0)return false;
-    var j=dir==='up'?i-1:i+1;
-    if(j<0||j>=orden.length)return false;
-    var x=orden[i]; orden[i]=orden[j]; orden[j]=x;
-    aplicar();
-    var box=document.getElementById('cols_list');
-    if(box){
-      var b=box.querySelector('[data-col-id="'+String(id)+'"][data-col-act="'+dir+'"]');
-      if(b)b.blur();
-    }
-    return false;
-  };
-  document.addEventListener('change',function(ev){
-    var id=ev.target&&ev.target.getAttribute('data-col-vis');
-    if(!id)return;
-    var n=ocultas.indexOf(id);
-    if(ev.target.checked){if(n>=0)ocultas.splice(n,1);}
-    else if(n<0)ocultas.push(id);
-    aplicar();
-  });
-  document.addEventListener('DOMContentLoaded',function(){
-    aplicar();
-  });
-  window.addEventListener('load',function(){
-    aplicar();
-    setTimeout(aplicar,100);
-    setTimeout(aplicar,500);
-  });
-  aplicar();
-})();
-</script>"""
     try:
         _det_noticias = getattr(servicio, "noticias_detalle", {}) or {}
         _noticias_ui = {}
