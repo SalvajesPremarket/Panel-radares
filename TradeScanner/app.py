@@ -5237,13 +5237,12 @@ def _render_scanner():
     h += "var TS_COMP=" + ("true" if _TS_COMP_OK else "false") + ";"
     h += "var TS_USER_KEY='tradeScannerLastState';try{var _em=" + json.dumps(str(_email_top or '')) + ";if(_em)TS_USER_KEY+='_'+btoa(unescape(encodeURIComponent(_em))).replace(/[^a-zA-Z0-9]/g,'_').slice(0,80)}catch(e){}"
     h += "try{if(TS_AUTH){var __sid=_qtop().get('auth_session');if(__sid)window.top.localStorage.setItem('tradeScannerAuthSession',__sid)}}catch(e){}"
-    h += "function _tsHost(){if(window.__tsHost)return window.__tsHost;var c=[window.parent,window.top];for(var i=0;i<c.length;i++){try{var w=c[i];if(!w||!w.document)continue;if(w.document.querySelector('.st-key-ts_nav_bridge button')){window.__tsHost=w;return w;}var bs=w.document.querySelectorAll('button');for(var j=0;j<bs.length;j++){if((bs[j].textContent||'').indexOf('TSNAVBRIDGE')>=0){window.__tsHost=w;return w;}}}catch(e){}}try{if(window.parent&&window.parent.document)return window.parent;}catch(e2){}return window.top;}function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_BASE_QUERY||{});return new URLSearchParams(_tsHost().location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
+    h += "function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_BASE_QUERY||{});return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_BASE_QUERY||{})}catch(_e){return new URLSearchParams()}}}"
     h += "function abrirRobotLong(){try{var q=_qtop();q.set('robot','1');var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);window.top.location.href='/?'+q.toString();}catch(e){try{window.top.location.href='/?robot=1'}catch(_e){}}}"
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
     h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');if(tab)o._activeTab=tab.getAttribute('data-tab-target')||'panel-radar';var sub=document.querySelector('.technical-subtab.active');if(sub)o._technicalSubtab=sub.getAttribute('data-subtab-target')||'';o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
-    h += "function _tsDiag(m,ok,ns){try{var d=document.getElementById('ts_diag');if(!d){d=document.createElement('div');d.id='ts_diag';d.style.cssText='position:fixed;right:6px;top:4px;z-index:100001;padding:3px 8px;font:bold 10px Verdana,Arial;border:1px solid #888;background:#20242a;max-width:92%;';document.body.appendChild(d);}d.style.color=ok?'#3ddc84':'#ff6b6b';d.textContent=m;if(!ns){try{localStorage.setItem('ts_last_diag',JSON.stringify({m:m,ok:ok,t:Date.now()}));}catch(es){}}}catch(e){}}document.addEventListener('DOMContentLoaded',function(){try{var o=JSON.parse(localStorage.getItem('ts_last_diag')||'null');if(o&&Date.now()-o.t<30000){_tsDiag('Ultimo envio: '+o.m,o.ok,true);setTimeout(function(){var d=document.getElementById('ts_diag');if(d)d.remove();},20000);}}catch(e){}});function _tsFindBridge(P){try{var b=P.document.querySelector('.st-key-ts_nav_bridge button');if(b)return b;var bs=P.document.querySelectorAll('button');for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0)return bs[i];}}catch(e){}return null;}function _tsClickBridge(P,n){var b=_tsFindBridge(P);if(b){try{b.click();_tsDiag('✔ cambio enviado al servidor',true);}catch(ec){_tsDiag('PUENTE ERROR (click): '+(ec&&ec.message||ec),false);}return;}if(n<5){setTimeout(function(){_tsClickBridge(P,n+1)},150);return;}_tsDiag('PUENTE ERROR: no se encontro el boton TSNAVBRIDGE',false);}"
-    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.history.replaceState(null,'','/?'+q.toString());}catch(e){}window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var _now=Date.now();var P=null;try{P=_tsHost();}catch(eh){}var _path='/';try{_path=P.location.pathname||'/';}catch(ep){}var u=_path+'?'+q.toString();try{P.history.replaceState(null,'',u);}catch(e1){_tsDiag('PUENTE ERROR (URL): '+(e1&&e1.message||e1),false);return;}if(window.__tsLastNav&&_now-window.__tsLastNav<400){return;}window.__tsLastNav=_now;_tsClickBridge(P,0);}catch(e){try{_tsDiag('PUENTE ERROR: '+(e&&e.message||e),false);}catch(_e){}}}"
+    h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}if(TS_COMP){try{window.parent.history.replaceState(null,'','/?'+q.toString());}catch(e){}window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}var u='/?'+q.toString();var P=window.top;/* Puente nativo: st.iframe con HTML permite acceso same-origin al documento padre. Actualizamos la URL y pulsamos el boton oculto para provocar un rerun de la MISMA sesion. No usamos location.replace como respaldo porque puede volver a montar la app dentro de un iframe o generar la pantalla blanca. */try{P.history.replaceState(null,'',u);var bs=P.document.querySelectorAll('button');var b=null;for(var i=0;i<bs.length;i++){if((bs[i].textContent||'').indexOf('TSNAVBRIDGE')>=0){b=bs[i];break;}}if(b){b.click();return;}}catch(brErr){}try{console.warn('TS: no se pudo activar el puente nativo',brErr);}catch(_e){} }catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
     h += "function cfgActual(){var q=_qtop();var o={};q.forEach(function(v,k){o[k]=v});return o;}"
     h += "function aplicarTecnicas(){var q=_qtop();['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe','rsi_min','rsi_max'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));_guardarUltimaConfiguracion(q);_goto(q);}"
@@ -5286,7 +5285,7 @@ def _render_scanner():
     h += "</script></head><body>"
     _head_html = h  # encabezado común (CSS + JS) para los dos marcos
     h += "<div class='main-container'>"
-    h += f"<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME · Cambio recibido: {_safe_text(st.session_state.get('_ts_ultimo_evento','ninguno'))}</small></div>"
+    h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
     h += "<a href='#' onclick='abrirRobotLong();return false;' style='display:inline-flex;align-items:center;justify-content:center;height:25px;padding:0 9px;margin-right:5px;border:1px solid #555;background:#252a31;color:#fff;border-radius:4px;text-decoration:none;font-size:10px;font-weight:700;'>🤖 ROBOT LONG</a>"
     # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
@@ -5402,13 +5401,13 @@ def _render_scanner():
                     return str(v)
             return d
         if label == "PRECIO ($)":
-            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.01' id='price_min' onchange='pushConfig()' value='{_safe_text(_v('price_min', precio_min_ui))}'><span>–</span><input type='number' step='0.01' id='price_max' onchange='pushConfig()' value='{_safe_text(_v('price_max', precio_max_ui))}'></div></div>"
+            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.01' id='price_min' value='{_safe_text(_v('price_min', precio_min_ui))}'><span>–</span><input type='number' step='0.01' id='price_max' value='{_safe_text(_v('price_max', precio_max_ui))}'></div></div>"
         if label == "GAP (%)":
-            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.1' id='gap_min' onchange='pushConfig()' value='{_safe_text(_v('gap_min', gap_min_ui))}'><span>–</span><input type='number' step='0.1' id='gap_max' onchange='pushConfig()' value='{_safe_text(_v('gap_max', gap_max_ui))}'></div></div>"
+            return f"<div class='filtro-item'><label>{label}</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{_safe_text(_v('gap_min', gap_min_ui))}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{_safe_text(_v('gap_max', gap_max_ui))}'></div></div>"
         if label == "FLOTACIÓN ≤":
-            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='float_max' onchange='pushConfig()' value='{_safe_text(_v('float_max', float_max_ui))}'></div>"
+            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='float_max' value='{_safe_text(_v('float_max', float_max_ui))}'></div>"
         if label == "VOLUMEN ≥":
-            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='txt_vol' onchange='pushConfig()' value='{_safe_text(_v('txt_vol', volumen_min_ui))}'></div>"
+            return f"<div class='filtro-item'><label>{label}</label><input type='number' id='txt_vol' value='{_safe_text(_v('txt_vol', volumen_min_ui))}'></div>"
         if label == "MACD":
             v=_v('sel_mac', macd_ui)
             return f"<div class='filtro-item'><label>{label}</label><select id='sel_mac' onchange='pushConfig()'><option value='Positivo' {'selected' if v=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if v=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if v=='No exigir' else ''}>No exigir</option></select></div>"
@@ -5455,9 +5454,9 @@ def _render_scanner():
     else:
         h += _ctl_res("MOTOR PERSONAL", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
     if ES_ADMIN:
-        h += f"<div class='filtro-item'><label>HORARIO GLOBAL</label><div class='range'><input type='time' id='cfg_start' onchange='pushConfig()' value='{start_time}'><span>–</span><input type='time' id='cfg_end' onchange='pushConfig()' value='{end_time}'></div></div>"
+        h += f"<div class='filtro-item'><label>HORARIO GLOBAL</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
     elif USUARIO_AUTENTICADO:
-        h += f"<div class='filtro-item'><label>MI HORARIO</label><div class='range'><input type='time' id='cfg_start' onchange='pushConfig()' value='{start_time}'><span>–</span><input type='time' id='cfg_end' onchange='pushConfig()' value='{end_time}'></div></div>"
+        h += f"<div class='filtro-item'><label>MI HORARIO</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
     else:
         h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · solo lectura</span></div>"
     if PUBLIC_PREVIEW:
@@ -5483,12 +5482,12 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
     else:
         h += f"<input type='hidden' id='ema_dist_max' value='{ema_dist_max_ui:g}'>"
-    h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' onchange='pushConfig()' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' onchange='pushConfig()' value='{precio_max_ui:g}'></div></div>"
+    h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}'></div></div>"
     h += f"<div class='filtro-item'><label>VOLUMEN · FILTRO</label><select id='f_vol_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_vol_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_vol_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     h += f"<div class='filtro-item'><label>EMA20 · FILTRO</label><select id='ema20_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('ema20_on','OFF')=='OFF' else ''}>OFF · informativo</option><option value='ON' {'selected' if _qtxt('ema20_on','OFF')=='ON' else ''}>ON · filtrar</option></select></div>"
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' onchange='pushConfig()' value='{float_max_ui}'></div>"
+        h += f"<div class='filtro-item'><label>FLOTACIÓN ≤</label><input type='number' id='float_max' value='{float_max_ui}'></div>"
     else:
         h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
     if swing_activo_ui and swing_multitimeframe_ui:
@@ -5505,10 +5504,10 @@ def _render_scanner():
         h += "</select></div>"
 
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' onchange='pushConfig()' value='{volumen_min_ui}'></div>"
+        h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}'></div>"
     else:
         h += _ctl_res("VOLUMEN ≥", f"{volumen_min_ui:,}", [("txt_vol", str(volumen_min_ui))])
-    h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' onchange='pushConfig()' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' onchange='pushConfig()' value='{gap_max_ui:g}'></div></div>"
+    h += f"<div class='filtro-item'><label>GAP (%)</label><div class='range'><input type='number' step='0.1' id='gap_min' value='{gap_min_ui:g}'><span>–</span><input type='number' step='0.1' id='gap_max' value='{gap_max_ui:g}'></div></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>CRUCE EMA</label><select id='sel_ema'><option value='Hacia arriba' {'selected' if ema_ui=='Hacia arriba' else ''}>Vela nueva sobre EMA20</option><option value='Hacia abajo' {'selected' if ema_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if ema_ui=='Neutro' else ''}>Neutro</option></select></div>"
     else:
@@ -5599,7 +5598,7 @@ def _render_scanner():
     _hilo_vivo = bool(getattr(getattr(servicio, "_hilo", None), "is_alive", lambda: False)())
     _hilo_txt = "HILO OK" if _hilo_vivo else "HILO DETENIDO"
     _universo_txt = str(len(getattr(servicio, "universo", []) or []))
-    h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt} · Cambio recibido: {_safe_text(st.session_state.get('_ts_ultimo_evento','ninguno'))}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
+    h += f"<div class='footer-note'><span>Motor real · Técnico: {timeframe_ui.upper()} · {len(filas_reales)} resultado(s) · Último escaneo: {_safe_text(_ultima_scan_txt)} · {_hilo_txt} · Universo: {_universo_txt}</span><span>Estado: {_safe_text(_estado_txt)} · {_safe_text(_error_scan_txt) if _error_scan_txt else _safe_text(_hora_txt)}</span></div>"
 
     # Insertamos el bloque de resultados dentro del mismo main-container del panel.
     _panel_final = _h_a.rsplit("</div></body></html>", 1)[0]
@@ -6174,8 +6173,6 @@ def _sincronizar_query_con_sesion():
             u_nuevo = 0
         u_visto = int(st.session_state.get("_ts_u_visto", 0) or 0)
         accion_js = (not auto) and u_nuevo > u_visto
-        if accion_js:
-            st.session_state["_ts_ultimo_evento"] = datetime.now(ET).strftime("%H:%M:%S")
 
         # Estado canónico por sesión:
         # - una acción del usuario captura la URL nueva;
