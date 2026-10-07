@@ -5237,7 +5237,7 @@ def _render_scanner():
     h += "<div class='technical-subtabs'><button type='button' class='technical-subtab active' data-subtab-target='save-config-panel'>💾 GUARDAR CONFIGURACIÓN</button><button type='button' class='technical-subtab' data-subtab-target='load-config-panel'>📂 MIS CONFIGURACIONES</button></div>"
     h += "<div id='save-config-panel' class='technical-subpanel active'><div class='panel-card technical-control'><b>💾 GUARDAR CONFIGURACIÓN PERSONAL</b><div class='range'><input id='config_name' type='text' placeholder='Nombre de configuración'><button type='button' class='btn-guardar-config'>GUARDAR</button></div><span>Los filtros y la posición de la pantalla se guardan automáticamente. Aquí puedes crear una copia con nombre.</span></div></div>"
     h += "<div id='load-config-panel' class='technical-subpanel'><div class='panel-card technical-control'><b>📂 MIS CONFIGURACIONES</b><input id='config_search' type='text' placeholder='Buscar configuración' oninput='renderConfiguraciones()'><div id='saved_configs_list'></div></div></div>"
-    h += "<div id='panel-config' class='tab-panel'><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
+    h += f"<div id='panel-config' class='tab-panel {'active' if _active_tab_ui == 'panel-config' else ''}"><div class='panel-card broker-main-card' style='grid-column:1/-1;border:1px solid #d4af37;background:#242a31;'>"
     h += f"<b style='font-size:12px;color:#d4af37;'>🔗 BROKER ENTRELAZADO CON EL SCANNER</b><span style='display:block;margin-bottom:5px;'>Broker activo: <strong>{_safe_text(broker_val)}</strong> · Los activos encontrados pueden enviarse desde el engranaje de Layout.</span>"
     h += "<span style='display:block;'>Charles Schwab: OAuth 2.0 · Credenciales: <strong>SCHWAB_CLIENT_ID</strong>, <strong>SCHWAB_CLIENT_SECRET</strong> y <strong>SCHWAB_REDIRECT_URI</strong> en Streamlit Secrets.</span>"
     h += "</div><div class='panel-grid'>"
@@ -5249,9 +5249,9 @@ def _render_scanner():
     h += "<style>.tf-badge{font-size:9px;font-weight:900;color:#d4af37;margin-left:3px}.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
     if PUBLIC_PREVIEW:
         h += "<style>.filtros-grid select,.filtros-grid input,.filtros-grid button,.panel-card select,.panel-card input,.panel-card button,.technical-subtab,.engranaje-select{pointer-events:none!important;opacity:.58!important;cursor:not-allowed!important}.tab{pointer-events:auto!important;opacity:1!important}</style>"
-    h += "<div id='panel-columnas' class='tab-panel'><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
+    h += f"<div id='panel-columnas' class='tab-panel {'active' if _active_tab_ui == 'panel-columnas' else ''}"><b>COLUMNAS DE LA TABLA</b><br>Marca una columna para mostrarla u ocultarla y usa ▲ ▼ para moverla de lugar. Se guarda en tu navegador y no afecta al motor.<div id='cols_list'></div><button type='button' data-col-act='reset' style='height:24px;padding:0 10px;background:#252a31;color:#fff;border:1px solid #555;cursor:pointer;'>RESTABLECER</button></div>"
     if not PUBLIC_PREVIEW:
-        h += "<div id='panel-conexiones' class='tab-panel'><div class='panel-grid'>"
+        h += f"<div id='panel-conexiones' class='tab-panel {'active' if _active_tab_ui == 'panel-conexiones' else ''}"><div class='panel-grid'>"
         h += "<div class='panel-card' style='grid-column:1/-1;'><b>🔌 PUENTE DE LAYOUT</b><span style='display:block;margin-top:6px;'>Escribe la dirección del puente que está funcionando en tu PC. Normalmente: <b>http://localhost:8080/layout</b></span>"
         h += "<div style='display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;'><input id='bridge_url_conn' type='text' value='" + _safe_text(bridge_val) + "' style='flex:1 1 320px;min-width:240px;height:30px;padding:4px 7px;box-sizing:border-box;'><button type='button' onclick=\"probarPuente()\" style='height:30px;padding:0 14px;font-weight:700;'>🔗 CONECTAR PUENTE</button></div>"
         h += "<div id='bridge_status' style='margin-top:8px;font-size:11px;'>⚪ PUENTE SIN PROBAR</div>"
@@ -5259,7 +5259,7 @@ def _render_scanner():
         h += "<div class='panel-card' style='grid-column:1/-1;'><b>🏦 BROKER</b><span style='display:block;margin-top:6px;'>La conexión de la cuenta se añadirá en el siguiente paso con autorización segura. No se piden claves en esta fase.</span>"
         h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
         h += "</div></div>"
-    h += "<div id='panel-resultados' class='tab-panel'><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
+    h += f"<div id='panel-resultados' class='tab-panel {'active' if _active_tab_ui == 'panel-resultados' else ''}"><b>RESULTADOS EN VIVO</b><br>Las señales encontradas por el motor aparecen en la tabla de 10 líneas inferior.</div>"
     def _ctl_res(label, texto, campos):
         def _v(i, d=""):
             for k, v in campos:
