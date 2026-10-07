@@ -4050,7 +4050,8 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # Un solo mensaje de Telegram: el primer ciclo lo crea y los
             # siguientes ciclos EDITAN ese mismo mensaje. El hash evita llamadas
             # cuando las 10 filas no cambiaron.
-            self._enviar_telegram(tabla)
+            self.telegram_estado = "DESACTIVADO"
+            self.telegram_ultimo_error = None
             self._escribir_html(tabla)
         else:
             self.telegram_estado = "Sin resultados para Telegram en este ciclo"
