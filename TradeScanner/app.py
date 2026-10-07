@@ -28,6 +28,7 @@ from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
+from TradeScanner.data_engine import AlpacaMarketStream
 try:
     from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
     _MOTOR_VELAS_IMPORT_ERROR = None
@@ -2582,10 +2583,16 @@ class ServicioScanner:
 
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
+        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed="iex", max_symbols=30)
+
         self.motor_velas = None
         if MotorVelasBridge is not None:
             try:
-                self.motor_velas = MotorVelasBridge(api_key, secret_key)
+                self.motor_velas = MotorVelasBridge(
+                    api_key,
+                    secret_key,
+                    market_stream=self.market_stream,
+                )
             except Exception as _e_mv:
                 print(f"⚠️ Motor de velas no pudo iniciar: {_e_mv}")
 
