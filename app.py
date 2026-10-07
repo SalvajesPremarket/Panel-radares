@@ -4885,32 +4885,6 @@ window.addEventListener('load',function(){
   setTimeout(aplicarColumnas,1000);
 });
 
-function _ajustarMarco(){
-  try{
-    var fe=window.frameElement;
-    if(!fe)return;
-    var mc=document.querySelector('.main-container')||document.body;
-    var alto=Math.ceil(mc.getBoundingClientRect().height)+18;
-    if(alto>80){
-      fe.style.height=alto+'px';
-      fe.setAttribute('height',String(alto));
-    }
-  }catch(e){}
-}
-window.addEventListener('load',function(){
-  _ajustarMarco();
-  setTimeout(_ajustarMarco,250);
-  setTimeout(_ajustarMarco,1000);
-});
-window.addEventListener('resize',function(){setTimeout(_ajustarMarco,80);});
-window.addEventListener('orientationchange',function(){setTimeout(_ajustarMarco,180);});
-document.addEventListener('click',function(){setTimeout(_ajustarMarco,60);});
-window.addEventListener('load',function(){
-  try{
-    var mc=document.querySelector('.main-container');
-    if(mc)new ResizeObserver(function(){_ajustarMarco();}).observe(mc);
-  }catch(e){}
-});
 '''
 
 
@@ -5329,7 +5303,7 @@ def _render_scanner():
     h += "<title>TradeScanner</title>"
     h += "<style>"
     h += "*{box-sizing:border-box;}"
-    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow:hidden;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:hidden;padding-top:4px;}"
+    h += "html,body{margin:0;padding:0;width:100%;min-height:100%;overflow:auto;}body{background:#15181d;font-family:Verdana,Arial,sans-serif;font-size:12px;color:#000;overflow-x:auto;padding-top:4px;}"
     h += ".main-container{width:100%;max-width:none;margin:0 auto;padding:4px;}"
     h += ".topbar{background:#20242a;border:1px solid #777;padding:7px 10px;margin-bottom:5px;display:flex;flex-direction:column;align-items:stretch;gap:4px;min-height:54px;position:sticky;top:0;z-index:1000;overflow:visible;}"
     h += ".brand{font-size:22px;font-weight:900;letter-spacing:.3px;color:#f1f3f5;white-space:nowrap;line-height:1.05;text-align:center;padding-top:5px;}.brand small{font-size:10px;font-weight:normal;color:#8f98a3;}"
