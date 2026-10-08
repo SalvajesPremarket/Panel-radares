@@ -458,12 +458,22 @@ class MotorVelas:
         self.ultimo_trade = momento
 
     def iniciar(self, simbolos: list):
-        """Arranca la conexión websocket y se suscribe a los símbolos dados.
-        Debe correr en un hilo aparte (es bloqueante). Si ya está iniciado,
-        no hace nada (evita conexiones duplicadas)."""
+        """Inicia el motor usando el stream compartido cuando existe.
+
+        Si el scanner ya entregó un AlpacaMarketStream compartido, este método
+        nunca crea otro StockDataStream. La conexión de mercado pertenece al
+        scanner y este motor solo consume sus eventos.
+        """
         if self._iniciado:
             return
         self._iniciado = True
+
+        # Guardia estructural: si existe un stream compartido, no abrir jamás
+        # una segunda conexión WebSocket desde MotorVelas.
+        if self._stream_compartido is not None:
+            if simbolos:
+                self.precargar_historial(simbolos, cantidad=300)
+            return
 
         try:
             # Primero cargamos memoria histórica para que los indicadores
