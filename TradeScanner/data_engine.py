@@ -166,21 +166,20 @@ class AlpacaMarketStream:
                     return
             if self._stream is None:
                 self._create_stream_locked()
-                self._stream.subscribe_quotes(self._on_quote, *symbols)
+                # En Alpaca Basic, una suscripción de trades también añade
+                # corrections/cancelErrors. Con 10 símbolos eso ocupa el límite
+                # de 30 canales de símbolos; no agregamos quotes encima.
                 self._stream.subscribe_trades(self._on_trade, *symbols)
                 self._symbols.update(symbols)
             else:
                 quitar = self._symbols - nuevos
                 agregar = nuevos - self._symbols
 
-                # Alpaca procesa unsubscribe/subscribe de forma asíncrona. Si
-                # enviamos ambos mensajes pegados, durante un instante la
-                # suscripción puede superar el límite del plan y devolver 405.
+                # Alpaca procesa unsubscribe/subscribe de forma asíncrona.
                 # Primero reducimos la suscripción; el siguiente ciclo agregará
                 # los símbolos faltantes cuando el servidor ya haya procesado el
                 # unsubscribe. Así nunca solicitamos más de max_symbols.
                 if quitar:
-                    self._stream.unsubscribe_quotes(*sorted(quitar))
                     self._stream.unsubscribe_trades(*sorted(quitar))
                     self._symbols.difference_update(quitar)
                     self._last_subscription_change = time.monotonic()
@@ -190,7 +189,6 @@ class AlpacaMarketStream:
                     capacidad = max(0, self.max_symbols - len(self._symbols))
                     agregar = sorted(agregar)[:capacidad]
                     if agregar:
-                        self._stream.subscribe_quotes(self._on_quote, *agregar)
                         self._stream.subscribe_trades(self._on_trade, *agregar)
                         self._symbols.update(agregar)
 
