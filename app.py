@@ -82,28 +82,33 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   }
   function run(){
     if(!lastHtml)return;
-    // ESTABLE: no desmontar/recrear iframes. El scanner ya no usa refresh
-    // dentro de st.fragment; cada cambio de configuración llega por el
-    // componente y puede actualizar el mismo iframe sin pantalla blanca.
-    if(!current){
-      var f=document.createElement('iframe');
-      try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
-      current=f;
-      wrap.appendChild(f);
-      var compactHtml=lastHtml.replace('</head>','<style>html{zoom:1!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;transform:none!important;}body{min-height:0!important;width:100%!important;max-width:100%!important;overflow-x:auto!important;margin:0!important;}#wrap,.main-container{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;}</style></head>');
-      try{f.srcdoc=compactHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(compactHtml);}
-      f.__html=lastHtml;
-      f.style.visibility='visible';
-      return;
-    }
-    if(current.__html===lastHtml){
+    // ESTABLE: doble buffer. Nunca desmontamos ni vaciamos el iframe visible.
+    // Un cambio de filtros puede provocar un rerun de Streamlit; el HTML nuevo
+    // se carga oculto y solo pasa a visible cuando terminó de cargar.
+    // Así desaparece el "parpadeo" causado por mostrar un iframe vacío durante
+    // la reconstrucción. La configuración nueva queda aplicada de una sola vez.
+    if(current&&current.__html===lastHtml){
       current.style.visibility='visible';
       return;
     }
-    current.__html=lastHtml;
-    current.style.visibility='visible';
     var compactHtml=lastHtml.replace('</head>','<style>html{zoom:1!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;transform:none!important;}body{min-height:0!important;width:100%!important;max-width:100%!important;overflow-x:auto!important;margin:0!important;}#wrap,.main-container{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;}</style></head>');
-    try{current.srcdoc=compactHtml;}catch(e){current.src='data:text/html;charset=utf-8,'+encodeURIComponent(compactHtml);}
+    var f=document.createElement('iframe');
+    try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
+    f.style.visibility='hidden';
+    f.__html=lastHtml;
+    f.addEventListener('load',function(){
+      if(pending!==f)return;
+      var old=current;
+      current=f;
+      pending=null;
+      f.style.visibility='visible';
+      if(old&&old!==f){
+        try{wrap.removeChild(old);}catch(e){}
+      }
+    });
+    pending=f;
+    wrap.appendChild(f);
+    try{f.srcdoc=compactHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(compactHtml);}
   }
   function schedule(){if(timer)return;timer=setTimeout(function(){timer=null;run();},0);}
   window.addEventListener('message',function(ev){
