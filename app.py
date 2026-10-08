@@ -29,6 +29,7 @@ from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import AssetClass, AssetStatus
 from alpaca.trading.requests import GetAssetsRequest, GetCalendarRequest
 from TradeScanner.data_engine import AlpacaMarketStream
+from webapp.api.publisher import publish_final_signals
 try:
     from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
     _MOTOR_VELAS_IMPORT_ERROR = None
@@ -4144,6 +4145,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # Conectar los candidatos publicados al motor de velas en tiempo real.
             # Esto ocurre fuera del navegador y no depende del refresh de los usuarios.
             self._sincronizar_motor_velas(resultados_finales_hist)
+            # Puente externo: publica SOLO el resultado final ya aceptado por el scanner.
+            # No modifica filtros, resultados ni el motor LONG.
+            publish_final_signals(resultados_finales_hist, tf)
         self.float_pendientes = sum(
             1 for c in enriquecidos
             if c.get("float_shares") is None and c.get("float_status") == "pending"
