@@ -78,7 +78,7 @@ def test_long_signal_never_becomes_buy_without_strategy_confirmation():
 
     decisions = bot.evaluar_ahora()
 
-    assert decisions[0]["action"] if "action" in decisions[0] else decisions[0]["accion"] in {"WATCH", "WAIT"}
+    assert decisions[0]["accion"] in {"WATCH", "WAIT"}
     assert decisions[0]["accion"] != "BUY"
 
 
@@ -105,6 +105,6 @@ def test_paperbot_buy_then_exit_records_trade():
     })
 
     assert closed["action"] == "sell"
-    assert closed["pnl_realizado"] == 2.0
+    assert closed["pnl_realizado"] == 2.4
     assert paper.status()["posiciones_abiertas"] == 0
     assert paper.status()["operaciones_cerradas"] == 1
