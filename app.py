@@ -5571,7 +5571,26 @@ def _render_scanner():
         h += "<div class='panel-card' style='grid-column:1/-1;'><b>🏦 BROKER</b><span style='display:block;margin-top:6px;'>La conexión de la cuenta se añadirá en el siguiente paso con autorización segura. No se piden claves en esta fase.</span>"
         h += "<div style='margin-top:8px;font-size:11px;color:#cbd1d8;'>Objetivo: que el usuario solo tenga que autorizar y pulsar CONECTAR.</div></div>"
         h += "</div></div>"
-    h += "<div id='panel-columnas' class='tab-panel " + ("active" if _active_tab_ui == 'panel-columnas' else "") + "'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>🧩 COLUMNAS DEL RADAR</b><span style='display:block;margin-bottom:6px;'>Activa/desactiva columnas y cambia su orden. El cambio se aplica directamente a la tabla del radar.</span><div id='cols_list'></div></div></div></div>"
+    _cols_base = [
+        ("layout", "🔗 Layout"), ("ticker", "Ticker"), ("sector", "Sector"),
+        ("precio", "Precio ($)"), ("cambio", "Cambio %"), ("volumen", "Volumen"),
+        ("gap", "Gap %"), ("flot", "Flotación (M)"), ("ema20", "EMA20"),
+        ("ema50", "EMA50"), ("ema200", "EMA200"), ("macd", "MACD"),
+    ]
+    _cols_rows = []
+    for _ci, (_cid, _ctxt) in enumerate(_cols_base):
+        _up_disabled = " disabled" if _ci == 0 else ""
+        _down_disabled = " disabled" if _ci == len(_cols_base) - 1 else ""
+        _cols_rows.append(
+            "<div class='col-row' data-col-row='" + _cid + "'>"
+            "<label class='col-label'><input type='checkbox' data-col-vis='" + _cid + "' checked> "
+            + _ctxt + "</label>"
+            "<span class='col-actions'>"
+            "<button type='button' title='Subir columna' aria-label='Subir " + _ctxt + "' data-col-act='up' data-col-id='" + _cid + "'" + _up_disabled + ">▲</button>"
+            "<button type='button' title='Bajar columna' aria-label='Bajar " + _ctxt + "' data-col-act='down' data-col-id='" + _cid + "'" + _down_disabled + ">▼</button>"
+            "</span></div>"
+        )
+    h += "<div id='panel-columnas' class='tab-panel " + ("active" if _active_tab_ui == 'panel-columnas' else "") + "'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>🧩 COLUMNAS DEL RADAR</b><span style='display:block;margin-bottom:6px;'>Activa/desactiva columnas y cambia su orden. El cambio se aplica directamente a la tabla del radar.</span><div id='cols_list'>" + "".join(_cols_rows) + "</div></div></div></div>"
     h += "<script>try{renderColumnas()}catch(e){console.warn('COLUMNAS: '+e)}</script>"
     def _ctl_res(label, texto, campos):
         def _v(i, d=""):
