@@ -90,7 +90,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
       try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
       current=f;
       wrap.appendChild(f);
-      var compactHtml=lastHtml.replace('</head>','<style>html{zoom:0.78!important;width:145%!important;max-width:none!important;position:relative!important;left:18%!important;transform:translateX(-50%)!important;}body{min-height:0!important;width:145%!important;max-width:none!important;overflow-x:hidden!important;margin:0!important;}</style></head>');
+      var compactHtml=lastHtml.replace('</head>','<style>html{zoom:1!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;transform:none!important;}body{min-height:0!important;width:100%!important;max-width:100%!important;overflow-x:auto!important;margin:0!important;}#wrap,.main-container{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;}</style></head>');
       try{f.srcdoc=compactHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(compactHtml);}
       f.__html=lastHtml;
       f.style.visibility='visible';
@@ -102,7 +102,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
     }
     current.__html=lastHtml;
     current.style.visibility='visible';
-    var compactHtml=lastHtml.replace('</head>','<style>html{zoom:0.78!important;width:128.2%!important;}body{min-height:0!important;width:128.2%!important;max-width:none!important;overflow-x:hidden!important;}</style></head>');
+    var compactHtml=lastHtml.replace('</head>','<style>html{zoom:1!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;transform:none!important;}body{min-height:0!important;width:100%!important;max-width:100%!important;overflow-x:auto!important;margin:0!important;}#wrap,.main-container{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;}</style></head>');
     try{current.srcdoc=compactHtml;}catch(e){current.src='data:text/html;charset=utf-8,'+encodeURIComponent(compactHtml);}
   }
   function schedule(){if(timer)return;timer=setTimeout(function(){timer=null;run();},0);}
@@ -123,7 +123,6 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
   });
   post('streamlit:componentReady',{apiVersion:1});
   setHeight(viewportHeight());
-  setTimeout(fitViewport,300);
   window.addEventListener('resize',function(){setTimeout(fitViewport,80);});
   window.addEventListener('orientationchange',function(){setTimeout(fitViewport,180);});
 })();
@@ -6030,7 +6029,7 @@ def _render_scanner():
     # usuario, y solo después se repinta ESTE fragmento. Así el auto-refresh
     # nunca puede resucitar una configuración anterior.
     if _TS_COMP_OK and _ts_scanner_ui is not None:
-        _ts_nav_result = _ts_scanner_ui(html=h, alto=900, key="ts_scanner_ui", default=None)
+        _ts_nav_result = _ts_scanner_ui(html=h, alto=0, key="ts_scanner_ui", default=None)
         try:
             if isinstance(_ts_nav_result, dict):
                 _ts_q_raw = str(_ts_nav_result.get("q", "") or "")
