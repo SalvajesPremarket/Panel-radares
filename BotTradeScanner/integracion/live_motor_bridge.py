@@ -219,6 +219,7 @@ class MotorVelasBridge:
             "limite_simbolos": self.MAX_SIMBOLOS_BASIC,
             "stream_compartido": stream_compartido is not None,
             "feed": str(salud.get("feed") or "") if stream_compartido is not None else "",
+            "stream_last_error": str(salud.get("last_error") or "") if stream_compartido is not None else error_stream,
             "stream_running": bool(salud.get("running")) if stream_compartido is not None else vivo,
             "stream_connected": bool(salud.get("connected")) if stream_compartido is not None else conectado,
             "symbols_seen": int(salud.get("symbols_seen", 0) or 0) if stream_compartido is not None else 0,
