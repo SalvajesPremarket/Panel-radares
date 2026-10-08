@@ -19,7 +19,7 @@ class SignalIn(BaseModel):
     timeframe: str = Field(min_length=1, max_length=20)
     signal_type: str = Field(min_length=1, max_length=40)
     price: float
-    confidence: float | None = Field(default=None, ge=0, le=1)
+    confidence: float | None = Field(default=None, ge=0, le=100)
     scanner_conditions: dict | None = None
     risk_context: dict | None = None
 
