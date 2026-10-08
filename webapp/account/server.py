@@ -50,7 +50,7 @@ def health():
 @app.get("/account/me")
 def me(user=Depends(account_user)):
     return {k: user[k] for k in (
-        "id","email","display_name","role","account_status","trial_started_at",
+        "user_id","email","display_name","role","account_status","trial_started_at",
         "trial_ends_at","subscription_plan","subscription_status","created_at","last_login_at")}
 
 @app.get("/account/access")
