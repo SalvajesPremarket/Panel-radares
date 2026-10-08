@@ -19,4 +19,4 @@ def register_page():
 
 @app.get("/account", include_in_schema=False)
 def account_page():
-    return FileResponse(ROOT / "account" / "index.html")
+    return FileResponse(ROOT / "account" / "dashboard.html")
