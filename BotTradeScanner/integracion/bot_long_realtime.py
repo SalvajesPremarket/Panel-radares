@@ -65,12 +65,21 @@ class BotLongRealtime:
         self._detener.set()
 
     def sync_candidates(self, resultados: Iterable[dict] | None) -> None:
-        """Actualiza candidatos y conserva identidad de la señal publicada."""
+        """Actualiza candidatos desde las filas del scanner sin alterar la estrategia."""
+        self.sync_signals(resultados)
+
+    def sync_signals(self, signals: Iterable[dict] | None) -> None:
+        """Acepta filas del scanner o señales normalizadas del API.
+
+        Solo convierte la identidad de la señal en un candidato de mercado.
+        No convierte LONG en BUY: la entrada sigue dependiendo de MotorVelas
+        + MaquinaDecisionesLong + PreMarketSalvajes.
+        """
         candidatos: set[str] = set()
         metadata: dict[str, dict] = {}
-        for row in resultados or []:
+        for row in signals or []:
             try:
-                ticker = str(row.get("ticker", "")).strip().upper()
+                ticker = str(row.get("ticker") or row.get("symbol") or row.get("simbolo") or "").strip().upper()
             except Exception:
                 ticker = ""
             if ticker:
