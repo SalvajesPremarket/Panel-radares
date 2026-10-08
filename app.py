@@ -4855,7 +4855,7 @@ function _columnasChange(ev){
 }
 
 function iniciarColumnas(){
-  renderColumnas();
+  /* Los botones/filas ya vienen en HTML estatico. No se vacian ni se reconstruyen al iniciar. */
   aplicarColumnas();
   aplicarColoresLayouts();
 
@@ -5591,7 +5591,7 @@ def _render_scanner():
             "</span></div>"
         )
     h += "<div id='panel-columnas' class='tab-panel " + ("active" if _active_tab_ui == 'panel-columnas' else "") + "'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>🧩 COLUMNAS DEL RADAR</b><span style='display:block;margin-bottom:6px;'>Activa/desactiva columnas y cambia su orden. El cambio se aplica directamente a la tabla del radar.</span><div id='cols_list'>" + "".join(_cols_rows) + "</div></div></div></div>"
-    h += "<script>try{renderColumnas()}catch(e){console.warn('COLUMNAS: '+e)}</script>"
+    # COLUMNAS: los controles se entregan estaticamente; el JS solo los enlaza al cargar el DOM.\n    # No ejecutar renderColumnas() aqui: un error de JS no debe vaciar cols_list.\n
     def _ctl_res(label, texto, campos):
         def _v(i, d=""):
             for k, v in campos:
