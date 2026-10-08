@@ -5791,13 +5791,13 @@ def _render_scanner():
     else:
         h += _ctl_res("FLOTACIÓN ≤", f"{float_max_ui:,}", [("float_max", str(float_max_ui))])
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}' onchange='pushConfig()'></div>"
-        h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
         h += f"<div class='filtro-item'><label>MACD</label><select id='sel_mac' onchange='pushConfig()'><option value='Positivo' {'selected' if macd_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if macd_ui=='Negativo' else ''}>Negativo</option><option value='No exigir' {'selected' if macd_ui=='No exigir' else ''}>No exigir</option></select></div>"
+        h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
+        h += f"<div class='filtro-item'><label>VOLUMEN ≥</label><input type='number' id='txt_vol' value='{volumen_min_ui}' onchange='pushConfig()'></div>"
     else:
         h += _ctl_res("GAP (%)", "", [("gap_min", str(gap_min_ui)), ("gap_max", str(gap_max_ui))])
-        h += _ctl_res("MACD", macd_ui, [("sel_mac", macd_ui)])
         h += _ctl_res("VOLUMEN ≥", f"{volumen_min_ui:,}", [("txt_vol", str(volumen_min_ui))])
+        h += _ctl_res("MACD", macd_ui, [("sel_mac", macd_ui)])
 
 
     if PUBLIC_PREVIEW:
