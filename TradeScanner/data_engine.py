@@ -53,6 +53,7 @@ class AlpacaMarketStream:
         self._connected = False
         self._running = False
         self._last_error = ""
+        self._stop_requested = False
         self._last_subscription_change = 0.0
         self._subscription_min_interval = 20.0
         self.cache = _LiveCache()
@@ -124,35 +125,51 @@ class AlpacaMarketStream:
     def _run_stream(self):
         with self._lock:
             self._running = True
+            self._stop_requested = False
             self._last_error = "DEBUG: _run_stream entró"
-            stream = self._stream
-            if stream is None:
-                self._create_stream_locked()
+
+        while True:
+            with self._lock:
+                if self._stop_requested:
+                    break
                 stream = self._stream
-                if stream is not None:
-                    self._last_error = f"DEBUG: stream creado en hilo ({len(self._symbols)} símbolos)"
-                    stream.subscribe_trades(self._on_trade, *sorted(self._symbols))
-        try:
-            if stream is not None:
+                if stream is None:
+                    self._create_stream_locked()
+                    stream = self._stream
+                    if stream is not None:
+                        self._last_error = f"DEBUG: stream creado/reconectado ({len(self._symbols)} símbolos)"
+                        if self._symbols:
+                            stream.subscribe_trades(self._on_trade, *sorted(self._symbols))
+
+            try:
+                if stream is None:
+                    time.sleep(1.0)
+                    continue
                 stream.run()
                 with self._lock:
+                    if self._stop_requested:
+                        break
                     self._errors += 1
-                    self._last_error = "StockDataStream.run() terminó sin excepción"
+                    self._last_error = "StockDataStream.run() terminó sin excepción; reconectando"
                     self._connected = False
-        except Exception as exc:
-            with self._lock:
-                self._errors += 1
-                self._last_error = str(exc)
-                self._connected = False
-        finally:
-            with self._lock:
-                self._running = False
-                self._connected = False
-                # Si la conexión murió por error, no conservamos un objeto
-                # StockDataStream muerto: el siguiente start() podrá crear uno nuevo.
-                if self._stream is stream:
-                    self._stream = None
-                    self._symbols.clear()
+                    if self._stream is stream:
+                        self._stream = None
+                time.sleep(1.0)
+            except Exception as exc:
+                with self._lock:
+                    if self._stop_requested:
+                        break
+                    self._errors += 1
+                    self._last_error = str(exc)
+                    self._connected = False
+                    if self._stream is stream:
+                        self._stream = None
+                time.sleep(1.0)
+
+        with self._lock:
+            self._running = False
+            self._connected = False
+            self._stream = None
 
     def start(self, tickers: Iterable[str]):
         symbols: List[str] = []
@@ -167,6 +184,7 @@ class AlpacaMarketStream:
         if not symbols:
             return
         with self._lock:
+            self._stop_requested = False
             self._last_error = f"DEBUG: start() recibido ({len(symbols)} símbolos)"
             nuevos = set(symbols)
             # No renegociamos la suscripción en cada ciclo de 10 s. El radar
@@ -210,6 +228,7 @@ class AlpacaMarketStream:
 
     def stop(self):
         with self._lock:
+            self._stop_requested = True
             stream = self._stream
             self._stream = None
             self._thread = None
