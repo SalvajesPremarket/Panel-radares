@@ -15,7 +15,7 @@ _session = requests.Session()
 
 
 def publish_final_signals(items: Iterable[dict], timeframe: str) -> int:
-    endpoint = os.getenv("TRADESCANNER_SIGNAL_INGEST_URL", "").strip()
+    endpoint = os.getenv("TRADESCANNER_SIGNAL_INGEST_URL", "https://tradescanner-webapp.onrender.com/api/v1/signals/ingest").strip()
     secret = os.getenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "").strip()
     if not endpoint or not secret:
         return 0
