@@ -62,3 +62,22 @@ def test_motor_velas_usa_el_stream_compartido_sin_abrir_otro():
     assert snap["ask"] == 10.26
     assert motor.total_trades == 1
     assert motor.ultimo_trade == momento
+
+def test_motor_velas_iniciar_con_stream_compartido_no_crea_stock_data_stream():
+    motor = MotorVelas("key", "secret")
+    stream = FakeMarketStream()
+    motor.conectar_stream_compartido(stream)
+
+    llamadas = []
+
+    def fake_precargar(simbolos, cantidad=300):
+        llamadas.append((list(simbolos), cantidad))
+
+    motor.precargar_historial = fake_precargar
+    motor._iniciado = False
+
+    motor.iniciar(["AAPL"])
+
+    assert motor._stream is None
+    assert motor._stream_compartido is stream
+    assert llamadas == [(["AAPL"], 300)]
