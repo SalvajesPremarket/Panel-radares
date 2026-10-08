@@ -128,6 +128,10 @@ class AlpacaMarketStream:
         try:
             if stream is not None:
                 stream.run()
+                with self._lock:
+                    self._errors += 1
+                    self._last_error = "StockDataStream.run() terminó sin excepción"
+                    self._connected = False
         except Exception as exc:
             with self._lock:
                 self._errors += 1
