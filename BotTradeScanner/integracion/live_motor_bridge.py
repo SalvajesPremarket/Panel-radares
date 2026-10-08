@@ -191,17 +191,31 @@ class MotorVelasBridge:
             solicitados = sorted(self._simbolos_solicitados)
             cargados = sorted(self._simbolos_cargados)
 
-        hilo = self._hilo_inicio
-        vivo = bool(hilo is not None and hilo.is_alive())
+        # En modo compartido, este bridge NO crea su propio hilo de websocket.
+        # El websocket real vive en AlpacaMarketStream del scanner.
+        stream_compartido = getattr(self, "market_stream", None)
+        if stream_compartido is not None:
+            try:
+                salud = stream_compartido.health_snapshot()
+            except Exception:
+                salud = {}
+            vivo = bool(salud.get("running"))
+            conectado = bool(salud.get("connected"))
+            error_stream = str(salud.get("last_error") or "")
+        else:
+            hilo = self._hilo_inicio
+            vivo = bool(hilo is not None and hilo.is_alive())
+            conectado = bool(getattr(self.motor, "_iniciado", False))
+            error_stream = ""
 
         return {
             "stream_hilo_vivo": vivo,
-            "stream_iniciado": bool(getattr(self.motor, "_iniciado", False)),
+            "stream_iniciado": conectado,
             "simbolos_solicitados": solicitados,
             "simbolos_cargados": cargados,
             "total_trades": int(getattr(self.motor, "total_trades", 0) or 0),
             "ultimo_trade": getattr(self.motor, "ultimo_trade", None),
-            "error": self._ultima_error,
+            "error": self._ultima_error or error_stream,
             "limite_simbolos": self.MAX_SIMBOLOS_BASIC,
-            "stream_compartido": getattr(self, "market_stream", None) is not None,
+            "stream_compartido": stream_compartido is not None,
         }
