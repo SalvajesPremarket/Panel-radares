@@ -39,6 +39,7 @@ class BotLongRealtime:
         self.executor = executor
         self._ordenes_pendientes: dict[str, dict] = {}
         self._candidatos: set[str] = set()
+        self._candidate_metadata: dict[str, dict] = {}
         self._lock = Lock()
         self._detener = Event()
         self._hilo: Thread | None = None
@@ -64,8 +65,9 @@ class BotLongRealtime:
         self._detener.set()
 
     def sync_candidates(self, resultados: Iterable[dict] | None) -> None:
-        """Actualiza los candidatos sin borrar posiciones que ya estén activas."""
+        """Actualiza candidatos y conserva identidad de la señal publicada."""
         candidatos: set[str] = set()
+        metadata: dict[str, dict] = {}
         for row in resultados or []:
             try:
                 ticker = str(row.get("ticker", "")).strip().upper()
@@ -73,13 +75,17 @@ class BotLongRealtime:
                 ticker = ""
             if ticker:
                 candidatos.add(ticker)
+                metadata[ticker] = {
+                    "signal_id": row.get("signal_id") or row.get("signalId"),
+                    "confidence": row.get("confidence"),
+                    "signal_type": row.get("signal_type") or row.get("signalType"),
+                    "timeframe": row.get("tecnico_timeframe") or row.get("timeframe"),
+                }
 
         with self._lock:
             self._candidatos = candidatos
+            self._candidate_metadata = metadata
 
-        # Una posicion activa debe seguir recibiendo trades aunque el scanner
-        # deje de publicar el ticker como candidato. El bridge recibe la union
-        # de candidatos actuales + posiciones que la maquina aun esta gestionando.
         activos = set()
         for simbolo in self.decisiones.simbolos():
             estado = self.decisiones.estado(simbolo).get("estado", "")
@@ -94,12 +100,7 @@ class BotLongRealtime:
         self.motor_bridge.sync_results([{"ticker": s} for s in sorted(observados)])
 
     def _procesar_ordenes_pendientes(self) -> tuple[list[dict], set[str]]:
-        """Consulta fills/rechazos antes de evaluar nuevas entradas.
-
-        Devuelve tambien los simbolos que acaban de recibir FILLED para no
-        reevaluar el mismo snapshot en este ciclo y disparar un stop inmediato
-        contra el precio que produjo la confirmacion.
-        """
+        """Consulta fills/rechazos antes de evaluar nuevas entradas."""
         novedades = []
         fills_confirmados: set[str] = set()
         for simbolo, info in list(self._ordenes_pendientes.items()):
@@ -120,7 +121,10 @@ class BotLongRealtime:
                         "cantidad_ejecutada": result.filled_qty,
                         "stop_loss": estado["stop_loss"],
                         "estrategia": "PreMarketSalvajes LONG",
-                        "signal_id": cid,
+                        "signal_id": info.get("signal_id") or cid,
+                        "confidence": info.get("confidence"),
+                        "signal_type": info.get("signal_type"),
+                        "timeframe": info.get("timeframe"),
                     }
                     paper = self.paper.evaluar(signal)
                     novedades.append({**signal, "ejecucion": asdict(result), "paper": paper, "ts": time.time()})
@@ -133,6 +137,10 @@ class BotLongRealtime:
                         "accion": "WAIT",
                         "estado": "esperando_libelula",
                         "motivo": f"orden_{result.status}",
+                        "signal_id": info.get("signal_id"),
+                        "confidence": info.get("confidence"),
+                        "signal_type": info.get("signal_type"),
+                        "timeframe": info.get("timeframe"),
                         "ejecucion": asdict(result),
                         "ts": time.time(),
                     })
@@ -144,10 +152,9 @@ class BotLongRealtime:
     def evaluar_ahora(self) -> list[dict]:
         with self._lock:
             candidatos = set(self._candidatos)
+            candidate_metadata = dict(self._candidate_metadata)
 
         simbolos = set(candidatos)
-        # Una posicion activa debe seguir gestionandose aunque el scanner ya
-        # no publique el ticker como candidato en el siguiente ciclo.
         for simbolo in self.decisiones.simbolos():
             estado = self.decisiones.estado(simbolo).get("estado", "")
             if estado in {
@@ -166,8 +173,15 @@ class BotLongRealtime:
                 candidato = simbolo in candidatos
                 decision = self.decisiones.evaluar(snap, candidato_scanner=candidato)
                 decision_data = asdict(decision)
+                signal_meta = candidate_metadata.get(simbolo, {})
 
-                # No guardamos WAIT repetitivos sin cambio para no llenar la cola.
+                # La identidad/confianza de la señal acompaña la decisión,
+                # pero NO modifica las reglas de entrada de la estrategia.
+                decision_data["signal_id"] = signal_meta.get("signal_id")
+                decision_data["confidence"] = signal_meta.get("confidence")
+                decision_data["signal_type"] = signal_meta.get("signal_type")
+                decision_data["timeframe"] = signal_meta.get("timeframe")
+
                 anterior = self._ultima_decision_por_simbolo.get(simbolo)
                 comparable = {
                     "accion": decision_data.get("accion"),
@@ -201,6 +215,10 @@ class BotLongRealtime:
                                     self._ordenes_pendientes[simbolo] = {
                                         "client_order_id": orden.client_order_id,
                                         "simbolo": simbolo,
+                                        "signal_id": decision_data.get("signal_id"),
+                                        "confidence": decision_data.get("confidence"),
+                                        "signal_type": decision_data.get("signal_type"),
+                                        "timeframe": decision_data.get("timeframe"),
                                     }
                                     decision_data["accion"] = "WAIT"
                                     decision_data["motivo"] = "buy_order_submitted_waiting_fill"
@@ -245,8 +263,6 @@ class BotLongRealtime:
                                     "client_order_id": orden.client_order_id,
                                 }
                                 decision_data["precio"] = orden.limit_price
-                                # Modo sin executor: simulacion local. Aqui el fill se
-                                # considera inmediato para conservar compatibilidad con PaperBot.
                                 self.decisiones.confirmar_fill(simbolo, orden.limit_price)
                             except (ValueError, TypeError) as exc:
                                 ejecucion = {"bloqueado": str(exc)}
