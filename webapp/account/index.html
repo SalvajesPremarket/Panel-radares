@@ -1,0 +1,8 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradeScanner — Mi cuenta</title>
+<style>body{margin:0;font-family:Inter,system-ui,sans-serif;background:#07111f;color:#eef4ff}.wrap{width:min(1000px,92vw);margin:40px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:15px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:24px}.card{background:#0d1b2d;border:1px solid #20344e;border-radius:16px;padding:20px}.muted{color:#9fb0c6}.value{font-size:20px;font-weight:700;margin-top:8px}button{padding:10px 14px;border:1px solid #30455f;border-radius:9px;background:#12243a;color:white;cursor:pointer}@media(max-width:600px){.top{align-items:flex-start;flex-direction:column}}</style></head>
+<body><main class="wrap"><div class="top"><div><strong>TradeScanner</strong><h1>Mi cuenta</h1></div><button id="logout">Cerrar sesión</button></div><section class="grid" id="cards"></section></main>
+<script>
+async function load(){const r=await fetch('/auth/me',{credentials:'include'});if(!r.ok){location.href='/login';return}const u=await r.json();const cards=[['Nombre',u.display_name||'—'],['Email',u.email],['Estado',u.account_status],['Trial hasta',new Date(u.trial_ends_at).toLocaleString('es')],['Plan',u.subscription_plan||'Prueba'],['Suscripción',u.subscription_status||'—']];document.querySelector('#cards').innerHTML=cards.map(x=>'<article class="card"><div class="muted">'+x[0]+'</div><div class="value">'+x[1]+'</div></article>').join('');}
+document.querySelector('#logout').onclick=async()=>{await fetch('/auth/logout',{method:'POST',credentials:'include'});location.href='/'};load();
+</script></body></html>
