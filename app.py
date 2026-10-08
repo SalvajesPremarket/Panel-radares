@@ -4700,10 +4700,40 @@ var TS_COLUMNAS=[
   ['macd','MACD']
 ];
 
-var TS_COLUMNAS_STATE={
-  order:TS_COLUMNAS.map(function(c){return c[0]}),
-  hidden:[]
-};
+function _columnasKey(){
+  try{return 'tradeScannerColumnas:'+String(TS_USER_KEY)}
+  catch(e){return 'tradeScannerColumnas'}
+}
+function _columnasDefault(){
+  return {order:TS_COLUMNAS.map(function(c){return c[0]}),hidden:[]};
+}
+function _columnasValidar(o){
+  var d=_columnasDefault();
+  if(!o||!Array.isArray(o.order))return d;
+  var ids=d.order, orden=[];
+  o.order.forEach(function(id){if(ids.indexOf(id)>=0&&orden.indexOf(id)<0)orden.push(id)});
+  ids.forEach(function(id){if(orden.indexOf(id)<0)orden.push(id)});
+  var ocultas=(Array.isArray(o.hidden)?o.hidden:[]).filter(function(id){return ids.indexOf(id)>=0});
+  return {order:orden,hidden:ocultas};
+}
+function _columnasCargar(){
+  var raw='';
+  try{raw=window.top.localStorage.getItem(_columnasKey())||''}catch(e1){}
+  if(!raw){try{raw=localStorage.getItem(_columnasKey())||''}catch(e2){}}
+  if(!raw){try{raw=window.top.__tsColumnasState||''}catch(e3){}}
+  var o=null;
+  try{o=JSON.parse(raw||'null')}catch(e4){o=null}
+  return _columnasValidar(o);
+}
+function _columnasGuardar(){
+  var txt=JSON.stringify(TS_COLUMNAS_STATE);
+  try{window.top.localStorage.setItem(_columnasKey(),txt)}catch(e1){}
+  try{localStorage.setItem(_columnasKey(),txt)}catch(e2){}
+  try{window.top.__tsColumnasState=txt}catch(e3){}
+}
+/* El iframe se reconstruye cada vez que cambian los resultados: por eso el
+   orden/visibilidad se guarda fuera del iframe y se recarga aquí. */
+var TS_COLUMNAS_STATE=_columnasCargar();
 
 function _columnasEstado(){
   return TS_COLUMNAS_STATE;
@@ -4752,7 +4782,7 @@ function renderColumnas(){
   var nombres={};
   TS_COLUMNAS.forEach(function(c){nombres[c[0]]=c[1]});
 
-  box.innerHTML='';
+  var frag=document.createDocumentFragment();
 
   s.order.forEach(function(id,i){
     var fila=document.createElement('div');
@@ -4793,8 +4823,10 @@ function renderColumnas(){
     acciones.appendChild(abajo);
     fila.appendChild(label);
     fila.appendChild(acciones);
-    box.appendChild(fila);
+    frag.appendChild(fila);
   });
+  box.innerHTML='';
+  box.appendChild(frag);
 }
 
 function moverColumna(act,id){
@@ -4809,6 +4841,7 @@ function moverColumna(act,id){
   s.order[i]=s.order[j];
   s.order[j]=tmp;
 
+  _columnasGuardar();
   renderColumnas();
   aplicarColumnas();
 }
@@ -4827,6 +4860,7 @@ function _columnasClick(ev){
   if(act==='reset'){
     TS_COLUMNAS_STATE.order=TS_COLUMNAS.map(function(c){return c[0]});
     TS_COLUMNAS_STATE.hidden=[];
+    _columnasGuardar();
     renderColumnas();
     aplicarColumnas();
     return;
@@ -4851,11 +4885,14 @@ function _columnasChange(ev){
     if(i<0)s.hidden.push(id);
   }
 
+  _columnasGuardar();
   aplicarColumnas();
 }
 
 function iniciarColumnas(){
-  /* Los botones/filas ya vienen en HTML estatico. No se vacian ni se reconstruyen al iniciar. */
+  /* La lista llega en orden por defecto; se repinta con el orden guardado.
+     renderColumnas arma todo en un fragmento, así que si falla no vacía la lista. */
+  try{renderColumnas()}catch(e){}
   aplicarColumnas();
   aplicarColoresLayouts();
 
