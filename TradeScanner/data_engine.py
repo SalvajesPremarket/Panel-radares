@@ -1,4 +1,5 @@
 import os
+import os
 import threading
 import time
 from typing import Any, Dict, Iterable, List, Set
@@ -60,6 +61,9 @@ class AlpacaMarketStream:
         self._last_subscription_request = 0.0
         self._last_event_kind = ""
         self._last_event_symbol = ""
+        self._last_subscription_request = 0.0
+        self._last_event_kind = ""
+        self._last_event_symbol = ""
         self.cache = _LiveCache()
         self._trade_consumers = []
         self._quote_consumers = []
@@ -96,6 +100,7 @@ class AlpacaMarketStream:
             self._last_event_ts = time.time()
             self._connected = True
             self._last_event_kind = "quote"
+            self._last_event_kind = "quote"
             symbol = self._symbol(data)
             if symbol:
                 self._symbols_seen.add(symbol)
@@ -113,6 +118,7 @@ class AlpacaMarketStream:
             self._trades += 1
             self._last_event_ts = time.time()
             self._connected = True
+            self._last_event_kind = "trade"
             self._last_event_kind = "trade"
             symbol = self._symbol(data)
             if symbol:
@@ -219,8 +225,11 @@ class AlpacaMarketStream:
                 # los símbolos faltantes cuando el servidor ya haya procesado el
                 # unsubscribe. Así nunca solicitamos más de max_symbols.
                 if quitar:
-                    self._stream.unsubscribe_trades(*sorted(quitar))
+                    symbols_quitar = sorted(quitar)
+                    self._stream.unsubscribe_trades(*symbols_quitar)
+                    self._stream.unsubscribe_quotes(*symbols_quitar)
                     self._symbols.difference_update(quitar)
+                    self._last_subscription_request = time.time()
                     self._last_subscription_change = time.monotonic()
                     return
 
@@ -267,6 +276,11 @@ class AlpacaMarketStream:
                 "last_error": self._last_error,
                 "subscribed_symbols": len(self._symbols),
                 "running": bool(self._running),
+                "subscribed_symbols": sorted(self._symbols),
+                "last_event_kind": self._last_event_kind,
+                "last_event_symbol": self._last_event_symbol,
+                "last_event_age_sec": (time.time() - self._last_event_ts) if self._last_event_ts else None,
+                "last_subscription_request_ts": float(self._last_subscription_request),
                 "subscribed_symbols": sorted(self._symbols),
                 "last_event_kind": self._last_event_kind,
                 "last_event_symbol": self._last_event_symbol,
