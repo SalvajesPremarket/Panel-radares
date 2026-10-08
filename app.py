@@ -91,7 +91,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
       current.style.visibility='visible';
       return;
     }
-    var compactHtml=lastHtml.replace('</head>','<style>html{zoom:1!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;transform:none!important;}body{min-height:0!important;width:100%!important;max-width:100%!important;overflow-x:auto!important;margin:0!important;}#wrap,.main-container{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;}</style></head>');
+    var compactHtml=lastHtml.replace('</head>','<style>html{zoom:1!important;width:100%!important;max-width:100%!important;position:static!important;left:auto!important;transform:none!important;}body{min-height:0!important;width:100%!important;max-width:100%!important;overflow:hidden!important;margin:0!important;}#wrap,.main-container{width:100%!important;max-width:none!important;margin-left:0!important;margin-right:0!important;box-sizing:border-box!important;}</style></head>');
     var f=document.createElement('iframe');
     try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
     f.style.visibility='hidden';
@@ -105,6 +105,27 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
       if(old&&old!==f){
         try{wrap.removeChild(old);}catch(e){}
       }
+      function ajustarAltura(){
+        try{
+          var d=f.contentDocument;
+          if(!d)return;
+          var root=d.documentElement, body=d.body;
+          var h=Math.max(root ? root.scrollHeight : 0, body ? body.scrollHeight : 0);
+          if(h>0){
+            f.style.height=h+'px';
+            wrap.style.height=h+'px';
+            post('streamlit:setFrameHeight',{height:h});
+          }
+        }catch(e){}
+      }
+      ajustarAltura();
+      setTimeout(ajustarAltura,150);
+      setTimeout(ajustarAltura,500);
+      try{
+        var ro=new ResizeObserver(ajustarAltura);
+        ro.observe(f.contentDocument.documentElement);
+        if(f.contentDocument.body)ro.observe(f.contentDocument.body);
+      }catch(e){}
     });
     pending=f;
     wrap.appendChild(f);
@@ -5331,7 +5352,7 @@ def _render_scanner():
     _estado_txt = (
         ("ON" if _usuario_motor_activo and _usuario_en_horario else "OFF")
         if not ES_ADMIN
-        else ("ON" if servicio.encendido and servicio.ultima_actualizacion is not None else ("OFF" if not servicio.encendido else "ESPERA"))
+        else ("ON" if servicio.encendido else "OFF")
     )
     start_time = f"{hora_ini//60:02d}:{hora_ini%60:02d}"
     end_time = f"{hora_fin//60:02d}:{hora_fin%60:02d}"
