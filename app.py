@@ -1077,6 +1077,13 @@ def pantalla_autenticacion():
                 radial-gradient(circle at 50% 0%, rgba(212,175,55,.10), transparent 35%),
                 #030303 !important;
         }
+        /* Autenticacion compacta: todo el acceso debe caber en una sola vista */
+        .block-container {
+            max-width: 460px !important;
+            width: 100% !important;
+            padding-top: .25rem !important;
+            padding-bottom: .35rem !important;
+        }
         [data-testid="stTabs"] { position: relative !important; z-index: 100000 !important; }
         [data-testid="stTabs"] [role="tab"] { position: relative !important; z-index: 100001 !important; pointer-events: auto !important; cursor: pointer !important; }
         [data-testid="stForm"] button { position: relative !important; z-index: 100002 !important; pointer-events: auto !important; }
@@ -1174,10 +1181,10 @@ def pantalla_autenticacion():
 
     st.markdown(
         """
-        <div style="box-sizing:border-box;width:min(520px,calc(100% - 18px));max-width:520px;margin:14px auto 20px auto;padding:18px 14px 14px;background:#0d1118;border:1px solid #2a3348;border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;text-align:center;">
+        <div style="box-sizing:border-box;width:min(440px,calc(100% - 12px));max-width:440px;margin:6px auto 10px auto;padding:11px 10px 9px;background:#0d1118;border:1px solid #2a3348;border-radius:16px;box-shadow:0 18px 50px rgba(0,0,0,.35);overflow:hidden;text-align:center;">
             <div style="box-sizing:border-box;width:100%;margin:0;padding:0 2px;color:#d4af37;font-family:Arial,sans-serif;font-weight:800;font-size:clamp(18px,5vw,26px);line-height:1.2;text-align:center;overflow-wrap:anywhere;word-break:break-word;">TRADE SCANNER INSTITUTIONAL</div>
             <div style="width:100%;margin:5px 0 11px;color:#8e96a3;font-family:Arial,sans-serif;font-size:10px;letter-spacing:2px;text-align:center;">SCANNER</div>
-            <div style="box-sizing:border-box;width:100%;margin:0;padding:10px 8px 9px;border:1px solid rgba(212,175,55,.55);border-radius:10px;background:linear-gradient(180deg,rgba(212,175,55,.10),rgba(212,175,55,.035));text-align:center;color:#f3f3f3;">
+            <div style="box-sizing:border-box;width:100%;margin:0;padding:7px 7px 6px;border:1px solid rgba(212,175,55,.55);border-radius:10px;background:linear-gradient(180deg,rgba(212,175,55,.10),rgba(212,175,55,.035));text-align:center;color:#f3f3f3;">
                 <div style="color:#f2d675;font-family:Arial,sans-serif;font-size:12px;font-weight:800;letter-spacing:.8px;margin-bottom:6px;">🎁 OFERTA DE LANZAMIENTO</div>
                 <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;">Prueba <span style="color:#37c77a;font-weight:800;">1 MES GRATIS</span></div>
                 <div style="font-family:Arial,sans-serif;font-size:11px;line-height:1.65;color:#d9dee7;margin-top:3px;">Solo Scanner: <span style="color:#f2d675;font-weight:800;">$28/mes</span> · <span style="color:#f2d675;font-weight:800;">$270/año</span></div>
