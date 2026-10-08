@@ -2,8 +2,7 @@ services:
   - type: web
     name: tradescanner-webapp
     runtime: python
-    rootDir: webapp
-    buildCommand: pip install -r requirements.txt
+    buildCommand: pip install -r webapp/requirements.txt
     startCommand: uvicorn webapp.server:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
