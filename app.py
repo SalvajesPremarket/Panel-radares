@@ -1524,6 +1524,26 @@ def _ts_diag_snapshot():
 
 
 
+# IMPORTANTE: esta constante debe existir ANTES de _ts_aplicar_evento_ui().
+# Antes se definía más abajo; como Streamlit ejecuta el script de arriba a abajo en cada
+# rerun, al procesar el evento del cuadro gris aún no existía y se descartaban los
+# filtros nuevos (parpadeo y regreso al valor anterior).
+_CONFIG_USUARIO_KEYS = (
+    "_active_tab", "_active_subtab",
+    "f_price_min", "f_price_max", "f_gap_min", "f_gap_max",
+    "f_float_max", "f_vol", "f_ema", "f_mac", "f_order",
+    "market_session", "timeframe", "ema_dist_max",
+    "rsi_min", "rsi_max", "ema20_estado", "ema50_estado",
+    "ema200_estado", "c_active", "c_start", "c_end",
+    "c_lang", "c_wnd", "c_broker", "c_url", "refresh_sec",
+    "f_gap_on", "f_float_on", "f_vol_on", "ema20_on",
+    "ema20_cond", "ema50_cond", "ema200_cond",
+    "ema20_dist", "ema50_dist", "ema200_dist",
+    "swing_activo", "swing_origen", "swing_objetivo", "swing_ventana",
+    "swing_tolerancia", "swing_origen_tolerancia", "swing_multitimeframe", "swing_tfs",
+)
+
+
 def _ts_aplicar_evento_ui():
     """Recibe lo que hizo el usuario en el cuadro gris y lo convierte
     inmediatamente en el estado canónico de esta sesión.
@@ -1746,20 +1766,8 @@ try:
                 _ULTIMA_CONFIG_USUARIOS.update(_disk_cfg)
 except Exception:
     pass
-_CONFIG_USUARIO_KEYS = (
-    "_active_tab", "_active_subtab",
-    "f_price_min", "f_price_max", "f_gap_min", "f_gap_max",
-    "f_float_max", "f_vol", "f_ema", "f_mac", "f_order",
-    "market_session", "timeframe", "ema_dist_max",
-    "rsi_min", "rsi_max", "ema20_estado", "ema50_estado",
-    "ema200_estado", "c_active", "c_start", "c_end",
-    "c_lang", "c_wnd", "c_broker", "c_url", "refresh_sec",
-    "f_gap_on", "f_float_on", "f_vol_on", "ema20_on",
-    "ema20_cond", "ema50_cond", "ema200_cond",
-    "ema20_dist", "ema50_dist", "ema200_dist",
-    "swing_activo", "swing_origen", "swing_objetivo", "swing_ventana",
-    "swing_tolerancia", "swing_origen_tolerancia", "swing_multitimeframe", "swing_tfs",
-)
+# (_CONFIG_USUARIO_KEYS se define más arriba, antes de _ts_aplicar_evento_ui,
+#  porque esa función se ejecuta antes de llegar a este punto del archivo.)
 
 def _clave_configuracion_activa():
     """Clave estable y no sensible para persistir configuración."""
