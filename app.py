@@ -5743,7 +5743,7 @@ def _render_scanner():
               f"<b>Universo:</b> {int(_m1.get('simbolos_universo',0)):,} · <b>Snapshots:</b> {int(_m1.get('snapshots',0))} · <b>Bars:</b> {int(_m1.get('bars',0))} · <b>Resultados:</b> {int(_m1.get('resultados_publicados',0))}<br>"
               f"<b>FMP:</b> {int(_m1.get('fmp_total',0))} · <b>Bulk:</b> {int(_m1.get('fmp_bulk',0))} · <b>Individual:</b> {int(_m1.get('fmp_individual',0))} · <b>429:</b> {int(_m1.get('fmp_429',0))} · <b>Cache H/M:</b> {int(_m1.get('fmp_cache_hits',0))}/{int(_m1.get('fmp_cache_misses',0))}<br>"
               f"<b>Alpaca errores:</b> {int(_m1.get('errores_alpaca',0))} · <b>429:</b> {int(_m1.get('alpaca_429',0))} · <b>Tiempo Snap:</b> {_m1.get('tiempo_snapshots',0):.1f}s · <b>Bars:</b> {_m1.get('tiempo_bars',0):.1f}s · <b>FMP:</b> {_m1.get('tiempo_fmp',0):.1f}s<br>"
-              f"<b>Diagnóstico:</b> TF={escape(str(getattr(servicio,'tf_principal','—')))} · Último ciclo={_m1.get('ultimo_ciclo_ts') or '—'} · Error={escape(str(getattr(servicio,'ultimo_error',None) or '—'))}</div></div>")
+              f"<b>Diagnóstico:</b> TF={str(getattr(servicio,'tf_principal','—'))} · Último ciclo={_m1.get('ultimo_ciclo_ts') or '—'} · Error={str(getattr(servicio,'ultimo_error',None) or '—')}</div></div>")
 
     h += "<div class='filtros-grid'>"
     h += "<div class='logo'>TRADE SCANNER</div>"
