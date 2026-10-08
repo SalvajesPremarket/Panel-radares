@@ -16,6 +16,19 @@ class FakeBridge:
         return data
 
 
+class SequenceBridge(FakeBridge):
+    def __init__(self, snapshots):
+        super().__init__(snapshots[0])
+        self.snapshots = list(snapshots)
+        self.index = 0
+
+    def snapshot(self, symbol):
+        data = dict(self.snapshots[min(self.index, len(self.snapshots) - 1)])
+        self.index += 1
+        data["simbolo"] = symbol
+        return data
+
+
 def valid_candidate_snapshot(**overrides):
     data = {
         "vela_actual": {
@@ -24,12 +37,13 @@ def valid_candidate_snapshot(**overrides):
             "es_libelula_en_curso": False, "es_lapida_en_curso": False,
         },
         "ema20": 9.5, "ema20_anterior": 9.5,
-        "ema50": 9.0, "ema50_anterior": 9.0,
-        "ema200": 8.0, "ema200_anterior": 8.0,
+        "ema50": 6.5, "ema50_anterior": 6.5,
+        "ema200": 6.0, "ema200_anterior": 6.0,
         "macd": 0.5,
         "banda_bollinger_superior": 12.0, "banda_bollinger_superior_anterior": 12.0,
-        "banda_bollinger_inferior": 7.0, "banda_bollinger_inferior_anterior": 7.0,
+        "banda_bollinger_inferior": 5.0, "banda_bollinger_inferior_anterior": 5.0,
         "tramo_actual": 1,
+        "ask": 10.1, "bid": 10.0,
     }
     data.update(overrides)
     return data
@@ -56,6 +70,44 @@ def test_long_signal_never_becomes_buy_without_strategy_confirmation():
     decisions = bot.evaluar_ahora()
     assert decisions[0]["accion"] in {"WATCH", "WAIT"}
     assert decisions[0]["accion"] != "BUY"
+
+
+def test_full_long_cycle_candidate_watch_buy_paper_and_stop_exit():
+    snapshots = [
+        valid_candidate_snapshot(),
+        valid_candidate_snapshot(
+            vela_actual={
+                "apertura": 10.0, "cierre": 10.1, "minimo": 9.8, "maximo": 10.1,
+                "es_positiva": True, "regreso_a_apertura": True,
+                "es_libelula_en_curso": True, "es_lapida_en_curso": False,
+            }
+        ),
+        valid_candidate_snapshot(
+            vela_actual={
+                "apertura": 10.1, "cierre": 9.9, "minimo": 9.8, "maximo": 10.1,
+                "es_positiva": False, "regreso_a_apertura": False,
+                "es_libelula_en_curso": False, "es_lapida_en_curso": False,
+            }
+        ),
+    ]
+    bridge = SequenceBridge(snapshots)
+    bot = BotLongRealtime(bridge)
+    bot.sync_signals([{"symbol": "TEST", "signal_id": "sig-cycle",
+                       "confidence": 94, "signal_type": "LONG", "timeframe": "1m"}])
+
+    first = bot.evaluar_ahora()
+    second = bot.evaluar_ahora()
+    third = bot.evaluar_ahora()
+
+    assert first[0]["accion"] == "WATCH"
+    assert second[0]["accion"] == "BUY"
+    assert second[0]["paper"]["action"] == "buy"
+    assert second[0]["paper"]["position_id"]
+    assert third[0]["accion"] == "EXIT"
+    assert third[0]["paper"]["action"] == "sell"
+    assert third[0]["paper"]["pnl_realizado"] < 0
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+    assert bot.paper.status()["operaciones_cerradas"] == 1
 
 
 def test_paperbot_buy_then_exit_records_trade():
