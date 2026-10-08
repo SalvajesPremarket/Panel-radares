@@ -5,6 +5,7 @@ body{margin:0;background:#07111f;color:#eef4ff;font-family:Inter,system-ui,sans-
 </style></head><body><main class="wrap">
 <div class="top"><div><a href="/account">← Dashboard</a><h1>Scanner privado</h1><div class="muted" id="welcome"></div></div><button id="logout">Cerrar sesión</button></div>
 <div class="grid" id="status"></div>
+<section class="card" id="liveWrap" style="display:none"><div class="toolbar"><div><h2 style="margin:0">Scanner en vivo</h2><div class="muted">Vista del Scanner real. El motor sigue separado del Web App.</div></div><a id="openLive" target="_blank" rel="noopener">Abrir en nueva pestaña ↗</a></div><iframe id="liveFrame" title="TradeScanner en vivo" style="display:block;width:100%;height:760px;border:1px solid #20344e;border-radius:12px;background:#15181d;margin-top:14px"></iframe></section>
 <section class="card"><div class="toolbar"><div><h2 style="margin:0">Señales</h2><div class="muted">Datos publicados por el adaptador privado del scanner.</div></div><button id="refresh">Actualizar</button></div><div id="signals" class="empty">Cargando…</div></section>
 </main>
 <script>
@@ -22,8 +23,15 @@ async function load(){
   ['Acceso','✓ autorizado','ok'],
   ['Scanner','✓ '+s.scanner,'ok'],
   ['Origen',s.source,''],
-  ['Integridad','app.py aislado','ok']
+  ['Integridad','app.py aislado','ok'],
+  ['Vista en vivo',s.live_ui_configured?'✓ configurada':'Pendiente de configurar',s.live_ui_configured?'ok':'warn']
  ].map(x=>'<article class="card"><div class="muted">'+esc(x[0])+'</div><div class="value '+x[2]+'">'+esc(x[1])+'</div></article>').join('');
+ const liveWrap=document.querySelector('#liveWrap');
+ if(s.live_ui_configured && s.live_ui_url){
+   document.querySelector('#liveFrame').src=s.live_ui_url;
+   document.querySelector('#openLive').href=s.live_ui_url;
+   liveWrap.style.display='block';
+ }
  const sr=await get('/api/v1/signals?limit=100');
  if(!sr.ok){document.querySelector('#signals').innerHTML='<span class="bad">No fue posible consultar las señales.</span>';return;}
  const data=await sr.json(); const items=data.items||[];
