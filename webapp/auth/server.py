@@ -12,27 +12,30 @@ from pydantic import BaseModel, EmailStr, Field
 
 from webapp.storage import db
 
-ROOT = Path(__file__).resolve().parents[1]
-DB_PATH = Path(os.getenv("TRADESCANNER_DB", ROOT / "data" / "tradescanner.sqlite3"))
 SESSION_DAYS = int(os.getenv("TRADESCANNER_SESSION_DAYS", "30"))
 COOKIE_NAME = "tradescanner_session"
 
 app = FastAPI(title="TradeScanner Auth API", version="0.1.0")
+
 
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     display_name: str | None = Field(default=None, max_length=100)
 
+
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=128)
 
+
 def utcnow():
     return datetime.now(timezone.utc)
 
+
 def iso(dt):
     return dt.astimezone(timezone.utc).isoformat()
+
 
 def add_one_month(dt):
     year, month = dt.year, dt.month
@@ -43,16 +46,10 @@ def add_one_month(dt):
     day = min(dt.day, calendar.monthrange(year, month)[1])
     return dt.replace(year=year, month=month, day=day)
 
-def db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
 
 def startup():
     with db() as conn:
-        conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
+        conn.execute("""CREATE TABLE IF NOT EXISTS users (
             user_id TEXT PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
@@ -66,24 +63,25 @@ def startup():
             subscription_status TEXT,
             created_at TEXT NOT NULL,
             last_login_at TEXT
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
+        )""")
+        conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
             session_id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
             token_hash TEXT NOT NULL UNIQUE,
             created_at TEXT NOT NULL,
             expires_at TEXT NOT NULL,
             revoked_at TEXT
-        );
-        CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
-        CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
-        """)
+        )""")
+        conn.execute("CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at)")
+
 
 def password_hash(password):
     salt = secrets.token_bytes(16)
     rounds = 310000
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, rounds)
     return "pbkdf2_sha256$" + str(rounds) + "$" + base64.urlsafe_b64encode(salt).decode() + "$" + base64.urlsafe_b64encode(digest).decode()
+
 
 def password_verify(password, encoded):
     try:
@@ -97,23 +95,29 @@ def password_verify(password, encoded):
     except (ValueError, TypeError):
         return False
 
+
 def token_hash(token):
     secret = os.getenv("TRADESCANNER_SESSION_SECRET", "")
     if not secret:
         raise RuntimeError("TRADESCANNER_SESSION_SECRET is required")
     return hmac.new(secret.encode(), token.encode(), hashlib.sha256).hexdigest()
 
+
 def create_session(user_id):
     token = secrets.token_urlsafe(48)
     now = utcnow()
     expires = now + timedelta(days=SESSION_DAYS)
     with db() as conn:
-        conn.execute("INSERT INTO sessions(session_id,user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?,?)",
-                     (str(uuid4()), user_id, token_hash(token), iso(now), iso(expires)))
+        conn.execute(
+            "INSERT INTO sessions(session_id,user_id,token_hash,created_at,expires_at) VALUES(?,?,?,?,?)",
+            (str(uuid4()), user_id, token_hash(token), iso(now), iso(expires)),
+        )
     return token
+
 
 def get_current_user(tradescanner_session: str | None = Cookie(default=None)):
     return current_user(tradescanner_session)
+
 
 def current_user(session_token):
     if not session_token:
@@ -127,9 +131,11 @@ def current_user(session_token):
         raise HTTPException(status_code=401, detail="Invalid or expired session")
     return row
 
+
 @app.get("/health")
 def health():
     return {"ok": True, "service": "tradescanner-auth"}
+
 
 @app.post("/auth/register")
 def register(payload: RegisterRequest, response: Response):
@@ -149,6 +155,7 @@ def register(payload: RegisterRequest, response: Response):
                         httponly=True, secure=True, samesite="lax", path="/")
     return {"user_id": user_id, "account_status": "trial", "trial_ends_at": iso(trial_end)}
 
+
 @app.post("/auth/login")
 def login(payload: LoginRequest, response: Response):
     email = payload.email.lower().strip()
@@ -166,6 +173,7 @@ def login(payload: LoginRequest, response: Response):
                         httponly=True, secure=True, samesite="lax", path="/")
     return {"user_id": row["user_id"], "account_status": row["account_status"]}
 
+
 @app.post("/auth/logout")
 def logout(response: Response, tradescanner_session: str | None = Cookie(default=None)):
     if tradescanner_session:
@@ -174,6 +182,7 @@ def logout(response: Response, tradescanner_session: str | None = Cookie(default
                          (iso(utcnow()), token_hash(tradescanner_session)))
     response.delete_cookie(COOKIE_NAME, path="/")
     return {"ok": True}
+
 
 @app.get("/auth/me")
 def me(tradescanner_session: str | None = Cookie(default=None)):
