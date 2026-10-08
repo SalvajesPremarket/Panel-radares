@@ -125,6 +125,7 @@ class AlpacaMarketStream:
         with self._lock:
             stream = self._stream
             self._running = True
+            self._last_error = "DEBUG: _run_stream entró"
         try:
             if stream is not None:
                 stream.run()
@@ -160,6 +161,7 @@ class AlpacaMarketStream:
         if not symbols:
             return
         with self._lock:
+            self._last_error = f"DEBUG: start() recibido ({len(symbols)} símbolos)"
             nuevos = set(symbols)
             # No renegociamos la suscripción en cada ciclo de 10 s. El radar
             # puede cambiar de candidatos muy rápido y eso provoca tráfico
@@ -199,6 +201,7 @@ class AlpacaMarketStream:
             self._last_subscription_change = time.monotonic()
             if self._thread is None or not self._thread.is_alive():
                 self._thread = threading.Thread(target=self._run_stream, name="alpaca-market-stream", daemon=True)
+                self._last_error = "DEBUG: hilo del stream iniciado"
                 self._thread.start()
 
     def stop(self):
