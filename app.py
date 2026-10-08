@@ -2752,7 +2752,7 @@ class ServicioScanner:
 
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
-        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed=os.getenv("ALPACA_MARKET_DATA_FEED", "sip"), max_symbols=30)
+        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed=os.getenv("ALPACA_MARKET_DATA_FEED", "iex"), max_symbols=30)
 
         self.motor_velas = None
         if MotorVelasBridge is not None:
