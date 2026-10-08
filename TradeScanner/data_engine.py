@@ -123,9 +123,15 @@ class AlpacaMarketStream:
 
     def _run_stream(self):
         with self._lock:
-            stream = self._stream
             self._running = True
             self._last_error = "DEBUG: _run_stream entró"
+            stream = self._stream
+            if stream is None:
+                self._create_stream_locked()
+                stream = self._stream
+                if stream is not None:
+                    self._last_error = f"DEBUG: stream creado en hilo ({len(self._symbols)} símbolos)"
+                    stream.subscribe_trades(self._on_trade, *sorted(self._symbols))
         try:
             if stream is not None:
                 stream.run()
@@ -171,11 +177,9 @@ class AlpacaMarketStream:
                 if time.monotonic() - self._last_subscription_change < self._subscription_min_interval:
                     return
             if self._stream is None:
-                self._create_stream_locked()
-                # En Alpaca Basic, una suscripción de trades también añade
-                # corrections/cancelErrors. Con 10 símbolos eso ocupa el límite
-                # de 30 canales de símbolos; no agregamos quotes encima.
-                self._stream.subscribe_trades(self._on_trade, *symbols)
+                # El cliente de Alpaca se crea y suscribe dentro del hilo que
+                # ejecuta el event loop. Así todo el ciclo de vida del websocket
+                # queda ligado al mismo hilo/event loop.
                 self._symbols.update(symbols)
             else:
                 quitar = self._symbols - nuevos
