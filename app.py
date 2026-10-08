@@ -4757,8 +4757,10 @@ function renderColumnas(){
   s.order.forEach(function(id,i){
     var fila=document.createElement('div');
     fila.className='col-row';
+    fila.setAttribute('data-col-row',id);
 
     var label=document.createElement('label');
+    label.className='col-label';
     var check=document.createElement('input');
     check.type='checkbox';
     check.setAttribute('data-col-vis',id);
@@ -4767,10 +4769,13 @@ function renderColumnas(){
     label.appendChild(document.createTextNode(' '+nombres[id]));
 
     var acciones=document.createElement('span');
+    acciones.className='col-actions';
 
     var arriba=document.createElement('button');
     arriba.type='button';
     arriba.textContent='▲';
+    arriba.title='Subir columna';
+    arriba.setAttribute('aria-label','Subir '+nombres[id]);
     arriba.setAttribute('data-col-act','up');
     arriba.setAttribute('data-col-id',id);
     arriba.disabled=(i===0);
@@ -4778,13 +4783,14 @@ function renderColumnas(){
     var abajo=document.createElement('button');
     abajo.type='button';
     abajo.textContent='▼';
+    abajo.title='Bajar columna';
+    abajo.setAttribute('aria-label','Bajar '+nombres[id]);
     abajo.setAttribute('data-col-act','down');
     abajo.setAttribute('data-col-id',id);
     abajo.disabled=(i===s.order.length-1);
 
     acciones.appendChild(arriba);
     acciones.appendChild(abajo);
-
     fila.appendChild(label);
     fila.appendChild(acciones);
     box.appendChild(fila);
@@ -4858,6 +4864,15 @@ function iniciarColumnas(){
     box.addEventListener('click',_columnasClick);
     box.addEventListener('change',_columnasChange);
     box.__tsColumnasBound=true;
+  }
+  if(!document.__tsColumnasGlobalBound){
+    document.addEventListener('click',function(ev){
+      var b=ev.target&&ev.target.closest?ev.target.closest('[data-col-act]'):null;
+      if(!b)return;
+      if(!document.getElementById('cols_list'))return;
+      _columnasClick(ev);
+    },true);
+    document.__tsColumnasGlobalBound=true;
   }
 
   /* Los campos numéricos del panel gris no llevan onchange individual. */
@@ -5543,7 +5558,7 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>VENTANA</b><span>{_safe_text(wnd_val)}</span></div>"
     h += f"<div class='panel-card'><b>PUENTE DE LAYOUT</b><span>{_safe_text(bridge_val)}</span></div>"
     h += "</div></div>"
-    h += "<style>.tf-badge{font-size:9px;font-weight:900;color:#d4af37;margin-left:3px}.col-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #444;padding:4px 0}.col-row label{font-size:11px;cursor:pointer}.col-row button{width:30px;height:22px;background:#252a31;color:#fff;border:1px solid #555;margin-left:3px;cursor:pointer}.col-row button:disabled{opacity:.3;cursor:default}#cols_list{margin:6px 0}</style>"
+    h += "<style>.tf-badge{font-size:9px;font-weight:900;color:#d4af37;margin-left:3px}.col-row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #444;padding:5px 0;min-height:30px}.col-label{display:flex;align-items:center;gap:4px;flex:1;min-width:0;font-size:11px;cursor:pointer}.col-actions{display:flex;align-items:center;gap:4px;flex:0 0 auto}.col-row button{display:inline-flex!important;align-items:center;justify-content:center;width:34px!important;min-width:34px!important;height:26px!important;padding:0!important;background:#252a31!important;color:#fff!important;border:1px solid #69727d!important;border-radius:3px!important;margin:0!important;cursor:pointer!important;pointer-events:auto!important;font-size:13px!important;font-weight:900!important;line-height:1!important;opacity:1}.col-row button:hover{background:#3a424c!important}.col-row button:disabled{opacity:.28!important;cursor:default!important}#cols_list{margin:6px 0}</style>"
     if PUBLIC_PREVIEW:
         h += "<style>.filtros-grid select,.filtros-grid input,.filtros-grid button,.panel-card select,.panel-card input,.panel-card button,.technical-subtab,.engranaje-select{pointer-events:none!important;opacity:.58!important;cursor:not-allowed!important}.tab{pointer-events:auto!important;opacity:1!important}</style>"
 
