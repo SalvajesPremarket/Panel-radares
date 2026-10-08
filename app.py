@@ -6208,6 +6208,11 @@ def _render_scanner():
                         + ("🟢 conectado" if _mv.get("stream_hilo_vivo") and _mv.get("stream_iniciado") else "🔴 sin conexión")
                         + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 30)}"
                         + f" · trades: {_mv.get('total_trades', 0)}"
+                        + (f" · feed: {_mv.get('feed')}" if _mv.get('feed') else "")
+                        + f" · running: {'sí' if _mv.get('stream_running') else 'no'}"
+                        + f" · connected: {'sí' if _mv.get('stream_connected') else 'no'}"
+                        + f" · vistos: {_mv.get('symbols_seen', 0)}"
+                        + f" · errores: {_mv.get('stream_errors', 0)}"
                         + (f" · último: {_mv_last}" if _mv_last else "")
                     )
                     if _mv.get("error"):
