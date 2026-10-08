@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from typing import Any, Dict, Iterable, List, Set
@@ -56,6 +57,9 @@ class AlpacaMarketStream:
         self._stop_requested = False
         self._last_subscription_change = 0.0
         self._subscription_min_interval = 20.0
+        self._last_subscription_request = 0.0
+        self._last_event_kind = ""
+        self._last_event_symbol = ""
         self.cache = _LiveCache()
         self._trade_consumers = []
         self._quote_consumers = []
@@ -91,9 +95,11 @@ class AlpacaMarketStream:
             self._quotes += 1
             self._last_event_ts = time.time()
             self._connected = True
+            self._last_event_kind = "quote"
             symbol = self._symbol(data)
             if symbol:
                 self._symbols_seen.add(symbol)
+                self._last_event_symbol = symbol
                 self.cache.set_quote(symbol, getattr(data, "bid_price", None), getattr(data, "ask_price", None), getattr(data, "timestamp", None))
             consumidores = list(self._quote_consumers)
         for callback in consumidores:
@@ -107,9 +113,11 @@ class AlpacaMarketStream:
             self._trades += 1
             self._last_event_ts = time.time()
             self._connected = True
+            self._last_event_kind = "trade"
             symbol = self._symbol(data)
             if symbol:
                 self._symbols_seen.add(symbol)
+                self._last_event_symbol = symbol
                 self.cache.set_trade(symbol, getattr(data, "price", None), getattr(data, "timestamp", None))
             consumidores = list(self._trade_consumers)
         for callback in consumidores:
@@ -139,7 +147,10 @@ class AlpacaMarketStream:
                     if stream is not None:
                         self._last_error = f"DEBUG: stream creado/reconectado ({len(self._symbols)} símbolos)"
                         if self._symbols:
-                            stream.subscribe_trades(self._on_trade, *sorted(self._symbols))
+                            symbols = sorted(self._symbols)
+                            stream.subscribe_trades(self._on_trade, *symbols)
+                            stream.subscribe_quotes(self._on_quote, *symbols)
+                            self._last_subscription_request = time.time()
 
             try:
                 if stream is None:
@@ -218,7 +229,9 @@ class AlpacaMarketStream:
                     agregar = sorted(agregar)[:capacidad]
                     if agregar:
                         self._stream.subscribe_trades(self._on_trade, *agregar)
+                        self._stream.subscribe_quotes(self._on_quote, *agregar)
                         self._symbols.update(agregar)
+                        self._last_subscription_request = time.time()
 
             self._last_subscription_change = time.monotonic()
             if self._thread is None or not self._thread.is_alive():
@@ -254,4 +267,9 @@ class AlpacaMarketStream:
                 "last_error": self._last_error,
                 "subscribed_symbols": len(self._symbols),
                 "running": bool(self._running),
+                "subscribed_symbols": sorted(self._symbols),
+                "last_event_kind": self._last_event_kind,
+                "last_event_symbol": self._last_event_symbol,
+                "last_event_age_sec": (time.time() - self._last_event_ts) if self._last_event_ts else None,
+                "last_subscription_request_ts": float(self._last_subscription_request),
             }
