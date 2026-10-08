@@ -90,7 +90,7 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
       try{f.setAttribute('allow','loopback-network; local-network; local-network-access');}catch(e){}
       current=f;
       wrap.appendChild(f);
-      var compactHtml=lastHtml.replace('</head>','<style>html{zoom:0.78!important;width:145%!important;max-width:none!important;position:relative!important;left:-22.5%!important;transform:translateX(0)!important;}body{min-height:0!important;width:145%!important;max-width:none!important;overflow-x:hidden!important;margin:0!important;}</style></head>');
+      var compactHtml=lastHtml.replace('</head>','<style>html{zoom:0.78!important;width:145%!important;max-width:none!important;position:relative!important;left:0!important;transform:translateX(-15.5%)!important;}body{min-height:0!important;width:145%!important;max-width:none!important;overflow-x:hidden!important;margin:0!important;}</style></head>');
       try{f.srcdoc=compactHtml;}catch(e){f.src='data:text/html;charset=utf-8,'+encodeURIComponent(compactHtml);}
       f.__html=lastHtml;
       f.style.visibility='visible';
