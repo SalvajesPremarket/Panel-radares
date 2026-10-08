@@ -2,35 +2,37 @@
 Authenticated account/access/recommendation endpoints. Does not import or modify app.py.
 """
 from datetime import datetime, timezone
-import sqlite3
+from uuid import uuid4
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, Field
-from webapp.auth.server import get_current_user, DB_PATH
+from webapp.auth.server import get_current_user
+from webapp.storage import db
 
 app = FastAPI(title="TradeScanner Account API", version="0.1.0")
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
 
-def db():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
 def init_account_schema():
-    conn = db()
-    conn.execute("""CREATE TABLE IF NOT EXISTS recommendations (
-        recommendation_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL,
-        description TEXT NOT NULL, symbol TEXT, context TEXT,
-        status TEXT NOT NULL DEFAULT 'new', priority TEXT NOT NULL DEFAULT 'P2',
-        admin_notes TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)""")
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_recommendations_user ON recommendations(user_id, created_at DESC)")
-    conn.commit()
-    conn.close()
+    with db() as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS recommendations (
+            recommendation_id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            symbol TEXT,
+            context TEXT,
+            status TEXT NOT NULL DEFAULT 'new',
+            priority TEXT NOT NULL DEFAULT 'P2',
+            admin_notes TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_recommendations_user ON recommendations(user_id, created_at DESC)")
 
-init_account_schema()
 
 class RecommendationIn(BaseModel):
     category: str = Field(min_length=1, max_length=40)
@@ -63,22 +65,19 @@ def access(user=Depends(account_user)):
 
 @app.get("/account/recommendations")
 def recommendations(user=Depends(account_user)):
-    conn = db()
-    rows = conn.execute("""SELECT recommendation_id,category,title,description,symbol,
-        context,status,priority,admin_notes,created_at,updated_at
-        FROM recommendations WHERE user_id=? ORDER BY created_at DESC""",(user["user_id"],)).fetchall()
-    conn.close()
+    with db() as conn:
+        rows = conn.execute("""SELECT recommendation_id,category,title,description,symbol,
+            context,status,priority,admin_notes,created_at,updated_at
+            FROM recommendations WHERE user_id=? ORDER BY created_at DESC""",(user["user_id"],)).fetchall()
     return {"items":[dict(r) for r in rows]}
 
 @app.post("/account/recommendations", status_code=201)
 def create_recommendation(payload: RecommendationIn, user=Depends(account_user)):
     now = utc_now()
-    conn = db()
-    cur = conn.execute("""INSERT INTO recommendations
-        (user_id,category,title,description,symbol,context,status,priority,created_at,updated_at)
-        VALUES (?,?,?,?,?,?, 'new','P2',?,?)""",
-        (user["user_id"],payload.category,payload.title,payload.description,payload.symbol,payload.context,now,now))
-    conn.commit()
-    rid = cur.lastrowid
-    conn.close()
+    rid = str(uuid4())
+    with db() as conn:
+        conn.execute("""INSERT INTO recommendations
+            (recommendation_id,user_id,category,title,description,symbol,context,status,priority,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?, 'new','P2',?,?)""",
+            (rid,user["user_id"],payload.category,payload.title,payload.description,payload.symbol,payload.context,now,now))
     return {"recommendation_id":rid,"status":"new","priority":"P2","created_at":now}

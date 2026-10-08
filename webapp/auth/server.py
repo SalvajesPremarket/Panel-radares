@@ -4,13 +4,13 @@ import hashlib
 import hmac
 import os
 import secrets
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from uuid import uuid4
 
 from fastapi import Cookie, FastAPI, HTTPException, Response
 from pydantic import BaseModel, EmailStr, Field
+
+from webapp.storage import db
 
 ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = Path(os.getenv("TRADESCANNER_DB", ROOT / "data" / "tradescanner.sqlite3"))
@@ -49,7 +49,6 @@ def db():
     conn.row_factory = sqlite3.Row
     return conn
 
-@app.on_event("startup")
 def startup():
     with db() as conn:
         conn.executescript("""
