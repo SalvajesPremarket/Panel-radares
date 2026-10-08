@@ -6219,6 +6219,9 @@ def _render_scanner():
                         + f" · vistos: {_mv.get('symbols_seen', 0)}"
                         + f" · errores: {_mv.get('stream_errors', 0)}"
                         + (f" · último: {_mv_last}" if _mv_last else "")
+                        + f" · quotes: {_mv.get('quotes', 0)}"
+                        + (f" · evento: {_mv.get('last_event_kind')} {_mv.get('last_event_symbol')}" if _mv.get('last_event_kind') else "")
+                        + (f" · edad evento: {float(_mv.get('last_event_age_sec')):.1f}s" if _mv.get('last_event_age_sec') is not None else "")
                     )
                     if _mv.get("error"):
                         st.caption(f"Motor velas — último error: {_mv.get('error')}")
