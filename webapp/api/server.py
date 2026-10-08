@@ -7,13 +7,16 @@ from webapp.api.signal_service import store
 
 app=FastAPI(title="TradeScanner Private API",version="0.1.0")
 
+# Deployed Streamlit scanner. Can still be overridden by the server environment.
+DEFAULT_SCANNER_URL = "https://jd6gih.streamlit.app"
+
 def commercial_user(user=Depends(get_current_user)):
     if user["account_status"] not in {"trial","active_monthly","active_annual","admin"}:
         raise HTTPException(status_code=403,detail="Acceso comercial no activo")
     return user
 
 def scanner_ui_url():
-    value = str(os.getenv("TRADESCANNER_SCANNER_URL", "") or "").strip()
+    value = str(os.getenv("TRADESCANNER_SCANNER_URL", DEFAULT_SCANNER_URL) or "").strip()
     if not value:
         return ""
     parsed = urlparse(value)
