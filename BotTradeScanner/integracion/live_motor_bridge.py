@@ -223,4 +223,10 @@ class MotorVelasBridge:
             "stream_connected": bool(salud.get("connected")) if stream_compartido is not None else conectado,
             "symbols_seen": int(salud.get("symbols_seen", 0) or 0) if stream_compartido is not None else 0,
             "stream_errors": int(salud.get("errors", 0) or 0) if stream_compartido is not None else 0,
+            "quotes": int(salud.get("quotes", 0) or 0) if stream_compartido is not None else 0,
+            "last_event_kind": str(salud.get("last_event_kind") or "") if stream_compartido is not None else "",
+            "last_event_symbol": str(salud.get("last_event_symbol") or "") if stream_compartido is not None else "",
+            "last_event_age_sec": salud.get("last_event_age_sec") if stream_compartido is not None else None,
+            "subscribed_symbols": list(salud.get("subscribed_symbols") or []) if stream_compartido is not None else [],
+            "last_subscription_request_ts": salud.get("last_subscription_request_ts") if stream_compartido is not None else None,
         }
