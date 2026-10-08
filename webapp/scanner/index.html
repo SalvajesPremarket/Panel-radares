@@ -11,6 +11,7 @@ body{margin:0;background:#07111f;color:#eef4ff;font-family:Inter,system-ui,sans-
 <script>
 async function get(url){return fetch(url,{credentials:'include'});}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function embedUrl(url){try{const u=new URL(url);u.searchParams.set('embed','true');return u.toString();}catch{return url;}}
 async function load(){
  const me=await get('/auth/me'); if(!me.ok){location.href='/login';return;}
  const u=await me.json(); document.querySelector('#welcome').textContent='Sesión activa · '+(u.display_name||u.email);
@@ -28,7 +29,7 @@ async function load(){
  ].map(x=>'<article class="card"><div class="muted">'+esc(x[0])+'</div><div class="value '+x[2]+'">'+esc(x[1])+'</div></article>').join('');
  const liveWrap=document.querySelector('#liveWrap');
  if(s.live_ui_configured && s.live_ui_url){
-   document.querySelector('#liveFrame').src=s.live_ui_url;
+   document.querySelector('#liveFrame').src=embedUrl(s.live_ui_url);
    document.querySelector('#openLive').href=s.live_ui_url;
    liveWrap.style.display='block';
  }
