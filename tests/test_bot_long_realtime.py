@@ -170,3 +170,89 @@ def test_paperbot_blocks_after_daily_loss_limit():
     assert blocked["action"] == "blocked"
     assert blocked["reason"] == "daily_loss_limit"
     assert paper.status()["posiciones_abiertas"] == 0
+
+
+class FakeTradingClient:
+    def __init__(self):
+        self.submissions = 0
+        self.cancels = 0
+
+    def submit_order(self, order_data):
+        self.submissions += 1
+        return type("Order", (), {
+            "client_order_id": order_data["client_order_id"] if isinstance(order_data, dict) else "cid-1",
+            "id": "order-1",
+            "status": "new",
+            "filled_qty": 0,
+            "filled_avg_price": None,
+        })()
+
+    def get_order_by_client_id(self, client_order_id):
+        return type("Order", (), {
+            "client_order_id": client_order_id,
+            "id": "order-1",
+            "status": "new",
+            "filled_qty": 0,
+            "filled_avg_price": None,
+        })()
+
+    def cancel_order_by_id(self, order_id):
+        self.cancels += 1
+
+
+def test_paper_execution_prepares_limit_at_ask_and_stays_disabled():
+    from BotTradeScanner.ejecucion.alpaca import AlpacaExecutor
+    from BotTradeScanner.ejecucion.configuracion import ExecutionConfig
+
+    config = ExecutionConfig.por_defecto()
+    executor = AlpacaExecutor(config)
+    order = executor.preparar("TEST", ask=10.25, bid=10.20, cantidad=5, client_order_id="cid-disabled")
+    assert order.tipo == "limit"
+    assert order.limit_price == 10.25
+    result = executor.enviar_buy(order)
+    assert result.status == "disabled"
+    assert result.enviada is False
+
+
+def test_paper_execution_uses_client_order_id_idempotently(monkeypatch):
+    from BotTradeScanner.ejecucion.alpaca import AlpacaExecutor
+    from BotTradeScanner.ejecucion.configuracion import ExecutionConfig
+
+    config = ExecutionConfig.por_defecto()
+    config.enabled = True
+    client = FakeTradingClient()
+    executor = AlpacaExecutor(config, trading_client=client)
+    monkeypatch.setattr(executor, "_build_request", lambda order: {"client_order_id": order.client_order_id})
+
+    order = executor.preparar("TEST", ask=10.25, bid=10.20, cantidad=5, client_order_id="cid-idempotent")
+    first = executor.enviar_buy(order)
+    second = executor.enviar_buy(order)
+
+    assert first.status == "new"
+    assert second == first
+    assert client.submissions == 1
+
+
+def test_paper_execution_terminal_rejection_does_not_create_position():
+    from BotTradeScanner.ejecucion.alpaca import AlpacaExecutor
+    from BotTradeScanner.ejecucion.configuracion import ExecutionConfig
+
+    config = ExecutionConfig.por_defecto()
+    config.enabled = True
+    client = FakeTradingClient()
+    executor = AlpacaExecutor(config, trading_client=client)
+    monkeypatch_result = type("Order", (), {
+        "client_order_id": "cid-reject",
+        "id": "order-reject",
+        "status": "rejected",
+        "filled_qty": 0,
+        "filled_avg_price": None,
+    })()
+    monkeypatch = __import__("pytest").MonkeyPatch()
+    monkeypatch.setattr(executor, "_build_request", lambda order: {"client_order_id": order.client_order_id})
+    client.submit_order = lambda order_data: monkeypatch_result
+    order = executor.preparar("TEST", ask=10.25, bid=10.20, cantidad=5, client_order_id="cid-reject")
+    result = executor.enviar_buy(order)
+    assert result.status == "rejected"
+    assert result.filled_qty == 0
+    monkeypatch.undo()
