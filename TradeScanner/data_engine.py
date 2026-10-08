@@ -60,9 +60,6 @@ class AlpacaMarketStream:
         self._last_subscription_request = 0.0
         self._last_event_kind = ""
         self._last_event_symbol = ""
-        self._last_subscription_request = 0.0
-        self._last_event_kind = ""
-        self._last_event_symbol = ""
         self.cache = _LiveCache()
         self._trade_consumers = []
         self._quote_consumers = []
@@ -99,7 +96,6 @@ class AlpacaMarketStream:
             self._last_event_ts = time.time()
             self._connected = True
             self._last_event_kind = "quote"
-            self._last_event_kind = "quote"
             symbol = self._symbol(data)
             if symbol:
                 self._symbols_seen.add(symbol)
@@ -118,7 +114,6 @@ class AlpacaMarketStream:
             self._last_event_ts = time.time()
             self._connected = True
             self._last_event_kind = "trade"
-            self._last_event_kind = "trade"
             symbol = self._symbol(data)
             if symbol:
                 self._symbols_seen.add(symbol)
@@ -133,7 +128,7 @@ class AlpacaMarketStream:
 
     def _create_stream_locked(self):
         if self._stream is None:
-            self._stream = StockDataStream(self.api_key, self.secret_key, feed=self._feed_enum())
+            self._stream = StockDataStream(self.api_key, self.secret_key, feed=self._feed_enum(), data_timeout=60)
 
     def _run_stream(self):
         with self._lock:
@@ -273,9 +268,8 @@ class AlpacaMarketStream:
                 "errors": int(self._errors),
                 "last_event_ts": float(self._last_event_ts),
                 "last_error": self._last_error,
-                "subscribed_symbols": len(self._symbols),
-                "running": bool(self._running),
                 "subscribed_symbols": sorted(self._symbols),
+                "running": bool(self._running),
                 "last_event_kind": self._last_event_kind,
                 "last_event_symbol": self._last_event_symbol,
                 "last_event_age_sec": (time.time() - self._last_event_ts) if self._last_event_ts else None,
