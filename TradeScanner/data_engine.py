@@ -168,6 +168,7 @@ class AlpacaMarketStream:
                 self._create_stream_locked()
                 self._stream.subscribe_quotes(self._on_quote, *symbols)
                 self._stream.subscribe_trades(self._on_trade, *symbols)
+                self._symbols.update(symbols)
             else:
                 quitar = self._symbols - nuevos
                 agregar = nuevos - self._symbols
