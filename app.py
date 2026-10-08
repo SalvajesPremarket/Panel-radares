@@ -6069,11 +6069,11 @@ def _render_scanner():
                                 _guardar_ultima_configuracion_servidor()
                             except Exception:
                                 pass
-                            # El evento llega después de construir el HTML de esta ejecución.
-                            # Forzamos UN solo rerun para que el cuadro se reconstruya
-                            # usando inmediatamente el valor recién confirmado.
-                            # No hay navegación ni segundo rerun en cadena.
-                            st.rerun()
+                            # setComponentValue() ya provoca el rerun de Streamlit.
+                            # No forzar un segundo rerun: hacerlo aquí produce el parpadeo
+                            # y puede volver a pintar brevemente la configuración anterior.
+                            # En el siguiente paso normal del mismo rerun ya se construye
+                            # el iframe con la configuración recién confirmada.
         except Exception as _e_ts_nav:
             print(f"⚠️ No se pudo consolidar la configuración del scanner: {_e_ts_nav}")
     else:
