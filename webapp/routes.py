@@ -20,3 +20,7 @@ def register_page():
 @app.get("/account", include_in_schema=False)
 def account_page():
     return FileResponse(ROOT / "account" / "dashboard.html")
+
+@app.get("/scanner", include_in_schema=False)
+def scanner_page():
+    return FileResponse(ROOT / "scanner" / "index.html")
