@@ -217,12 +217,15 @@ st.markdown("""
     .block-container {
         max-width: 100% !important;
         width: 100% !important;
-        padding-left: 0.35rem !important;
-        padding-right: 0.35rem !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
     }
+    [data-testid="stCustomComponentV1"],
     [data-testid="stIFrame"],
     [data-testid="stIFrame"] > iframe {
         width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
         max-width: 100% !important;
     }
 </style>
