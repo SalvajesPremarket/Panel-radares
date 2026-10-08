@@ -120,6 +120,23 @@ iframe{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background
       return;
     }
     if(d.tsNav){
+      // CRÍTICO: escribir la nueva configuración en la URL DEL PADRE antes
+      // de avisar a Streamlit. El setComponentValue provoca el rerun, y
+      // Streamlit debe reconstruir el scanner usando YA el dato nuevo.
+      // Antes ocurría al revés: primero se disparaba el rerun, se pintaba
+      // brevemente la configuración vieja y solo después se aplicaba el evento.
+      try{
+        var _qnav=String(d.q||'');
+        var _topUrl=new URL(window.top.location.href);
+        _topUrl.search=_qnav;
+        window.top.history.replaceState(window.top.history.state,'',_topUrl.href);
+        try{TS_LATEST_QUERY=new URLSearchParams(_qnav)}catch(_qe){}
+      }catch(_he){
+        try{
+          var _fallback='/?'+String(d.q||'');
+          window.top.history.replaceState(window.top.history.state,'',_fallback);
+        }catch(_h2){}
+      }
       post('streamlit:setComponentValue',{value:{id:String(Date.now())+'-'+Math.random().toString(36).slice(2),q:String(d.q||'')},dataType:'json'});
       return;
     }
