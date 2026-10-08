@@ -119,7 +119,7 @@ class AlpacaMarketStream:
 
     def _create_stream_locked(self):
         if self._stream is None:
-            self._stream = StockDataStream(self.api_key, self.secret_key, feed=self._feed_enum(), data_timeout=90)
+            self._stream = StockDataStream(self.api_key, self.secret_key, feed=self._feed_enum())
 
     def _run_stream(self):
         with self._lock:
