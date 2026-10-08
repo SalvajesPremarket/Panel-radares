@@ -5,12 +5,16 @@ scanner (TradeScanner/app.py) remains isolated and is not imported here.
 """
 from fastapi import FastAPI
 
-from webapp.auth.server import app as auth_app
+from webapp.auth.server import app as auth_app, startup as auth_startup
 from webapp.account.server import app as account_app
 from webapp.api.server import app as api_app
 from webapp.routes import app as page_app
 
 app = FastAPI(title="TradeScanner Web App", version="0.1.0")
+
+@app.on_event("startup")
+def startup():
+    auth_startup()
 
 # Keep API/service routes under the same origin so browser cookies work
 # without exposing internal service boundaries.
