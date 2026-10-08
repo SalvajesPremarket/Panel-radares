@@ -45,3 +45,14 @@ La ejecución real con dinero deberá requerir autorización explícita, control
 5. Billing.
 6. API privada de señales.
 7. Bot en paper trading.
+
+
+## Arranque de la Web App
+
+Desde la raíz del repositorio:
+
+```bash
+uvicorn webapp.server:app --host 0.0.0.0 --port 8000
+```
+
+La aplicación unificada sirve Landing, Registro, Login, Cuenta, autenticación, permisos y API privada bajo el mismo origen. Requiere `TRADESCANNER_SESSION_SECRET` y, en producción, HTTPS para las cookies seguras.
