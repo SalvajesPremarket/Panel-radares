@@ -532,18 +532,29 @@ class MotorVelas:
             self._simbolos_suscritos.add(simbolo)
 
     def quitar_simbolo_en_caliente(self, simbolo: str):
-        """Deja de recibir trades de un ticker que ya no debe observarse."""
+        """Deja de observar un ticker y libera sus velas/cachés si ya no es necesario."""
         if self._stream is not None and simbolo in self._simbolos_suscritos:
-            try:
-                self._stream.unsubscribe_trades(simbolo)
-            except TypeError:
-                self._stream.unsubscribe_trades([simbolo])
-            try:
-                self._stream.unsubscribe_quotes(simbolo)
-            except TypeError:
-                self._stream.unsubscribe_quotes([simbolo])
-            self._simbolos_suscritos.discard(simbolo)
+            for nombre in ("unsubscribe_trades", "unsubscribe_quotes"):
+                cancelar = getattr(self._stream, nombre, None)
+                if not callable(cancelar):
+                    continue
+                try:
+                    cancelar(simbolo)
+                except TypeError:
+                    try:
+                        cancelar([simbolo])
+                    except Exception:
+                        pass
+                except Exception:
+                    # Un error al desuscribir no debe impedir liberar la caché local.
+                    pass
+        self._simbolos_suscritos.discard(simbolo)
+        self._historial_precargado.discard(simbolo)
         self._quotes.pop(simbolo, None)
+        # En el modo compartido, el websocket ya se ha desuscrito por separado.
+        # Eliminar también el motor local evita acumular cientos/miles de
+        # historiales de 300 velas a medida que rota el radar.
+        self.motores.pop(simbolo, None)
 
     def snapshot_simbolo(self, simbolo: str) -> dict:
         if simbolo not in self.motores:
