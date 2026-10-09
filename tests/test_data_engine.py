@@ -155,6 +155,34 @@ def test_alpaca_market_stream_reconnects_after_run_error(monkeypatch):
     stream.stop()
 
 
+def test_shared_stream_trade_reaches_motor_velas_end_to_end():
+    import asyncio
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from BotTradeScanner.motor_velas.motor_velas import MotorVelas
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+    motor = MotorVelas("key", "secret")
+    motor.conectar_stream_compartido(stream)
+
+    trade = SimpleNamespace(
+        symbol="AAPL",
+        price=10.25,
+        size=50,
+        timestamp=datetime(2026, 10, 9, 16, 0, 15, tzinfo=timezone.utc),
+    )
+    asyncio.run(stream._trade(trade))
+
+    assert stream.health_snapshot()["trades"] == 1
+    assert motor.total_trades == 1
+    assert motor.ultimo_trade == trade.timestamp
+    assert "AAPL" in motor.motores
+    assert motor.motores["AAPL"].vela_actual.cierre == 10.25
+    assert motor.motores["AAPL"].vela_actual.volumen == 50
+
+
 def test_shared_stream_consumers_receive_trades_and_quotes():
     import asyncio
     from datetime import datetime, timezone
