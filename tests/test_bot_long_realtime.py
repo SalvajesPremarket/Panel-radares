@@ -441,3 +441,31 @@ def test_shared_live_feed_waits_for_first_trade_after_historical_preload():
     assert bot.paper.status()["posiciones_abiertas"] == 0
     assert bot.status()["ultimo_error"] == "TEST: trade_live_ausente_o_obsoleto"
 
+def test_shared_live_feed_blocks_long_entry_when_quote_is_stale():
+    snapshots = [
+        valid_candidate_snapshot(market_data_trade_age_sec=1.0, market_data_quote_age_sec=45.0),
+        valid_candidate_snapshot(
+            vela_actual={
+                "apertura": 10.0, "cierre": 10.1, "minimo": 9.8, "maximo": 10.1,
+                "es_positiva": True, "regreso_a_apertura": True,
+                "es_libelula_en_curso": True, "es_lapida_en_curso": False,
+            },
+            market_data_trade_age_sec=1.0,
+            market_data_quote_age_sec=45.0,
+        ),
+    ]
+
+    class SharedSequenceBridge(SequenceBridge):
+        def status(self):
+            return {"stream_compartido": True, "stream_connected": True}
+
+    bot = BotLongRealtime(SharedSequenceBridge(snapshots))
+    bot.sync_candidates([{"ticker": "TEST", "precio": 10.25}])
+
+    bot.evaluar_ahora()
+    decision = bot.evaluar_ahora()
+
+    assert decision[0]["accion"] == "WAIT"
+    assert decision[0]["motivo"] == "quote_live_obsoleta:45.0s"
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+
