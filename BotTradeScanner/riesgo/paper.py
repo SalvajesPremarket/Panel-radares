@@ -19,6 +19,7 @@ class RiskConfig:
     max_simultaneous_positions: int = 3
     daily_loss_limit: float = 0.03
     max_exposure: float = 0.20
+    max_dolares_por_operacion: float = 120.0
     kill_switch: bool = False
 
 
@@ -116,7 +117,9 @@ class PaperBot:
             float("inf") if distancia_stop == 0 else floor(riesgo_maximo / distancia_stop)
         )
         cantidad_por_exposicion = floor(exposicion_maxima / precio)
-        cantidad = min(cantidad_por_riesgo, cantidad_por_exposicion)
+        presupuesto_operacion = max(0.0, float(self.risk.max_dolares_por_operacion))
+        cantidad_por_presupuesto = floor(presupuesto_operacion / precio) if presupuesto_operacion > 0 else 0
+        cantidad = min(cantidad_por_riesgo, cantidad_por_exposicion, cantidad_por_presupuesto)
 
         if cantidad < 1:
             return 0.0, 0.0, 0.0, "position_size_below_one_share"
@@ -287,6 +290,7 @@ class PaperBot:
                 "capital_inicial": self.risk.initial_capital,
                 "riesgo_maximo_por_operacion": self.risk.initial_capital * self.risk.max_risk_per_trade,
                 "exposicion_maxima_por_posicion": self.risk.initial_capital * self.risk.max_exposure,
+                "presupuesto_maximo_por_operacion": self.risk.max_dolares_por_operacion,
                 "limite_perdida_diaria": self._limite_perdida_diaria(),
                 "pnl_realizado_hoy": pnl_hoy,
                 "perdida_diaria_disponible": max(0.0, self._limite_perdida_diaria() + pnl_hoy),
