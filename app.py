@@ -4300,6 +4300,14 @@ servicio = obtener_servicio(
     st.secrets.get("FMP_API_KEY", None),
 )
 
+# st.cache_resource puede conservar la instancia del scanner entre reruns.
+# Reenlazar SOLO el ciclo principal aplica los guardas/diagnósticos nuevos sin
+# recrear el servicio, perder la configuración ni arrancar un segundo hilo.
+try:
+    servicio._ciclo = ServicioScanner._ciclo.__get__(servicio, type(servicio))
+except Exception as _e_ciclo_runtime:
+    print(f"⚠️ No se pudo actualizar el ciclo del scanner en caliente: {_e_ciclo_runtime}")
+
 # TELEGRAM: bloqueo de emergencia a nivel de instancia.
 # El motor vive en st.cache_resource y puede conservar una instancia/hilo creado
 # con una versión anterior del código. Aunque el método actual ya no envía,
