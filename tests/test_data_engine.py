@@ -402,3 +402,32 @@ def test_alpaca_market_stream_empty_update_unsubscribes_previous_symbols(monkeyp
     assert fake.trades == set()
     assert stream._symbols == set()
     stream.stop()
+
+
+
+def test_motor_velas_bridge_enforces_stream_symbol_budget_and_cleans_old_symbols():
+    import time
+
+    from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
+
+    class FakeStream:
+        def __init__(self):
+            self.last_symbols = None
+
+        def start(self, symbols):
+            self.last_symbols = list(symbols)
+
+    class FakeMotor:
+        def conectar_stream_compartido(self, stream):
+            pass
+
+    stream = FakeStream()
+    bridge = MotorVelasBridge("key", "secret", motor=FakeMotor(), market_stream=stream)
+    bridge.MAX_SIMBOLOS_BASIC = 7
+    symbols = ["TSLA", "AAPL", "MSFT", "NVDA", "AMD", "META", "PLTR", "AMZN", "GOOG", "INTC"]
+    bridge._simbolos_cargados = set(symbols)
+    bridge.sync_results([{"ticker": symbol} for symbol in symbols])
+
+    assert stream.last_symbols == symbols[:7]
+    assert bridge._simbolos_deseados == set(symbols[:7])
+    assert bridge._simbolos_cargados == set(symbols[:7])
