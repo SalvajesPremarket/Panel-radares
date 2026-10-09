@@ -2853,6 +2853,8 @@ class ServicioScanner:
         self.cache_fund = self._leer_cache_fundamentales()
         # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
         self.fmp_pausado_hasta = 0.0
+        self._fmp_429_consecutivos = 0
+        self.fmp_ultimo_429 = None
         self._ultima_peticion_fmp = 0.0
         self._bulk_float_running = False
         self._bulk_float_lock = threading.Lock()
@@ -3185,8 +3187,8 @@ class ServicioScanner:
             self.resultados_por_tf = {}
             self.diag_por_tf = {}
             self._raw_prev_por_tf = {}
-            self.fmp_pausado_hasta = 0.0
-            self._ultima_peticion_fmp = 0.0
+            # No borrar la pausa/rítmica de FMP al reiniciar el motor:
+            # hacerlo provoca otro 429 inmediato tras cada OFF/ON.
             self._ultima_peticion = 0.0
 
             # Nuevo hilo único. Las credenciales y la configuración permanecen intactas.
@@ -3270,6 +3272,40 @@ class ServicioScanner:
 
         return buscar(payload)
 
+    def _registrar_fmp_429(self, respuesta, contexto):
+        """Aplica una pausa según el límite informado por FMP y conserva el diagnóstico."""
+        cuerpo = " ".join(str(getattr(respuesta, "text", "") or "").split())
+        cuerpo_l = cuerpo.lower()
+        try:
+            retry_after = max(0, int(float(respuesta.headers.get("Retry-After", 0) or 0)))
+        except (TypeError, ValueError, AttributeError):
+            retry_after = 0
+
+        self._fmp_429_consecutivos = min(8, int(getattr(self, "_fmp_429_consecutivos", 0)) + 1)
+        cuota_diaria = any(frase in cuerpo_l for frase in (
+            "daily limit", "limit per day", "requests per day", "daily quota",
+            "quota exceeded", "limit reach", "limit has been reached",
+            "wait for next day", "next day"
+        ))
+        if cuota_diaria:
+            ahora_utc = datetime.now(timezone.utc)
+            reanudar = (ahora_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+                        + timedelta(days=1, seconds=60)).timestamp()
+            pausa_txt = "La respuesta indica cuota diaria; se reintentará después de medianoche UTC."
+        else:
+            pausa = max(
+                PAUSA_FMP_429_SEGUNDOS,
+                retry_after,
+                min(3600, PAUSA_FMP_429_SEGUNDOS * (2 ** (self._fmp_429_consecutivos - 1)))
+            )
+            reanudar = time.time() + pausa
+            pausa_txt = f"Reintento en aproximadamente {max(1, int((pausa + 59) // 60))} min."
+
+        self.fmp_pausado_hasta = max(float(getattr(self, "fmp_pausado_hasta", 0) or 0), reanudar)
+        detalle = f" Respuesta FMP: {cuerpo[:220]}" if cuerpo else " FMP no incluyó detalle en el cuerpo."
+        self.ultimo_error = f"FMP HTTP 429 ({contexto}). {pausa_txt}{detalle}"
+        self.fmp_ultimo_429 = self.ultimo_error
+
     def _actualizar_float_bulk(self):
         """Carga la tabla masiva de float de FMP y la mezcla con la caché local.
 
@@ -3279,8 +3315,14 @@ class ServicioScanner:
         consulta individual solo como respaldo para símbolos que no aparezcan.
         """
         if not self.fmp_api_key:
+            self._bulk_float_running = False
             return False
         ahora = time.time()
+        if ahora < float(getattr(self, "fmp_pausado_hasta", 0) or 0):
+            # Este método se lanza con _bulk_float_running=True; liberar la bandera
+            # evita dejar bloqueadas para siempre las futuras cargas masivas.
+            self._bulk_float_running = False
+            return False
         try:
             _meta_b = self.cache_fund.get("__bulk_meta__", {}) or {}
             ultima_bulk = float(_meta_b.get("ts", 0))
@@ -3288,10 +3330,11 @@ class ServicioScanner:
         except Exception:
             ultima_bulk = 0.0
             _enc_prev = 0
-        # Si la ultima carga no encontro NINGUN float (clave mala, limite 429, etc.) se
-        # reintenta en ~15 min en vez de esperar 12 horas con el scanner sin datos de float.
-        _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else 7200
+        # Si la última carga no obtuvo datos, reintentar en 15 min; no dejar
+        # una caché vacía bloqueada durante 2 horas.
+        _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else PAUSA_FMP_429_SEGUNDOS
         if ahora - ultima_bulk < _ventana_bulk:
+            self._bulk_float_running = False
             return False
         try:
             universo_set = set(self.universo or [])
@@ -3315,10 +3358,9 @@ class ServicioScanner:
                         timeout=20,
                     )
                 self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
-                if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
                 if respuesta.status_code == 429:
-                    self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
-                    self.ultimo_error = "FMP bulk devolvió HTTP 429; se usará la caché existente y luego el endpoint individual."
+                    self._metrica_sumar("fmp_429")
+                    self._registrar_fmp_429(respuesta, "carga masiva de flotación")
                     break
                 if respuesta.status_code in (401, 403):
                     self._metrica_sumar("fmp_errores")
@@ -3328,6 +3370,7 @@ class ServicioScanner:
                     self._metrica_sumar("fmp_errores")
                     self.ultimo_error = f"FMP bulk devolvió HTTP {respuesta.status_code}; se mantiene la caché existente."
                     break
+                self._fmp_429_consecutivos = 0
                 try:
                     payload = respuesta.json()
                 except ValueError:
@@ -3358,6 +3401,8 @@ class ServicioScanner:
             self._guardar_cache_fundamentales()
             if encontrados:
                 self.ultimo_error = None
+                self.fmp_ultimo_429 = None
+                self._fmp_429_consecutivos = 0
                 print(f"✓ FMP bulk float: {encontrados} símbolos del universo actualizados ({paginas} páginas).")
             return encontrados > 0
         except Exception as e:
@@ -3376,7 +3421,10 @@ class ServicioScanner:
         if ahora < self.fmp_pausado_hasta:
             restante = max(1, int(self.fmp_pausado_hasta - ahora))
             minutos = restante // 60 + (1 if restante % 60 else 0)
+            causa = getattr(self, "fmp_ultimo_429", None)
             self.ultimo_error = (
+                f"{causa} Pausa activa: quedan aproximadamente {minutos} min."
+                if causa else
                 "FMP está en pausa por límite de solicitudes (HTTP 429). "
                 f"Se reintentará en aproximadamente {minutos} min."
             )
@@ -3398,14 +3446,10 @@ class ServicioScanner:
                     timeout=8,
                 )
             self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
-            if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
             if respuesta.status_code == 429:
-                self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
-                self.ultimo_error = (
-                    f"FMP devolvió HTTP 429 para {ticker}. "
-                    "Se pausaron las consultas de float durante 15 minutos para evitar más bloqueos."
-                )
-                print(f"⚠️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s")
+                self._metrica_sumar("fmp_429")
+                self._registrar_fmp_429(respuesta, f"consulta individual de {ticker}")
+                print(f"⚠️ {self.ultimo_error}")
                 return None
             if respuesta.status_code in (401, 403):
                 self._metrica_sumar("fmp_errores")
@@ -3418,6 +3462,8 @@ class ServicioScanner:
                 self._metrica_sumar("fmp_errores")
                 self.ultimo_error = f"FMP devolvió HTTP {respuesta.status_code} para {ticker}."
                 return None
+            self._fmp_429_consecutivos = 0
+            self.fmp_ultimo_429 = None
             try:
                 payload = respuesta.json()
             except ValueError:
@@ -3858,11 +3904,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Mientras termina, los candidatos nuevos usan el endpoint individual como respaldo.
         try:
             meta_bulk = self.cache_fund.get("__bulk_meta__", {}) if isinstance(self.cache_fund, dict) else {}
-            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else 7200
+            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else PAUSA_FMP_429_SEGUNDOS
             bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= _ventana_chk
         except Exception:
             bulk_stale = True
-        if bulk_stale and not getattr(self, "_bulk_float_running", False):
+        if (bulk_stale
+                and time.time() >= float(getattr(self, "fmp_pausado_hasta", 0) or 0)
+                and not getattr(self, "_bulk_float_running", False)):
             with self._bulk_float_lock:
                 if not self._bulk_float_running:
                     self._bulk_float_running = True
