@@ -516,3 +516,15 @@ def test_alpaca_server_subscription_errors_are_exposed_in_health_snapshot():
     assert "405" in health["last_error"]
     assert "symbol limit exceeded" in health["last_error"]
     assert sdk_stream.received[0]["code"] == 405
+
+    asyncio.run(sdk_stream._dispatch({
+        "T": "subscription",
+        "trades": ["AAPL"],
+        "quotes": ["AAPL"],
+        "corrections": ["AAPL"],
+        "cancelErrors": ["AAPL"],
+    }))
+    health = stream.health_snapshot()
+    assert health["server_subscription_state"]["trades"] == ["AAPL"]
+    assert health["server_subscription_state"]["quotes"] == ["AAPL"]
+    assert health["last_subscription_ack_ts"] is not None
