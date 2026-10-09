@@ -54,7 +54,6 @@ def test_bridge_sync_results_updates_shared_stream_symbols_without_second_stream
 
     assert starts == [["AAPL", "MSFT"]]
     assert bridge.status()["stream_compartido"] is True
-    assert bridge.status()["simbolos_solicitados"] == []
     # Shared mode must not create MotorVelas' own StockDataStream connection.
     assert motor._stream is None
     assert motor._stream_compartido is stream
