@@ -443,7 +443,11 @@ class BotLongRealtime:
         # Distinguir con claridad la simulación local de cualquier envío a broker.
         # ExecutionConfig.enabled por sí solo no basta: también hace falta un
         # executor inyectado y conectado para poder enviar órdenes externas.
-        broker_habilitado = bool(self.execution_config.enabled and self.executor is not None)
+        broker_habilitado = bool(
+            self.execution_config.enabled
+            and self.executor is not None
+            and getattr(self.executor, "_client", None) is not None
+        )
         return {
             "hilo_vivo": bool(hilo is not None and hilo.is_alive()),
             "intervalo_segundos": self.intervalo_segundos,
