@@ -235,20 +235,26 @@ class BotLongRealtime:
                 precio_actual = vela_actual.get("cierre")
                 entrada_actual = estado_actual.get("precio_entrada")
                 estados_long = {"long_primera_vela", "long_segunda_vela", "long_siguientes"}
-                take_profit = False
+                motivo_salida = None
                 if estado_actual.get("estado") in estados_long and entrada_actual and precio_actual:
                     try:
-                        take_profit = float(precio_actual) >= float(entrada_actual) * (1 + config_operativa["take_profit_pct"] / 100.0)
+                        precio_eval = float(precio_actual)
+                        stop_vigente = estado_actual.get("stop_loss")
+                        objetivo_tp = float(entrada_actual) * (1 + config_operativa["take_profit_pct"] / 100.0)
+                        if stop_vigente is not None and precio_eval <= float(stop_vigente):
+                            motivo_salida = f"Stop Loss alcanzado ({config_operativa['stop_loss_pct']:g}%)."
+                        elif precio_eval >= objetivo_tp:
+                            motivo_salida = f"Take Profit alcanzado ({config_operativa['take_profit_pct']:g}%)."
                     except (TypeError, ValueError):
-                        take_profit = False
-                if take_profit:
+                        motivo_salida = None
+                if motivo_salida:
                     stop_vigente = estado_actual.get("stop_loss")
                     self.decisiones.marcar_salida_para_pullback(simbolo)
                     decision_data = {
                         "simbolo": simbolo,
                         "accion": "EXIT",
                         "estado": "pullback_long",
-                        "motivo": f"Take Profit alcanzado ({config_operativa['take_profit_pct']:g}%).",
+                        "motivo": motivo_salida,
                         "stop_loss": stop_vigente,
                         "precio": float(precio_actual),
                         "candidato_scanner": candidato,
@@ -276,7 +282,9 @@ class BotLongRealtime:
                 if anterior != comparable or decision_data.get("accion") in {"BUY", "EXIT"}:
                     ejecucion = None
                     if decision_data.get("accion") == "BUY":
-                        if self.executor is not None:
+                        # Si la ejecución externa está deshabilitada, la compra se
+                        # simula en PAPER; no se intenta enviar una orden al broker.
+                        if self.executor is not None and self.execution_config.enabled:
                             ask = snap.get("ask")
                             bid = snap.get("bid")
                             try:
