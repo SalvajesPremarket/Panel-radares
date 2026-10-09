@@ -14,6 +14,7 @@ del algoritmo) decida qué hacer.
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
 from threading import Lock
+import time
 import statistics
 
 
@@ -335,6 +336,9 @@ class MotorVelas:
         self._historial_precargado: set = set()
         # Ultima cotizacion real bid/ask, separada de las velas.
         self._quotes: dict[str, dict] = {}
+        # Marcas monotónicas por ticker para no evaluar velas sin trades recientes.
+        self._ultimo_trade_monotonic: dict[str, float] = {}
+        self._ultima_quote_monotonic: dict[str, float] = {}
         self._stream_compartido = None
 
         # Diagnóstico de la conexión (útil para validar que llegan datos)
@@ -427,7 +431,8 @@ class MotorVelas:
 
     def _guardar_quote(self, quote):
         """Guarda el ultimo bid/ask real recibido por Alpaca."""
-        simbolo = quote.symbol
+        simbolo = str(quote.symbol).strip().upper()
+        self._ultima_quote_monotonic[simbolo] = time.monotonic()
         try:
             bid = float(quote.bid_price) if quote.bid_price is not None else None
         except (TypeError, ValueError):
@@ -486,6 +491,7 @@ class MotorVelas:
         motor.procesar_trade(precio=precio, tamano=tamano, momento=momento)
         self.total_trades += 1
         self.ultimo_trade = momento
+        self._ultimo_trade_monotonic[simbolo] = time.monotonic()
 
     def iniciar(self, simbolos: list):
         """Inicia el motor usando el stream compartido cuando existe.
@@ -551,6 +557,8 @@ class MotorVelas:
         self._simbolos_suscritos.discard(simbolo)
         self._historial_precargado.discard(simbolo)
         self._quotes.pop(simbolo, None)
+        self._ultimo_trade_monotonic.pop(simbolo, None)
+        self._ultima_quote_monotonic.pop(simbolo, None)
         # En el modo compartido, el websocket ya se ha desuscrito por separado.
         # Eliminar también el motor local evita acumular cientos/miles de
         # historiales de 300 velas a medida que rota el radar.
@@ -565,6 +573,16 @@ class MotorVelas:
         snap["bid"] = quote.get("bid")
         snap["ask"] = quote.get("ask")
         snap["quote_timestamp"] = quote.get("timestamp")
+        ahora_monotonic = time.monotonic()
+        ticker = str(simbolo).strip().upper()
+        ultimo_trade = self._ultimo_trade_monotonic.get(ticker)
+        ultima_quote = self._ultima_quote_monotonic.get(ticker)
+        snap["market_data_trade_age_sec"] = (
+            max(0.0, ahora_monotonic - ultimo_trade) if ultimo_trade is not None else None
+        )
+        snap["market_data_quote_age_sec"] = (
+            max(0.0, ahora_monotonic - ultima_quote) if ultima_quote is not None else None
+        )
         return snap
 
     def simbolos_activos(self) -> list:

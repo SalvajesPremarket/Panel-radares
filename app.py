@@ -3981,7 +3981,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if not cierre_prev or cierre_prev <= 0:
                 snapshots_cierre_previo_invalido += 1
                 continue
-            if not (BASE_PRECIO_MIN <= precio <= BASE_PRECIO_MAX):
+            # El motor no impone un rango de precio fijo: el precio lo filtra
+            # cada usuario en su pantalla, después del análisis técnico.
+            # Solo descartamos precios inválidos/no positivos.
+            if precio <= 0:
                 snapshots_fuera_precio_base += 1
                 continue
             snapshots_validos_base += 1
@@ -4026,20 +4029,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "actualizado": snap.latest_trade.timestamp,
             })
 
-        # Primero aplicamos SOLO los filtros baratos y disponibles en Alpaca.
+        # Primero aplicamos filtros de selección disponibles en Alpaca.
+        # No imponer aquí precio_min/precio_max: el pool es compartido y cada
+        # usuario aplica su propio rango después del análisis técnico.
         # IMPORTANTE: NO pedimos FLOAT aquí. FMP solo entrega aproximadamente
         # un ticker por intervalo y pedirlo antes de EMA/MACD hacía que casi
         # todo el universo quedara descartado por float desconocido.
         radar_gap = []
         for c in base:
-            # El precio del usuario se aplica ANTES de recortar a los 300 de mayor volumen.
-            # Antes solo se aplicaba al final, asi que un rango estrecho dejaba pocos resultados
-            # aunque hubiera muchas acciones validas fuera de esos 300.
-            try:
-                if not (float(filtros_tf.get("precio_min", BASE_PRECIO_MIN)) <= float(c["precio"]) <= float(filtros_tf.get("precio_max", BASE_PRECIO_MAX))):
-                    continue
-            except Exception:
-                pass
             if _filtro_activo(filtros_tf, "gap_activo", _filtro_activo(filtros_tf, "f_gap_on", False)):
                 gap = c.get("gap_pct")
                 if gap is None or not (float(filtros_tf.get("gap_min", 3.0)) <= float(gap) <= float(filtros_tf.get("gap_max", 50.0))):
@@ -4053,7 +4050,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         radar_base_total = len(base)
         self.n_radar_base = radar_base_total
         self.n_radar_gap = len(radar_gap)
-        radar_gap.sort(key=lambda c: c["volumen_dia"], reverse=True)
+        # El límite de enriquecimiento se mantiene para proteger recursos.
+        # Ordenar por volumen negociado estimado (precio × volumen) evita
+        # favorecer sistemáticamente acciones baratas frente a acciones caras.
+        radar_gap.sort(
+            key=lambda c: max(0.0, float(c.get("precio") or 0.0))
+            * max(0.0, float(c.get("volumen_dia") or 0.0)),
+            reverse=True,
+        )
         radar_gap = radar_gap[:MAX_ENRIQUECER]
 
         # EMA/MACD se calculan ANTES del float. Así FMP se usa únicamente
@@ -6353,7 +6357,7 @@ def _render_scanner():
                     ("snapshots_sin_daily_bar", "Snapshots sin barra diaria"),
                     ("snapshots_sin_previous_daily_bar", "Snapshots sin barra diaria anterior"),
                     ("snapshots_cierre_previo_invalido", "Snapshots con cierre previo inválido"),
-                    ("snapshots_fuera_precio_base", "Snapshots fuera del precio base del motor"),
+                    ("snapshots_fuera_precio_base", "Snapshots con precio inválido o no positivo"),
                     ("snapshots_validos_base", "Snapshots válidos antes de filtros"),
                     ("radar_base", "Acciones en radar base"),
                     ("enviados_tecnico", "Enviadas a análisis técnico"),
@@ -6826,6 +6830,66 @@ def _render_robot_long_page(servicio):
         st.caption("El número de acciones se limita al presupuesto disponible y al precio de entrada. El tamaño real puede ser menor por los límites de riesgo.")
         if _rb.get("ultimo_error"):
             st.warning(f"Último aviso del motor: {_rb.get('ultimo_error')}")
+
+        # Diagnóstico operativo del feed compartido. Permite verificar en el
+        # entorno desplegado que llegan trades y quotes recientes por símbolo.
+        with st.expander("Diagnóstico de datos en vivo", expanded=True):
+            _md = _rb.get("market_data", {}) or {}
+            _connected = bool(_md.get("stream_connected"))
+            _running = bool(_md.get("stream_running"))
+            _feed_label = str(_md.get("feed") or "no informado").upper()
+            _feed_state = "CONECTADO" if _connected else ("CONECTANDO" if _running else "DESCONECTADO")
+            _d1, _d2, _d3, _d4 = st.columns(4)
+            _d1.metric("WebSocket", _feed_state)
+            _d2.metric("Feed", _feed_label)
+            _d3.metric("Trades recibidos", f"{int(_md.get('stream_trades', 0) or 0):,}")
+            _d4.metric("Quotes recibidas", f"{int(_md.get('quotes', 0) or 0):,}")
+            _subs = _md.get("subscribed_symbols", []) or []
+            _loaded = _md.get("simbolos_cargados", []) or []
+            st.caption(
+                f"Stream compartido: {'sí' if _md.get('stream_compartido') else 'no'} · "
+                f"Símbolos suscritos: {', '.join(map(str, _subs)) or 'ninguno'} · "
+                f"Símbolos preparados: {len(_loaded)}/{_md.get('limite_simbolos', 7)} · "
+                f"Eventos recientes: {_md.get('last_event_kind') or 'ninguno'}"
+                + (f" ({_md.get('last_event_symbol')})" if _md.get('last_event_symbol') else "")
+            )
+            _event_age = _md.get("last_event_age_sec")
+            if _event_age is not None:
+                try:
+                    st.caption(f"Antigüedad del último evento del stream: {float(_event_age):.1f} s")
+                except (TypeError, ValueError):
+                    pass
+            if _md.get("stream_last_error") or _md.get("last_consumer_error") or _md.get("error"):
+                st.warning(
+                    "Error de feed/motor: "
+                    + str(_md.get("stream_last_error") or _md.get("last_consumer_error") or _md.get("error"))
+                )
+            _live_rows = []
+            for _sym in (_rb.get("candidatos", []) or [])[:7]:
+                try:
+                    _snap = servicio.snapshot_motor_velas(_sym) or {}
+                    _row = {"Símbolo": _sym}
+                    for _key, _label in (
+                        ("market_data_trade_age_sec", "Trade (s)"),
+                        ("market_data_quote_age_sec", "Quote (s)"),
+                    ):
+                        _age = _snap.get(_key)
+                        if _age is None:
+                            _row[_label] = "SIN DATO"
+                        else:
+                            try:
+                                _age = float(_age)
+                                _row[_label] = f"{_age:.1f}" + (" · OBSOLETO" if _age > 30 else " · RECIENTE")
+                            except (TypeError, ValueError):
+                                _row[_label] = "NO DISPONIBLE"
+                    _live_rows.append(_row)
+                except Exception as _live_exc:
+                    _live_rows.append({"Símbolo": _sym, "Trade (s)": "ERROR", "Quote (s)": str(_live_exc)})
+            if _live_rows:
+                st.dataframe(_live_rows, hide_index=True, use_container_width=True)
+            else:
+                st.caption("Aún no hay candidatos para comprobar la antigüedad de trades y quotes.")
+            st.caption("El bot bloquea entradas LONG si no hay trade reciente o la cotización supera 30 segundos. Esta pantalla informa el estado; no activa órdenes reales.")
 
     with _t_riesgo:
         st.markdown("#### Configuración de capital y protección")

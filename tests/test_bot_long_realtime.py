@@ -340,3 +340,132 @@ def test_paper_execution_terminal_rejection_does_not_create_position():
     assert result.status == "rejected"
     assert result.filled_qty == 0
     monkeypatch.undo()
+
+def test_status_identifica_paper_y_feed_compartido_sin_habilitar_broker():
+    class Bridge:
+        def sync_results(self, rows):
+            pass
+
+        def snapshot(self, simbolo):
+            return {"simbolo": simbolo, "sin_datos": True}
+
+        def status(self):
+            return {
+                "stream_compartido": True,
+                "stream_connected": True,
+                "subscribed_symbols": ["TEST"],
+            }
+
+    bot = BotLongRealtime(Bridge())
+    bot.sync_candidates([{"ticker": "TEST", "precio": 10.25, "actualizado": "2026-10-09T14:30:00Z",
+                         "ema20_estado": "arriba", "macd_positivo": True}])
+
+    status = bot.status()
+    assert status["modo_ejecucion"] == "paper_simulation"
+    assert status["envio_broker_habilitado"] is False
+    assert status["executor_configurado"] is False
+    assert status["market_data"]["stream_compartido"] is True
+    assert status["cantidad_candidatos"] == 1
+
+
+def test_scanner_context_is_attached_to_bot_decision():
+    bridge = FakeBridge(valid_candidate_snapshot())
+    bot = BotLongRealtime(bridge)
+    bot.sync_candidates([{
+        "ticker": "TEST",
+        "precio": 10.25,
+        "actualizado": "2026-10-09T14:30:00Z",
+        "ema20_estado": "arriba",
+        "ema50_estado": "arriba",
+        "ema200_estado": "abajo",
+        "tecnico_ema20": 10.1,
+        "macd_positivo": True,
+        "macd_negativo": False,
+        "gap_pct": 12.5,
+        "volumen_dia": 250000,
+        "float_shares": 1000000,
+        "tecnico_barras": 5,
+    }])
+
+    decisions = bot.evaluar_ahora()
+    assert decisions
+    assert decisions[0]["scanner_price"] == 10.25
+    assert decisions[0]["scanner_timestamp"] == "2026-10-09T14:30:00Z"
+    assert decisions[0]["scanner_conditions"]["ema20_estado"] == "arriba"
+    assert decisions[0]["scanner_conditions"]["macd_positivo"] is True
+    assert decisions[0]["scanner_conditions"]["gap_pct"] == 12.5
+
+def test_shared_live_feed_rejects_candidate_without_fresh_trade():
+    class SharedBridge:
+        def sync_results(self, rows):
+            self.synced = list(rows)
+
+        def snapshot(self, symbol):
+            data = valid_candidate_snapshot()
+            data["simbolo"] = symbol
+            data["market_data_trade_age_sec"] = 45.0
+            return data
+
+        def status(self):
+            return {"stream_compartido": True, "stream_connected": True}
+
+    bridge = SharedBridge()
+    bot = BotLongRealtime(bridge)
+    bot.sync_candidates([{"ticker": "TEST", "precio": 10.25}])
+
+    decisions = bot.evaluar_ahora()
+
+    assert decisions == []
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+    assert bot.status()["ultimo_error"] == "TEST: trade_live_obsoleto:45.0s"
+
+
+def test_shared_live_feed_waits_for_first_trade_after_historical_preload():
+    class SharedBridge:
+        def sync_results(self, rows):
+            self.synced = list(rows)
+
+        def snapshot(self, symbol):
+            data = valid_candidate_snapshot()
+            data["simbolo"] = symbol
+            data["market_data_trade_age_sec"] = None
+            return data
+
+        def status(self):
+            return {"stream_compartido": True, "stream_connected": True}
+
+    bot = BotLongRealtime(SharedBridge())
+    bot.sync_candidates([{"ticker": "TEST", "precio": 10.25}])
+
+    assert bot.evaluar_ahora() == []
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+    assert bot.status()["ultimo_error"] == "TEST: trade_live_ausente_o_obsoleto"
+
+def test_shared_live_feed_blocks_long_entry_when_quote_is_stale():
+    snapshots = [
+        valid_candidate_snapshot(market_data_trade_age_sec=1.0, market_data_quote_age_sec=45.0),
+        valid_candidate_snapshot(
+            vela_actual={
+                "apertura": 10.0, "cierre": 10.1, "minimo": 9.8, "maximo": 10.1,
+                "es_positiva": True, "regreso_a_apertura": True,
+                "es_libelula_en_curso": True, "es_lapida_en_curso": False,
+            },
+            market_data_trade_age_sec=1.0,
+            market_data_quote_age_sec=45.0,
+        ),
+    ]
+
+    class SharedSequenceBridge(SequenceBridge):
+        def status(self):
+            return {"stream_compartido": True, "stream_connected": True}
+
+    bot = BotLongRealtime(SharedSequenceBridge(snapshots))
+    bot.sync_candidates([{"ticker": "TEST", "precio": 10.25}])
+
+    bot.evaluar_ahora()
+    decision = bot.evaluar_ahora()
+
+    assert decision[0]["accion"] == "WAIT"
+    assert decision[0]["motivo"] == "quote_live_obsoleta:45.0s"
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+

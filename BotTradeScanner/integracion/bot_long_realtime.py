@@ -141,6 +141,22 @@ class BotLongRealtime:
                     "confidence": row.get("confidence"),
                     "signal_type": row.get("signal_type") or row.get("signalType"),
                     "timeframe": row.get("tecnico_timeframe") or row.get("timeframe"),
+                    # Contexto emitido por TradeScanner para auditoría/decisión.
+                    # No abre conexiones ni sustituye el snapshot compartido en vivo.
+                    "scanner_price": row.get("precio") or row.get("price"),
+                    "scanner_timestamp": row.get("actualizado") or row.get("timestamp"),
+                    "scanner_conditions": {
+                        "ema20_estado": row.get("ema20_estado"),
+                        "ema50_estado": row.get("ema50_estado"),
+                        "ema200_estado": row.get("ema200_estado"),
+                        "ema20": row.get("tecnico_ema20"),
+                        "macd_positivo": row.get("macd_positivo"),
+                        "macd_negativo": row.get("macd_negativo"),
+                        "gap_pct": row.get("gap_pct"),
+                        "volumen_dia": row.get("volumen_dia"),
+                        "float_shares": row.get("float_shares"),
+                        "tecnico_barras": row.get("tecnico_barras"),
+                    },
                 }
 
         with self._lock:
@@ -233,11 +249,28 @@ class BotLongRealtime:
                 simbolos.add(simbolo)
 
         nuevas, fills_confirmados = self._procesar_ordenes_pendientes()
+        try:
+            estado_feed = self.motor_bridge.status()
+        except Exception:
+            estado_feed = {}
+        exigir_trade_vivo = bool(estado_feed.get("stream_compartido"))
+
         for simbolo in sorted(simbolos):
             if simbolo in fills_confirmados:
                 continue
             try:
                 snap = self.motor_bridge.snapshot(simbolo)
+                if exigir_trade_vivo:
+                    # La precarga histórica solo inicializa indicadores; no puede
+                    # autorizar entradas/salidas como si fuera precio en vivo.
+                    edad_trade = snap.get("market_data_trade_age_sec")
+                    if edad_trade is None or float(edad_trade) > 30.0:
+                        self._ultimo_error = (
+                            f"{simbolo}: trade_live_ausente_o_obsoleto"
+                            if edad_trade is None
+                            else f"{simbolo}: trade_live_obsoleto:{float(edad_trade):.1f}s"
+                        )
+                        continue
                 candidato = simbolo in candidatos
                 estado_actual = self.decisiones.estado(simbolo)
                 vela_actual = snap.get("vela_actual") or {}
@@ -280,6 +313,11 @@ class BotLongRealtime:
                 decision_data["confidence"] = signal_meta.get("confidence")
                 decision_data["signal_type"] = signal_meta.get("signal_type")
                 decision_data["timeframe"] = signal_meta.get("timeframe")
+                # Mantener trazabilidad entre la señal del scanner y la decisión
+                # del bot sin recalcular el universo ni abrir otra conexión de datos.
+                decision_data["scanner_price"] = signal_meta.get("scanner_price")
+                decision_data["scanner_timestamp"] = signal_meta.get("scanner_timestamp")
+                decision_data["scanner_conditions"] = dict(signal_meta.get("scanner_conditions") or {})
 
                 anterior = self._ultima_decision_por_simbolo.get(simbolo)
                 comparable = {
@@ -290,6 +328,19 @@ class BotLongRealtime:
                 }
                 if anterior != comparable or decision_data.get("accion") in {"BUY", "EXIT"}:
                     ejecucion = None
+                    if decision_data.get("accion") == "BUY" and exigir_trade_vivo:
+                        edad_quote = snap.get("market_data_quote_age_sec")
+                        if edad_quote is None or float(edad_quote) > 30.0:
+                            # La estrategia pudo proponer BUY antes de validar la
+                            # cotización; cancelar esa entrada para no dejar un
+                            # estado LONG ficticio sin fill ni posición PAPER.
+                            self.decisiones.cancelar_entrada_pendiente(simbolo)
+                            decision_data["accion"] = "WAIT"
+                            decision_data["motivo"] = (
+                                "quote_live_ausente_o_obsoleta"
+                                if edad_quote is None
+                                else f"quote_live_obsoleta:{float(edad_quote):.1f}s"
+                            )
                     if decision_data.get("accion") == "BUY":
                         # Si la ejecución externa está deshabilitada, la compra se
                         # simula en PAPER; no se intenta enviar una orden al broker.
@@ -414,14 +465,32 @@ class BotLongRealtime:
             candidatos = sorted(self._candidatos)
             hilo = self._hilo
 
+        try:
+            estado_market_data = self.motor_bridge.status()
+        except Exception as exc:
+            estado_market_data = {"error": str(exc)}
+
+        # Distinguir con claridad la simulación local de cualquier envío a broker.
+        # ExecutionConfig.enabled por sí solo no basta: también hace falta un
+        # executor inyectado y conectado para poder enviar órdenes externas.
+        broker_habilitado = bool(
+            self.execution_config.enabled
+            and self.executor is not None
+            and getattr(self.executor, "_client", None) is not None
+        )
         return {
             "hilo_vivo": bool(hilo is not None and hilo.is_alive()),
             "intervalo_segundos": self.intervalo_segundos,
             "candidatos": candidatos,
+            "cantidad_candidatos": len(candidatos),
             "ciclos": self._ciclos,
             "ultima_evaluacion": self._ultima_evaluacion,
             "ultimo_error": self._ultimo_error,
             "decisiones_guardadas": len(self._decisiones),
+            "modo_ejecucion": "broker_habilitado" if broker_habilitado else "paper_simulation",
+            "envio_broker_habilitado": broker_habilitado,
+            "executor_configurado": self.executor is not None,
+            "market_data": estado_market_data,
             "paper": self.paper.status(),
             "config_operativa": self.configuracion_operativa(),
             "posiciones_paper": self.paper.posiciones(),
