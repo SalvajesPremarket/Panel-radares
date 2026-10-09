@@ -107,3 +107,112 @@ def test_alpaca_market_stream_start_update_and_stop(monkeypatch):
     assert fake.stopped is True
     assert stream.health_snapshot()["feed"] == "iex"
     assert stream.health_snapshot()["errors"] == 0
+
+
+def test_shared_stream_consumers_receive_trades_and_quotes():
+    import asyncio
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+    received_trades = []
+    received_quotes = []
+    stream.add_consumer(received_trades.append, received_quotes.append)
+
+    trade = SimpleNamespace(
+        symbol="AAPL", price=10.5, size=100,
+        timestamp=datetime(2026, 10, 9, 16, 0, tzinfo=timezone.utc),
+    )
+    quote = SimpleNamespace(
+        symbol="AAPL", bid_price=10.4, ask_price=10.6,
+        timestamp=datetime(2026, 10, 9, 16, 0, tzinfo=timezone.utc),
+    )
+    asyncio.run(stream._trade(trade))
+    asyncio.run(stream._quote(quote))
+
+    assert received_trades == [trade]
+    assert received_quotes == [quote]
+    snap = stream.health_snapshot()
+    assert snap["trades"] == 1
+    assert snap["quotes"] == 1
+    assert snap["last_event_kind"] == "quote"
+    assert snap["last_event_symbol"] == "AAPL"
+
+
+def test_alpaca_market_stream_empty_start_does_not_open_connection(monkeypatch):
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            FakeStream.instances.append(self)
+
+        def run(self):
+            raise AssertionError("empty start must not open a websocket")
+
+    monkeypatch.setattr(module, "StockDataStream", FakeStream)
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream.start([])
+    time.sleep(0.05)
+
+    assert FakeStream.instances == []
+    assert stream._thread is None
+    assert stream.health_snapshot()["errors"] == 0
+
+
+def test_alpaca_market_stream_empty_update_unsubscribes_previous_symbols(monkeypatch):
+    import threading
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.quotes = set()
+            self.trades = set()
+            self.stopped = False
+            self.ready = threading.Event()
+            FakeStream.instances.append(self)
+
+        def subscribe_quotes(self, callback, *symbols):
+            self.quotes.update(symbols)
+
+        def subscribe_trades(self, callback, *symbols):
+            self.trades.update(symbols)
+
+        def unsubscribe_quotes(self, *symbols):
+            self.quotes.difference_update(symbols)
+
+        def unsubscribe_trades(self, *symbols):
+            self.trades.difference_update(symbols)
+
+        def run(self):
+            self.ready.set()
+            while not self.stopped:
+                time.sleep(0.01)
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(module, "StockDataStream", FakeStream)
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream.start(["AAPL"])
+    deadline = time.time() + 2
+    while not FakeStream.instances and time.time() < deadline:
+        time.sleep(0.01)
+    assert FakeStream.instances
+    fake = FakeStream.instances[0]
+    assert fake.ready.wait(timeout=2)
+
+    stream.start([])
+    assert fake.quotes == set()
+    assert fake.trades == set()
+    assert stream._symbols == set()
+    stream.stop()
