@@ -163,8 +163,9 @@ class MotorVelasBridge:
                     self._esperar_stream()
 
                 for symbol in retirar:
-                    if getattr(self, "market_stream", None) is None:
-                        self.motor.quitar_simbolo_en_caliente(symbol)
+                    # El websocket compartido ya actualizó sus suscripciones;
+                    # ahora liberar también el motor/caché local del ticker viejo.
+                    self.motor.quitar_simbolo_en_caliente(symbol)
                     with self._lock:
                         self._simbolos_cargados.discard(symbol)
 
