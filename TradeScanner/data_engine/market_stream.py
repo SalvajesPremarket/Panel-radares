@@ -291,10 +291,15 @@ class AlpacaMarketStream:
 
     def health_snapshot(self) -> dict:
         snapshot = self.health.snapshot()
+        # _subscribed_symbols is owned by _subscription_lock, not _symbols_lock.
+        # Copy it under its owner lock so a concurrent subscribe/unsubscribe
+        # cannot mutate the set while the UI sorts it.
+        with self._subscription_lock:
+            subscribed_symbols = sorted(self._subscribed_symbols)
         with self._symbols_lock:
             snapshot.update({
                 "running": bool(self._thread is not None and self._thread.is_alive()),
-                "subscribed_symbols": sorted(self._subscribed_symbols),
+                "subscribed_symbols": subscribed_symbols,
                 "consumer_errors": int(self._consumer_errors),
                 "trade_consumer_errors": int(self._trade_consumer_errors),
                 "quote_consumer_errors": int(self._quote_consumer_errors),
