@@ -2897,6 +2897,12 @@ class ServicioScanner:
             self.bot_long_error = str(exc)
             print(f"⚠️ Puente motor/bot LONG: {exc}")
 
+    def configurar_bot_long(self, **config):
+        """Aplica la configuración de capital y riesgo al bot LONG compartido."""
+        if self.bot_long is None:
+            raise RuntimeError(self.bot_long_error or "Bot LONG no inicializado")
+        return self.bot_long.configurar_riesgo(**config)
+
     def estado_bot_long(self):
         """Estado publico/visual del bot LONG; no expone credenciales."""
         try:
@@ -6557,56 +6563,141 @@ _ts_diag_add(
 def _render_robot_long_page(servicio):
     _robot_q = {str(k): str(v) for k, v in st.query_params.items() if str(k) != "robot"}
     _robot_href = "/?" + "&".join(f"{quote(k)}={quote(v)}" for k, v in _robot_q.items()) if _robot_q else "/"
-    st.markdown(f'<a href="{_robot_href}" target="_top" style="display:inline-block;margin:4px 0 12px 0;font-weight:700;text-decoration:none;">← VOLVER AL SCANNER</a>', unsafe_allow_html=True)
-    # ================================================================
-    # 🤖 PANEL VISIBLE DEL ROBOT LONG
-    # El robot trabaja en segundo plano cada ~1 s, independiente del
-    # refresh visual del scanner. Esta sección permite verlo en la misma
-    # página y comprobar qué está haciendo sin exponer claves.
-    # ================================================================
-    try:
-        _rb = servicio.estado_bot_long()
-        st.markdown("### 🤖 Robot LONG — tiempo real")
-        if _rb.get("hilo_vivo"):
-            st.success("🟢 Robot activo y evaluando continuamente")
-        elif _rb.get("disponible"):
-            st.warning("🟡 Robot cargado, pero su hilo no está activo")
-        else:
-            st.error("🔴 Robot no disponible")
-            if _rb.get("error"):
-                st.caption(f"Error del robot: {_rb.get('error')}")
+    st.markdown(f'<a href="{_robot_href}" target="_top" style="display:inline-block;margin:4px 0 12px 0;font-weight:700;text-decoration:none;color:#c8d5e5;">← VOLVER AL SCANNER</a>', unsafe_allow_html=True)
 
-        # Tarjetas de estado del robot: alto contraste y lectura clara en PC/móvil.
-        # Solo cambia la presentación; no modifica ninguna variable del motor.
-        _ciclos = _rb.get("ciclos", 0)
-        _candidatos = len(_rb.get("candidatos", []) or [])
-        _posiciones = len(_rb.get("posiciones_paper", []) or [])
-        _observadas = len(_rb.get("posiciones_observadas", []) or [])
-        _decisiones = _rb.get("decisiones_guardadas", 0)
-        st.markdown("""
-        <style>
-        .ts-robot-panel{background:#1b2027;border:1px solid #3b4652;border-radius:12px;padding:14px 14px 10px;margin:4px 0 14px 0;box-shadow:0 2px 10px rgba(0,0,0,.18)}
-        .ts-robot-title{font-size:1.15rem;font-weight:700;color:#f2f5f8;margin-bottom:12px}
-        .ts-robot-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
-        .ts-robot-card{background:#252c35;border:1px solid #4a5663;border-radius:9px;padding:10px 8px;text-align:center;min-height:68px}
-        .ts-robot-label{font-size:.76rem;color:#b9c3ce;text-transform:uppercase;letter-spacing:.03em}
-        .ts-robot-value{font-size:1.45rem;font-weight:800;color:#ffffff;line-height:1.35;margin-top:2px}
-        @media(max-width:800px){.ts-robot-grid{grid-template-columns:repeat(3,minmax(0,1fr));}}
-        @media(max-width:520px){.ts-robot-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.ts-robot-value{font-size:1.25rem;}}
-        </style>
-        <div class="ts-robot-panel">
-          <div class="ts-robot-title">📊 Estado del robot</div>
-          <div class="ts-robot-grid">
-            <div class="ts-robot-card"><div class="ts-robot-label">Ciclos</div><div class="ts-robot-value">""" + str(_ciclos) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Candidatos</div><div class="ts-robot-value">""" + str(_candidatos) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Posiciones</div><div class="ts-robot-value">""" + str(_posiciones) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Observadas</div><div class="ts-robot-value">""" + str(_observadas) + """</div></div>
-            <div class="ts-robot-card"><div class="ts-robot-label">Decisiones</div><div class="ts-robot-value">""" + str(_decisiones) + """</div></div>
-          </div>
-        </div>
-        """, unsafe_allow_html=True)
+    _rb = servicio.estado_bot_long()
+    _cfg = _rb.get("config_operativa", {}) or {
+        "capital_asignado": 600.0,
+        "porcentaje_operacion": 20.0,
+        "stop_loss_pct": 2.0,
+        "take_profit_pct": 4.0,
+        "estrategia": "LongSalvajesPreMarket",
+    }
+    _ciclos = _rb.get("ciclos", 0)
+    _candidatos = len(_rb.get("candidatos", []) or [])
+    _posiciones = len(_rb.get("posiciones_paper", []) or [])
+    _observadas = len(_rb.get("posiciones_observadas", []) or [])
+    _decisiones = _rb.get("decisiones_guardadas", 0)
+    _presupuesto = float(_cfg.get("capital_asignado", 600.0)) * float(_cfg.get("porcentaje_operacion", 20.0)) / 100.0
 
-        _dec = servicio.decisiones_bot_long(20)
+    st.markdown("""
+    <style>
+    .ts-robot-hero{background:linear-gradient(120deg,#101a2b,#1a2a3e);border:1px solid #34485f;border-radius:16px;padding:20px 22px;margin:0 0 16px}
+    .ts-robot-brand{font-size:12px;letter-spacing:.18em;font-weight:800;color:#9fb6d2}
+    .ts-robot-heading{font-size:28px;font-weight:850;color:#f5f8fc;line-height:1.2;margin-top:5px}
+    .ts-robot-sub{font-size:13px;color:#bac8d8;margin-top:7px}
+    .ts-robot-paper{display:inline-block;border:1px solid #c5a35b;border-radius:30px;padding:5px 11px;color:#f0cf7a;font-weight:800;font-size:11px;letter-spacing:.08em;margin-top:12px}
+    div[data-testid="stMetric"]{background:#1c2633;border:1px solid #354557;border-radius:12px;padding:12px 14px}
+    div[data-testid="stMetricLabel"]{color:#b8c7d8}
+    .ts-robot-note{font-size:12px;color:#aab8c8}
+    </style>
+    <div class="ts-robot-hero">
+      <div class="ts-robot-brand">SALVAJES PREMARKET · AUTOMATED TRADING</div>
+      <div class="ts-robot-heading">Centro de control del robot</div>
+      <div class="ts-robot-sub">Capital, riesgo, estrategia y seguimiento operativo desde un solo panel.</div>
+      <div class="ts-robot-paper">PAPER · SIN ÓRDENES REALES</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if _rb.get("hilo_vivo"):
+        st.success("Robot activo · evaluando el mercado en segundo plano")
+    elif _rb.get("disponible"):
+        st.warning("Robot cargado, pero el hilo de evaluación no está activo")
+    else:
+        st.error("Robot no disponible")
+        if _rb.get("error"):
+            st.caption(f"Detalle: {_rb.get('error')}")
+
+    _t_panel, _t_riesgo, _t_estrategia, _t_ordenes = st.tabs([
+        "Panel principal", "Capital y riesgo", "Estrategia", "Órdenes e historial"
+    ])
+
+    with _t_panel:
+        _m1, _m2, _m3, _m4, _m5 = st.columns(5)
+        _m1.metric("Ciclos", f"{_ciclos:,}")
+        _m2.metric("Candidatos", f"{_candidatos:,}")
+        _m3.metric("Posiciones PAPER", f"{_posiciones:,}")
+        _m4.metric("Observadas", f"{_observadas:,}")
+        _m5.metric("Decisiones", f"{_decisiones:,}")
+        st.markdown("#### Resumen de capital")
+        _a, _b, _c = st.columns(3)
+        _a.metric("Capital asignado", f"$ {float(_cfg.get('capital_asignado', 600)):,.2f}")
+        _b.metric("Máximo por operación", f"{float(_cfg.get('porcentaje_operacion', 20)):g}%")
+        _c.metric("Presupuesto por operación", f"$ {_presupuesto:,.2f}")
+        st.caption("El número de acciones se limita al presupuesto disponible y al precio de entrada. El tamaño real puede ser menor por los límites de riesgo.")
+        if _rb.get("ultimo_error"):
+            st.warning(f"Último aviso del motor: {_rb.get('ultimo_error')}")
+
+    with _t_riesgo:
+        st.markdown("#### Configuración de capital y protección")
+        st.caption("Estos parámetros se aplican al bot compartido de esta instancia y permanecen en memoria hasta que se reinicie el servicio.")
+        with st.form("ts_robot_riesgo_form"):
+            _capital = st.number_input(
+                "Capital asignado (USD)", min_value=1.0, max_value=10000000.0,
+                value=float(_cfg.get("capital_asignado", 600.0)), step=100.0, format="%.2f"
+            )
+            _porcentaje = st.slider(
+                "Porcentaje máximo del capital por operación", min_value=1, max_value=100,
+                value=int(_cfg.get("porcentaje_operacion", 20)), step=1, format="%d%%"
+            )
+            _sl, _tp = st.columns(2)
+            with _sl:
+                _stop = st.number_input(
+                    "Stop Loss (%)", min_value=0.1, max_value=50.0,
+                    value=float(_cfg.get("stop_loss_pct", 2.0)), step=0.1, format="%.1f"
+                )
+            with _tp:
+                _take = st.number_input(
+                    "Take Profit (%)", min_value=0.1, max_value=100.0,
+                    value=float(_cfg.get("take_profit_pct", 4.0)), step=0.1, format="%.1f"
+                )
+            _presupuesto_nuevo = _capital * _porcentaje / 100.0
+            st.info(f"Presupuesto máximo estimado por operación: **$ {_presupuesto_nuevo:,.2f}**")
+            _guardar_riesgo = st.form_submit_button("Guardar capital y riesgo", type="primary", use_container_width=True)
+        if _guardar_riesgo:
+            try:
+                servicio.configurar_bot_long(
+                    capital_asignado=_capital,
+                    porcentaje_operacion=_porcentaje,
+                    stop_loss_pct=_stop,
+                    take_profit_pct=_take,
+                    estrategia=str(_cfg.get("estrategia", "LongSalvajesPreMarket")),
+                )
+                st.success("Configuración de capital y riesgo aplicada al robot.")
+                st.rerun()
+            except Exception as _e_config:
+                st.error(f"No se pudo aplicar la configuración: {_e_config}")
+
+    with _t_estrategia:
+        st.markdown("#### Estrategia de trading")
+        st.caption("Por ahora hay una sola estrategia disponible. El selector queda preparado para incorporar otras estrategias más adelante.")
+        with st.form("ts_robot_estrategia_form"):
+            _estrategia = st.selectbox(
+                "Estrategia activa",
+                options=["LongSalvajesPreMarket"],
+                index=0,
+                help="Estrategia LONG actual del bot."
+            )
+            st.markdown("**LongSalvajesPreMarket**")
+            st.write("Estrategia LONG actual. Sus reglas de entrada se mantienen separadas de los límites de capital y de la gestión porcentual de salida.")
+            _guardar_estrategia = st.form_submit_button("Aplicar estrategia", type="primary", use_container_width=True)
+        if _guardar_estrategia:
+            try:
+                servicio.configurar_bot_long(
+                    capital_asignado=float(_cfg.get("capital_asignado", 600.0)),
+                    porcentaje_operacion=float(_cfg.get("porcentaje_operacion", 20.0)),
+                    stop_loss_pct=float(_cfg.get("stop_loss_pct", 2.0)),
+                    take_profit_pct=float(_cfg.get("take_profit_pct", 4.0)),
+                    estrategia=_estrategia,
+                )
+                st.success("Estrategia aplicada.")
+                st.rerun()
+            except Exception as _e_estrategia:
+                st.error(f"No se pudo aplicar la estrategia: {_e_estrategia}")
+
+    with _t_ordenes:
+        st.markdown("#### Decisiones recientes")
+        _dec = servicio.decisiones_bot_long(100)
         if _dec:
             _filas_bot = []
             for _d in reversed(_dec):
@@ -6617,14 +6708,19 @@ def _render_robot_long_page(servicio):
                     "Estado": _d.get("estado", ""),
                     "Motivo": _d.get("motivo", ""),
                     "Precio": _d.get("precio", ""),
-                    "Stop": _d.get("stop_loss", ""),
+                    "Stop Loss": _d.get("stop_loss", ""),
+                    "Cantidad": _d.get("cantidad_ejecutada", ""),
                 })
             st.dataframe(pd.DataFrame(_filas_bot), use_container_width=True, hide_index=True)
         else:
-            st.info("El robot está encendido pero todavía no tiene decisiones para mostrar.")
-    except Exception as _e_robot_ui:
-        st.warning(f"Panel del robot temporalmente no disponible: {_e_robot_ui}")
-
+            st.info("Todavía no hay decisiones para mostrar.")
+        st.markdown("#### Posiciones PAPER")
+        _pos_paper = _rb.get("posiciones_paper", []) or []
+        if _pos_paper:
+            st.dataframe(pd.DataFrame(_pos_paper), use_container_width=True, hide_index=True)
+        else:
+            st.caption("No hay posiciones PAPER abiertas.")
+        st.caption("Las órdenes y salidas se muestran como simulación PAPER. No se habilita el modo LIVE.")
 
 # URL independiente del Robot LONG: mantiene su interfaz separada del Scanner.
 _ROBOT_MODE = str(st.query_params.get("robot", "") or "").lower() in ("1", "true", "yes")
