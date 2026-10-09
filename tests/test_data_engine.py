@@ -696,3 +696,43 @@ def test_alpaca_market_stream_rolls_back_partial_subscription_and_retries(monkey
     assert stream.health_snapshot()["running"] is True
     assert stream.health_snapshot()["errors"] >= 1
     stream.stop()
+
+
+def test_alpaca_market_stream_stops_live_socket_when_subscription_update_fails():
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        def __init__(self):
+            self.quotes = {"AAPL"}
+            self.trades = {"AAPL"}
+            self.stopped = False
+
+        def subscribe_quotes(self, callback, *symbols):
+            self.quotes.update(symbols)
+
+        def subscribe_trades(self, callback, *symbols):
+            if "MSFT" in symbols:
+                raise RuntimeError("simulated live subscription failure")
+            self.trades.update(symbols)
+
+        def unsubscribe_quotes(self, *symbols):
+            self.quotes.difference_update(symbols)
+
+        def unsubscribe_trades(self, *symbols):
+            self.trades.difference_update(symbols)
+
+        def stop(self):
+            self.stopped = True
+
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    fake = FakeStream()
+    stream._stream = fake
+    stream._symbols = {"AAPL"}
+    stream._subscribed_symbols = {"AAPL"}
+
+    stream._update_running_subscriptions({"AAPL", "MSFT"})
+
+    assert fake.stopped is True
+    assert fake.quotes == {"AAPL"}  # failed MSFT addition was rolled back
+    assert stream._subscribed_symbols == {"AAPL"}
+    assert stream.health_snapshot()["errors"] >= 1
