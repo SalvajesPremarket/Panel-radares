@@ -201,6 +201,11 @@ class AlpacaMarketStream:
         while not self._stop.is_set():
             stream = None
             try:
+                # No mostrar el ACK de la conexión anterior mientras la nueva
+                # todavía no confirma qué símbolos aceptó el servidor.
+                with self._symbols_lock:
+                    self._server_subscription_state = {}
+                    self._last_subscription_ack_ts = None
                 stream = StockDataStream(
                     self.api_key,
                     self.secret_key,
