@@ -49,6 +49,22 @@ def valid_candidate_snapshot(**overrides):
     return data
 
 
+def test_sync_signals_preserves_scanner_priority_order():
+    bridge = FakeBridge({"sin_datos": True})
+    bot = BotLongRealtime(bridge)
+    bot.sync_signals([
+        {"ticker": "ZZZ"},
+        {"ticker": "AAA"},
+        {"ticker": "MMM"},
+        {"ticker": "AAA"},
+    ])
+    assert bridge.synced == [
+        {"ticker": "ZZZ"},
+        {"ticker": "AAA"},
+        {"ticker": "MMM"},
+    ]
+
+
 def test_normalized_signal_metadata_reaches_bot_decision():
     bridge = FakeBridge({"sin_datos": True})
     bot = BotLongRealtime(bridge)

@@ -20,9 +20,11 @@ import time
 class MotorVelasBridge:
     """Conecta el motor de velas con los resultados del scanner sin decidir operaciones."""
 
-    # Safety margin under the Basic plan limit; each ticker uses trades + quotes.
-    MAX_SIMBOLOS_BASIC = 10
-    MAX_NUEVOS_POR_CICLO = 10
+    # Basic allows 30 websocket channels. A trade subscription also exposes
+    # corrections and cancelErrors, plus quotes: cap at 7 tickers (28 channels)
+    # to stay below the limit with room for protocol/accounting differences.
+    MAX_SIMBOLOS_BASIC = 7
+    MAX_NUEVOS_POR_CICLO = 7
 
     def __init__(self, api_key: str, secret_key: str, motor=None, market_stream=None):
         if motor is None:

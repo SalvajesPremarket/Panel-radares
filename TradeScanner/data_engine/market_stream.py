@@ -27,7 +27,7 @@ class AlpacaMarketStream:
         api_key: str,
         secret_key: str,
         feed: str = "iex",
-        max_symbols: int = 10,
+        max_symbols: int = 7,
         cache: MarketCache | None = None,
         bars: LiveBarBuilder | None = None,
         health: DataHealth | None = None,
@@ -36,7 +36,7 @@ class AlpacaMarketStream:
         self.api_key = str(api_key or "").strip()
         self.secret_key = str(secret_key or "").strip()
         self.feed_name = str(feed or "iex").strip().lower()
-        self.max_symbols = max(1, min(10, int(max_symbols or 10)))
+        self.max_symbols = max(1, min(7, int(max_symbols or 7)))
         self.cache = cache or MarketCache()
         self.bars = bars or LiveBarBuilder()
         self.health = health or DataHealth()
@@ -222,13 +222,19 @@ class AlpacaMarketStream:
             if not self._stop.wait(1.0):
                 continue
 
+    def _normalizar_simbolos(self, symbols: Iterable[str]) -> list[str]:
+        """Normaliza y limita sin perder el orden de prioridad del llamador."""
+        ordered = []
+        seen = set()
+        for symbol in symbols or []:
+            ticker = str(symbol or "").strip().upper()
+            if ticker and ticker not in seen:
+                seen.add(ticker)
+                ordered.append(ticker)
+        return ordered[:self.max_symbols]
+
     def start(self, symbols: Iterable[str]) -> None:
-        requested = {
-            str(symbol).strip().upper()
-            for symbol in (symbols or [])
-            if str(symbol).strip()
-        }
-        requested = set(sorted(requested)[:self.max_symbols])
+        requested = set(self._normalizar_simbolos(symbols))
         if not requested:
             # Do not open an authenticated websocket when the scanner has no
             # candidates. If already running, release the previous subscriptions.
@@ -262,12 +268,7 @@ class AlpacaMarketStream:
             self._sync_subscriptions(stream)
 
     def update_symbols(self, symbols: Iterable[str]) -> None:
-        requested = {
-            str(symbol).strip().upper()
-            for symbol in (symbols or [])
-            if str(symbol).strip()
-        }
-        requested = set(sorted(requested)[:self.max_symbols])
+        requested = set(self._normalizar_simbolos(symbols))
         if self._thread and self._thread.is_alive():
             self._update_running_subscriptions(requested)
         else:

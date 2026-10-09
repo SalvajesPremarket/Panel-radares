@@ -318,6 +318,15 @@ def test_motor_velas_receives_trade_from_shared_alpaca_stream():
     assert stream.health_snapshot()["trade_consumer_errors"] == 0
 
 
+def test_alpaca_market_stream_preserves_candidate_priority_order():
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex", max_symbols=3)
+    assert stream._normalizar_simbolos(
+        ["TSLA", "AAPL", "MSFT", "TSLA", "NVDA"]
+    ) == ["TSLA", "AAPL", "MSFT"]
+
+
 def test_alpaca_market_stream_empty_start_does_not_open_connection(monkeypatch):
     import time
 
