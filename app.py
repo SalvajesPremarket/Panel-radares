@@ -6608,6 +6608,52 @@ def _render_robot_long_page(servicio):
         if _rb.get("error"):
             st.caption(f"Detalle: {_rb.get('error')}")
 
+    # Mejorar legibilidad en móvil de los campos de capital y riesgo del robot LONG.
+    st.markdown("""
+    <style>
+    [data-testid="stTabs"] [data-testid="stNumberInput"] label,
+    [data-testid="stTabs"] [data-testid="stSlider"] label,
+    [data-testid="stTabs"] [data-testid="stSelectbox"] label,
+    [data-testid="stTabs"] .stNumberInput label,
+    [data-testid="stTabs"] .stSlider label,
+    [data-testid="stTabs"] .stSelectbox label {
+        color: #FFFFFF !important;
+        font-size: 1.25rem !important;
+        font-weight: 800 !important;
+        line-height: 1.45 !important;
+        opacity: 1 !important;
+    }
+    [data-testid="stTabs"] [data-testid="stNumberInput"] input,
+    [data-testid="stTabs"] [data-testid="stSelectbox"] div[data-baseweb="select"] div {
+        color: #FFFFFF !important;
+        font-size: 1.2rem !important;
+        font-weight: 700 !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+    [data-testid="stTabs"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stTabs"] [data-testid="stCaptionContainer"] {
+        color: #E8EDF5 !important;
+        font-size: 1rem !important;
+        line-height: 1.6 !important;
+    }
+    @media (max-width: 640px) {
+        [data-testid="stTabs"] [data-testid="stNumberInput"] label,
+        [data-testid="stTabs"] [data-testid="stSlider"] label,
+        [data-testid="stTabs"] [data-testid="stSelectbox"] label,
+        [data-testid="stTabs"] .stNumberInput label,
+        [data-testid="stTabs"] .stSlider label,
+        [data-testid="stTabs"] .stSelectbox label {
+            font-size: 1.35rem !important;
+            line-height: 1.5 !important;
+        }
+        [data-testid="stTabs"] [data-testid="stNumberInput"] input,
+        [data-testid="stTabs"] [data-testid="stSelectbox"] div[data-baseweb="select"] div {
+            font-size: 1.3rem !important;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
     _t_panel, _t_riesgo, _t_sl_tp, _t_estrategia, _t_ordenes = st.tabs([
         "Panel principal", "Capital y riesgo", "Stop Loss / Take Profit", "Estrategia", "Órdenes e historial"
     ])
