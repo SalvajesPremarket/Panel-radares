@@ -147,17 +147,20 @@ class AlpacaMarketStream:
                     stream = self._stream
                     crear_stream = stream is None and bool(self._symbols)
                     symbols = sorted(self._symbols)
-                    if crear_stream:
-                        self._create_stream_locked()
-                        stream = self._stream
-
-                if stream is None:
-                    time.sleep(1.0)
-                    continue
 
                 try:
-                    # Toda la inicialización/suscripción queda dentro del try:
-                    # un rechazo de Alpaca no debe matar silenciosamente el hilo.
+                    # La creación y suscripción también se protegen: cualquier
+                    # fallo de Alpaca debe entrar en el ciclo de reconexión.
+                    if crear_stream:
+                        with self._lock:
+                            if self._stream is None and self._symbols:
+                                self._create_stream_locked()
+                            stream = self._stream
+                            symbols = sorted(self._symbols)
+                    if stream is None:
+                        time.sleep(1.0)
+                        continue
+
                     if crear_stream:
                         if symbols:
                             stream.subscribe_trades(self._on_trade, *symbols)
