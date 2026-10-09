@@ -52,6 +52,7 @@ class MotorVelasBridge:
         self._simbolos_solicitados = set()
         self._simbolos_cargados = set()
         self._simbolos_deseados = set()
+        self._simbolos_deseados_ordenados = []
         self._ultima_error = None
         self._proximo_reintento_ts = 0.0
         self._cooldown_reconexion_seg = 120.0
@@ -104,17 +105,20 @@ class MotorVelasBridge:
         # anterior que permitía más símbolos.
         seleccionados = candidatos[: self.MAX_SIMBOLOS_BASIC]
         deseados = set(seleccionados)
-        # Always synchronize, even for an empty list, so stale candidates are
-        # removed from the shared stream when scanner results disappear.
-        if getattr(self, "market_stream", None) is not None:
+        # If no candidates remain, release their subscriptions immediately.
+        # For new candidates, defer stream subscription until historical bars
+        # are loaded; otherwise live trades can race with cargar_historial().
+        stream_compartido = getattr(self, "market_stream", None) is not None
+        if stream_compartido and not seleccionados:
             try:
-                self.market_stream.start(seleccionados)
+                self.market_stream.start([])
             except Exception as exc:
                 self._ultima_error = str(exc)
         if deseados:
             self._arrancar_stream()
         with self._lock:
             self._simbolos_deseados = deseados
+            self._simbolos_deseados_ordenados = list(seleccionados)
 
             # Simbolos ya suscritos que salieron del conjunto actual.
             retirar = [
@@ -146,6 +150,14 @@ class MotorVelasBridge:
                 name="tradescanner-motor-velas-subscribe",
                 daemon=True,
             ).start()
+        elif stream_compartido and seleccionados:
+            with self._lock:
+                preparados = all(s in self._simbolos_cargados for s in seleccionados)
+            if preparados:
+                try:
+                    self.market_stream.start(seleccionados)
+                except Exception as exc:
+                    self._ultima_error = str(exc)
 
     def _esperar_stream(self, timeout=15.0):
         limite_espera = time.monotonic() + timeout
@@ -184,6 +196,13 @@ class MotorVelasBridge:
                     with self._lock:
                         self._simbolos_solicitados.discard(symbol)
                         self._simbolos_cargados.add(symbol)
+
+                if getattr(self, "market_stream", None) is not None:
+                    with self._lock:
+                        desired_order = list(self._simbolos_deseados_ordenados)
+                        prepared = all(s in self._simbolos_cargados for s in desired_order)
+                    if prepared:
+                        self.market_stream.start(desired_order)
             except Exception as exc:
                 self._ultima_error = str(exc)
                 with self._lock:
