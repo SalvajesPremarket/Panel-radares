@@ -155,6 +155,34 @@ def test_alpaca_market_stream_reconnects_after_run_error(monkeypatch):
     stream.stop()
 
 
+def test_shared_stream_trade_reaches_motor_velas_end_to_end():
+    import asyncio
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from BotTradeScanner.motor_velas.motor_velas import MotorVelas
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+    motor = MotorVelas("key", "secret")
+    motor.conectar_stream_compartido(stream)
+
+    trade = SimpleNamespace(
+        symbol="AAPL",
+        price=10.25,
+        size=50,
+        timestamp=datetime(2026, 10, 9, 16, 0, 15, tzinfo=timezone.utc),
+    )
+    asyncio.run(stream._trade(trade))
+
+    assert stream.health_snapshot()["trades"] == 1
+    assert motor.total_trades == 1
+    assert motor.ultimo_trade == trade.timestamp
+    assert "AAPL" in motor.motores
+    assert motor.motores["AAPL"].vela_actual.cierre == 10.25
+    assert motor.motores["AAPL"].vela_actual.volumen == 50
+
+
 def test_shared_stream_consumers_receive_trades_and_quotes():
     import asyncio
     from datetime import datetime, timezone
@@ -185,6 +213,41 @@ def test_shared_stream_consumers_receive_trades_and_quotes():
     assert snap["quotes"] == 1
     assert snap["last_event_kind"] == "quote"
     assert snap["last_event_symbol"] == "AAPL"
+
+
+def test_motor_velas_receives_trade_from_shared_alpaca_stream():
+    import asyncio
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from BotTradeScanner.motor_velas.motor_velas import MotorVelas
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+    motor = MotorVelas("key", "secret")
+    motor.conectar_stream_compartido(stream)
+
+    trade = SimpleNamespace(
+        symbol="AAPL",
+        price=10.5,
+        size=100,
+        timestamp=datetime(2026, 10, 9, 16, 0, tzinfo=timezone.utc),
+    )
+    quote = SimpleNamespace(
+        symbol="AAPL",
+        bid_price=10.4,
+        ask_price=10.6,
+        timestamp=datetime(2026, 10, 9, 16, 0, tzinfo=timezone.utc),
+    )
+    asyncio.run(stream._trade(trade))
+    asyncio.run(stream._quote(quote))
+
+    snapshot = motor.snapshot_simbolo("AAPL")
+    assert motor.total_trades == 1
+    assert snapshot["vela_actual"]["cierre"] == 10.5
+    assert snapshot["bid"] == 10.4
+    assert snapshot["ask"] == 10.6
+    assert stream.health_snapshot()["trade_consumer_errors"] == 0
 
 
 def test_alpaca_market_stream_empty_start_does_not_open_connection(monkeypatch):
