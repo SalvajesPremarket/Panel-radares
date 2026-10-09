@@ -191,9 +191,12 @@ class AlpacaMarketStream:
                     time.sleep(1.0)
         finally:
             with self._lock:
-                self._running = False
-                self._connected = False
-                self._stream = None
+                # Un hilo antiguo que termina tras un stop/restart no debe
+                # borrar el estado del hilo nuevo.
+                if self._thread is threading.current_thread():
+                    self._running = False
+                    self._connected = False
+                    self._stream = None
 
     def start(self, tickers: Iterable[str]):
         symbols: List[str] = []
