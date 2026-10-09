@@ -6357,7 +6357,7 @@ def _render_scanner():
                     ("snapshots_sin_daily_bar", "Snapshots sin barra diaria"),
                     ("snapshots_sin_previous_daily_bar", "Snapshots sin barra diaria anterior"),
                     ("snapshots_cierre_previo_invalido", "Snapshots con cierre previo inválido"),
-                    ("snapshots_fuera_precio_base", "Snapshots fuera del precio base del motor"),
+                    ("snapshots_fuera_precio_base", "Snapshots con precio inválido o no positivo"),
                     ("snapshots_validos_base", "Snapshots válidos antes de filtros"),
                     ("radar_base", "Acciones en radar base"),
                     ("enviados_tecnico", "Enviadas a análisis técnico"),
