@@ -169,6 +169,23 @@ class AlpacaMarketStream:
                 self.health.mark_error(exc)
             return requested
 
+    def _instrument_stream_dispatch(self, stream) -> None:
+        """Record server-side websocket errors before the SDK only logs them."""
+        dispatch = getattr(stream, "_dispatch", None)
+        if not callable(dispatch):
+            return
+
+        async def dispatch_with_diagnostics(message):
+            if isinstance(message, dict) and message.get("T") == "error":
+                code = message.get("code", "unknown")
+                detail = str(message.get("msg") or "sin detalle")
+                self.health.mark_error(f"Alpaca websocket error {code}: {detail}"[:500])
+            await dispatch(message)
+
+        # StockDataStream's dispatcher is the point where Alpaca's error frames
+        # are otherwise only written to the SDK logger and not exposed to the UI.
+        stream._dispatch = dispatch_with_diagnostics
+
     def _run(self) -> None:
         self.health.start(self.feed_name)
         while not self._stop.is_set():
@@ -180,6 +197,7 @@ class AlpacaMarketStream:
                     feed=self._feed(),
                     data_timeout=60,
                 )
+                self._instrument_stream_dispatch(stream)
                 # Publish the stream and reconcile desired symbols atomically
                 # against concurrent start()/update_symbols() calls.
                 with self._subscription_lock:
