@@ -144,6 +144,20 @@ class MotorVelasBridge:
                 self._simbolos_solicitados.add(symbol)
 
         if retirar or nuevos:
+            if stream_compartido:
+                # Keep only already-prepared desired symbols while the worker
+                # loads history for new candidates. This unsubscribes retired
+                # tickers before their local engines are removed, without
+                # exposing new symbols to live trades before their history exists.
+                with self._lock:
+                    preparados_existentes = [
+                        s for s in self._simbolos_deseados_ordenados
+                        if s in self._simbolos_cargados
+                    ]
+                try:
+                    self.market_stream.start(preparados_existentes)
+                except Exception as exc:
+                    self._ultima_error = str(exc)
             Thread(
                 target=self._actualizar_suscripciones,
                 args=(retirar, nuevos),
