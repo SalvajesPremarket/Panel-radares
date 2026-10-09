@@ -2853,6 +2853,7 @@ class ServicioScanner:
         self.cache_fund = self._leer_cache_fundamentales()
         # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
         self.fmp_pausado_hasta = 0.0
+        self._fmp_429_consecutivos = 0
         self._ultima_peticion_fmp = 0.0
         self._bulk_float_running = False
         self._bulk_float_lock = threading.Lock()
@@ -3270,6 +3271,39 @@ class ServicioScanner:
 
         return buscar(payload)
 
+    def _registrar_fmp_429(self, respuesta, contexto):
+        """Aplica una pausa según el límite informado por FMP y conserva el diagnóstico."""
+        cuerpo = " ".join(str(getattr(respuesta, "text", "") or "").split())
+        cuerpo_l = cuerpo.lower()
+        try:
+            retry_after = max(0, int(float(respuesta.headers.get("Retry-After", 0) or 0)))
+        except (TypeError, ValueError, AttributeError):
+            retry_after = 0
+
+        self._fmp_429_consecutivos = min(8, int(getattr(self, "_fmp_429_consecutivos", 0)) + 1)
+        cuota_diaria = any(frase in cuerpo_l for frase in (
+            "daily limit", "limit per day", "requests per day", "daily quota",
+            "quota exceeded", "limit reach", "limit has been reached",
+            "wait for next day", "next day"
+        ))
+        if cuota_diaria:
+            ahora_utc = datetime.now(timezone.utc)
+            reanudar = (ahora_utc.replace(hour=0, minute=0, second=0, microsecond=0)
+                        + timedelta(days=1, seconds=60)).timestamp()
+            pausa_txt = "La respuesta indica cuota diaria; se reintentará después de medianoche UTC."
+        else:
+            pausa = max(
+                PAUSA_FMP_429_SEGUNDOS,
+                retry_after,
+                min(3600, PAUSA_FMP_429_SEGUNDOS * (2 ** (self._fmp_429_consecutivos - 1)))
+            )
+            reanudar = time.time() + pausa
+            pausa_txt = f"Reintento en aproximadamente {max(1, int((pausa + 59) // 60))} min."
+
+        self.fmp_pausado_hasta = max(float(getattr(self, "fmp_pausado_hasta", 0) or 0), reanudar)
+        detalle = f" Respuesta FMP: {cuerpo[:220]}" if cuerpo else " FMP no incluyó detalle en el cuerpo."
+        self.ultimo_error = f"FMP HTTP 429 ({contexto}). {pausa_txt}{detalle}"
+
     def _actualizar_float_bulk(self):
         """Carga la tabla masiva de float de FMP y la mezcla con la caché local.
 
@@ -3281,6 +3315,8 @@ class ServicioScanner:
         if not self.fmp_api_key:
             return False
         ahora = time.time()
+        if ahora < float(getattr(self, "fmp_pausado_hasta", 0) or 0):
+            return False
         try:
             _meta_b = self.cache_fund.get("__bulk_meta__", {}) or {}
             ultima_bulk = float(_meta_b.get("ts", 0))
@@ -3315,10 +3351,9 @@ class ServicioScanner:
                         timeout=20,
                     )
                 self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
-                if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
                 if respuesta.status_code == 429:
-                    self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
-                    self.ultimo_error = "FMP bulk devolvió HTTP 429; se usará la caché existente y luego el endpoint individual."
+                    self._metrica_sumar("fmp_429")
+                    self._registrar_fmp_429(respuesta, "carga masiva de flotación")
                     break
                 if respuesta.status_code in (401, 403):
                     self._metrica_sumar("fmp_errores")
@@ -3328,6 +3363,7 @@ class ServicioScanner:
                     self._metrica_sumar("fmp_errores")
                     self.ultimo_error = f"FMP bulk devolvió HTTP {respuesta.status_code}; se mantiene la caché existente."
                     break
+                self._fmp_429_consecutivos = 0
                 try:
                     payload = respuesta.json()
                 except ValueError:
@@ -3398,14 +3434,10 @@ class ServicioScanner:
                     timeout=8,
                 )
             self._metrica_tiempo("tiempo_fmp", _t_metric_fmp)
-            if respuesta.status_code == 429: self._metrica_sumar("fmp_429")
             if respuesta.status_code == 429:
-                self.fmp_pausado_hasta = time.time() + PAUSA_FMP_429_SEGUNDOS
-                self.ultimo_error = (
-                    f"FMP devolvió HTTP 429 para {ticker}. "
-                    "Se pausaron las consultas de float durante 15 minutos para evitar más bloqueos."
-                )
-                print(f"⚠️ FMP HTTP 429 para {ticker}; pausa de {PAUSA_FMP_429_SEGUNDOS}s")
+                self._metrica_sumar("fmp_429")
+                self._registrar_fmp_429(respuesta, f"consulta individual de {ticker}")
+                print(f"⚠️ {self.ultimo_error}")
                 return None
             if respuesta.status_code in (401, 403):
                 self._metrica_sumar("fmp_errores")
@@ -3418,6 +3450,7 @@ class ServicioScanner:
                 self._metrica_sumar("fmp_errores")
                 self.ultimo_error = f"FMP devolvió HTTP {respuesta.status_code} para {ticker}."
                 return None
+            self._fmp_429_consecutivos = 0
             try:
                 payload = respuesta.json()
             except ValueError:
