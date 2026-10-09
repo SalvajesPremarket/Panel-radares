@@ -331,6 +331,10 @@ class BotLongRealtime:
                     if decision_data.get("accion") == "BUY" and exigir_trade_vivo:
                         edad_quote = snap.get("market_data_quote_age_sec")
                         if edad_quote is None or float(edad_quote) > 30.0:
+                            # La estrategia pudo proponer BUY antes de validar la
+                            # cotización; cancelar esa entrada para no dejar un
+                            # estado LONG ficticio sin fill ni posición PAPER.
+                            self.decisiones.cancelar_entrada_pendiente(simbolo)
                             decision_data["accion"] = "WAIT"
                             decision_data["motivo"] = (
                                 "quote_live_ausente_o_obsoleta"
