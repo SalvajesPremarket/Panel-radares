@@ -204,6 +204,11 @@ class MotorVelasBridge:
                     if not sigue_deseado:
                         with self._lock:
                             self._simbolos_solicitados.discard(symbol)
+                            self._simbolos_cargados.discard(symbol)
+                        # History may already have created an engine for a
+                        # candidate that disappeared during the API request.
+                        # It was never subscribed, so safely release its cache.
+                        self.motor.quitar_simbolo_en_caliente(symbol)
                         continue
                     if getattr(self, "market_stream", None) is None:
                         self.motor.agregar_simbolo_en_caliente(symbol)
