@@ -140,7 +140,9 @@ class AlpacaMarketStream:
                 if self._stop_requested:
                     break
                 stream = self._stream
-                if stream is None:
+                # Tras una caída, esperar a que el scanner publique los símbolos actuales.
+                # Así no se abre un websocket vacío ni se pierden candidatos por el cooldown.
+                if stream is None and self._symbols:
                     self._create_stream_locked()
                     stream = self._stream
                     if stream is not None:
