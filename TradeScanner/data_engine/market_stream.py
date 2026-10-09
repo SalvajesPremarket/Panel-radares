@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import inspect
 import threading
+import time
 from typing import Callable, Iterable
 
 from alpaca.data.enums import DataFeed
@@ -44,6 +46,16 @@ class AlpacaMarketStream:
         self._stop = threading.Event()
         self._symbols: set[str] = set()
         self._symbols_lock = threading.RLock()
+        self._trade_consumers: list[Callable] = []
+        self._quote_consumers: list[Callable] = []
+        self._consumer_errors = 0
+        self._trade_consumer_errors = 0
+        self._quote_consumer_errors = 0
+        self._last_consumer_error = ""
+        self._last_event_kind = ""
+        self._last_event_symbol = ""
+        self._last_event_ts: float | None = None
+        self._last_subscription_request_ts: float | None = None
 
     def _feed(self):
         if self.feed_name == "sip":
@@ -51,6 +63,45 @@ class AlpacaMarketStream:
         if self.feed_name == "delayed_sip":
             return DataFeed.DELAYED_SIP
         return DataFeed.IEX
+
+    def add_consumer(self, trade_callback: Callable | None = None, quote_callback: Callable | None = None) -> None:
+        """Registra consumidores del stream compartido sin abrir otra conexión."""
+        with self._symbols_lock:
+            if trade_callback is not None and trade_callback not in self._trade_consumers:
+                self._trade_consumers.append(trade_callback)
+            if quote_callback is not None and quote_callback not in self._quote_consumers:
+                self._quote_consumers.append(quote_callback)
+
+    def remove_consumer(self, trade_callback: Callable | None = None, quote_callback: Callable | None = None) -> None:
+        with self._symbols_lock:
+            if trade_callback in self._trade_consumers:
+                self._trade_consumers.remove(trade_callback)
+            if quote_callback in self._quote_consumers:
+                self._quote_consumers.remove(quote_callback)
+
+    def _record_event(self, kind: str, symbol: str) -> None:
+        with self._symbols_lock:
+            self._last_event_kind = kind
+            self._last_event_symbol = str(symbol or "").upper()
+            self._last_event_ts = time.time()
+
+    async def _notify_consumers(self, callbacks: list[Callable], data, kind: str) -> None:
+        for callback in callbacks:
+            try:
+                result = callback(data)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as exc:
+                with self._symbols_lock:
+                    self._consumer_errors += 1
+                    if kind == "trade":
+                        self._trade_consumer_errors += 1
+                    else:
+                        self._quote_consumer_errors += 1
+                    self._last_consumer_error = (
+                        f"{kind} {getattr(callback, '__qualname__', type(callback).__name__)}: "
+                        f"{type(exc).__name__}: {exc}"
+                    )[:500]
 
     async def _quote(self, data) -> None:
         symbol = getattr(data, "symbol", "")
@@ -61,6 +112,10 @@ class AlpacaMarketStream:
             getattr(data, "timestamp", None),
         )
         self.health.mark_quote(symbol)
+        self._record_event("quote", symbol)
+        with self._symbols_lock:
+            callbacks = list(self._quote_consumers)
+        await self._notify_consumers(callbacks, data, "quote")
 
     async def _trade(self, data) -> None:
         symbol = getattr(data, "symbol", "")
@@ -69,30 +124,56 @@ class AlpacaMarketStream:
         ts = getattr(data, "timestamp", None)
         self.cache.update_trade(symbol, price, size, ts)
         self.health.mark_trade(symbol)
-        for bar in self.bars.on_trade(symbol, price, size, ts):
+        self._record_event("trade", symbol)
+        try:
+            bars = self.bars.on_trade(symbol, price, size, ts)
             if self.on_bar is not None:
-                self.on_bar(bar)
+                for bar in bars:
+                    try:
+                        self.on_bar(bar)
+                    except Exception as exc:
+                        self.health.mark_error(f"on_bar {symbol}: {type(exc).__name__}: {exc}")
+        except Exception as exc:
+            self.health.mark_error(f"bar builder {symbol}: {type(exc).__name__}: {exc}")
+        with self._symbols_lock:
+            callbacks = list(self._trade_consumers)
+        await self._notify_consumers(callbacks, data, "trade")
 
     def _run(self) -> None:
-        try:
-            self.health.start(self.feed_name)
-            self._stream = StockDataStream(
-                self.api_key,
-                self.secret_key,
-                feed=self._feed(),
-                data_timeout=60,
-            )
-            with self._symbols_lock:
-                symbols = sorted(self._symbols)
-            if symbols:
-                self._stream.subscribe_quotes(self._quote, *symbols)
-                self._stream.subscribe_trades(self._trade, *symbols)
-            # La conexión real se confirma al recibir el primer evento.
-            self._stream.run()
-        except Exception as exc:
-            self.health.mark_error(exc)
-            with self.health._lock:
-                self.health.connected = False
+        self.health.start(self.feed_name)
+        while not self._stop.is_set():
+            stream = None
+            try:
+                stream = StockDataStream(
+                    self.api_key,
+                    self.secret_key,
+                    feed=self._feed(),
+                    data_timeout=60,
+                )
+                self._stream = stream
+                with self._symbols_lock:
+                    symbols = sorted(self._symbols)
+                if not symbols:
+                    self._stream = None
+                    return
+                stream.subscribe_quotes(self._quote, *symbols)
+                stream.subscribe_trades(self._trade, *symbols)
+                with self._symbols_lock:
+                    self._last_subscription_request_ts = time.time()
+                # La conexión real se confirma al recibir el primer evento.
+                stream.run()
+                if not self._stop.is_set():
+                    self.health.mark_error("StockDataStream.run() terminó; reconectando")
+            except Exception as exc:
+                if not self._stop.is_set():
+                    self.health.mark_error(exc)
+            finally:
+                with self.health._lock:
+                    self.health.connected = False
+                if self._stream is stream:
+                    self._stream = None
+            if not self._stop.wait(1.0):
+                continue
 
     def start(self, symbols: Iterable[str]) -> None:
         requested = {
@@ -175,4 +256,22 @@ class AlpacaMarketStream:
         self._stream = None
 
     def health_snapshot(self) -> dict:
-        return self.health.snapshot()
+        snapshot = self.health.snapshot()
+        with self._symbols_lock:
+            snapshot.update({
+                "running": bool(self._thread is not None and self._thread.is_alive()),
+                "subscribed_symbols": sorted(self._symbols),
+                "consumer_errors": int(self._consumer_errors),
+                "trade_consumer_errors": int(self._trade_consumer_errors),
+                "quote_consumer_errors": int(self._quote_consumer_errors),
+                "last_consumer_error": self._last_consumer_error,
+                "last_event_kind": self._last_event_kind,
+                "last_event_symbol": self._last_event_symbol,
+                "last_event_ts": self._last_event_ts,
+                "last_event_age_sec": (
+                    max(0.0, time.time() - self._last_event_ts)
+                    if self._last_event_ts is not None else None
+                ),
+                "last_subscription_request_ts": self._last_subscription_request_ts,
+            })
+        return snapshot
