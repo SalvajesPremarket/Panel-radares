@@ -403,10 +403,7 @@ def test_alpaca_market_stream_empty_update_unsubscribes_previous_symbols(monkeyp
     assert stream._symbols == set()
     stream.stop()
 
-
-
 def test_motor_velas_bridge_enforces_stream_symbol_budget_and_cleans_old_symbols():
-    import time
 
     from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
 
