@@ -3895,15 +3895,15 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             # El cierre y la duración se registran en el wrapper común para cubrir
             # todos los caminos de salida sin duplicar métricas.
                 if not self.ultimo_error:
-                    self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
-                self.resultados_por_tf[tf] = []
-                if es_principal:
-                    self.resultados = []
-                    # Un ciclo sin universo no debe dejar suscripciones antiguas
-                    # vivas; BotLong conserva por sí mismo los símbolos con una
-                    # posición/estado LONG activo.
-                    self._sincronizar_motor_velas([])
-                return
+                self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
+            self.resultados_por_tf[tf] = []
+            if es_principal:
+                self.resultados = []
+                # Un ciclo sin universo no debe dejar suscripciones antiguas
+                # vivas; BotLong conserva por sí mismo los símbolos con una
+                # posición/estado LONG activo.
+                self._sincronizar_motor_velas([])
+            return
 
         # No consumir la cuota de FMP si el filtro de flotación está apagado.
         # La caché existente se conserva; si el usuario activa FLOAT, la carga se reanuda.
