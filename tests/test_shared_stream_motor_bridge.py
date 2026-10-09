@@ -32,6 +32,10 @@ def test_bridge_delivers_trade_and_quote_to_motor_velas():
         assert motor.motores["AAPL"].vela_actual.volumen == 50
         assert snapshot["bid"] == 10.20
         assert snapshot["ask"] == 10.30
+        assert snapshot["market_data_trade_age_sec"] is not None
+        assert 0 <= snapshot["market_data_trade_age_sec"] < 2
+        assert snapshot["market_data_quote_age_sec"] is not None
+        assert 0 <= snapshot["market_data_quote_age_sec"] < 2
         assert status["stream_compartido"] is True
         assert status["stream_trades"] == 1
         assert status["trade_consumer_errors"] == 0
