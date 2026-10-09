@@ -58,6 +58,8 @@ class AlpacaMarketStream:
         self._last_event_symbol = ""
         self._last_event_ts: float | None = None
         self._last_subscription_request_ts: float | None = None
+        self._server_subscription_state: dict[str, list[str]] = {}
+        self._last_subscription_ack_ts: float | None = None
 
     def _feed(self):
         if self.feed_name == "sip":
@@ -180,6 +182,14 @@ class AlpacaMarketStream:
                 code = message.get("code", "unknown")
                 detail = str(message.get("msg") or "sin detalle")
                 self.health.mark_error(f"Alpaca websocket error {code}: {detail}"[:500])
+            elif isinstance(message, dict) and message.get("T") == "subscription":
+                with self._symbols_lock:
+                    self._server_subscription_state = {
+                        str(key): [str(symbol) for symbol in (value or [])]
+                        for key, value in message.items()
+                        if key != "T" and isinstance(value, (list, tuple))
+                    }
+                    self._last_subscription_ack_ts = time.time()
             await dispatch(message)
 
         # StockDataStream's dispatcher is the point where Alpaca's error frames
@@ -330,5 +340,9 @@ class AlpacaMarketStream:
                     if self._last_event_ts is not None else None
                 ),
                 "last_subscription_request_ts": self._last_subscription_request_ts,
+                "server_subscription_state": {
+                    key: list(value) for key, value in self._server_subscription_state.items()
+                },
+                "last_subscription_ack_ts": self._last_subscription_ack_ts,
             })
         return snapshot
