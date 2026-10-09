@@ -638,3 +638,61 @@ def test_server_subscription_ack_is_cleared_before_new_connection(monkeypatch):
     assert stream._server_subscription_state == {}
     assert stream._last_subscription_ack_ts is None
     stream.stop()
+
+
+def test_alpaca_market_stream_rolls_back_partial_subscription_and_retries(monkeypatch):
+    import threading
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.quotes = set()
+            self.trades = set()
+            self.stopped = False
+            self.ready = threading.Event()
+            FakeStream.instances.append(self)
+
+        def subscribe_quotes(self, callback, *symbols):
+            self.quotes.update(symbols)
+
+        def subscribe_trades(self, callback, *symbols):
+            if len(FakeStream.instances) == 1:
+                raise RuntimeError("simulated trade subscription failure")
+            self.trades.update(symbols)
+
+        def unsubscribe_quotes(self, *symbols):
+            self.quotes.difference_update(symbols)
+
+        def unsubscribe_trades(self, *symbols):
+            self.trades.difference_update(symbols)
+
+        def run(self):
+            self.ready.set()
+            while not self.stopped:
+                time.sleep(0.01)
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(module, "StockDataStream", FakeStream)
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream.start(["AAPL"])
+
+    deadline = time.time() + 6
+    while len(FakeStream.instances) < 2 and time.time() < deadline:
+        time.sleep(0.02)
+
+    assert len(FakeStream.instances) >= 2
+    first, second = FakeStream.instances[:2]
+    assert first.stopped is True
+    assert first.quotes == set()  # rolled back after trade subscription failed
+    assert second.ready.wait(timeout=2)
+    assert second.quotes == {"AAPL"}
+    assert second.trades == {"AAPL"}
+    assert stream.health_snapshot()["running"] is True
+    assert stream.health_snapshot()["errors"] >= 1
+    stream.stop()
