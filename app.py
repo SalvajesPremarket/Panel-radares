@@ -2854,6 +2854,7 @@ class ServicioScanner:
         # Control específico de FMP para no martillar la API cuando devuelve HTTP 429.
         self.fmp_pausado_hasta = 0.0
         self._fmp_429_consecutivos = 0
+        self.fmp_ultimo_429 = None
         self._ultima_peticion_fmp = 0.0
         self._bulk_float_running = False
         self._bulk_float_lock = threading.Lock()
@@ -3303,6 +3304,7 @@ class ServicioScanner:
         self.fmp_pausado_hasta = max(float(getattr(self, "fmp_pausado_hasta", 0) or 0), reanudar)
         detalle = f" Respuesta FMP: {cuerpo[:220]}" if cuerpo else " FMP no incluyó detalle en el cuerpo."
         self.ultimo_error = f"FMP HTTP 429 ({contexto}). {pausa_txt}{detalle}"
+        self.fmp_ultimo_429 = self.ultimo_error"
 
     def _actualizar_float_bulk(self):
         """Carga la tabla masiva de float de FMP y la mezcla con la caché local.
@@ -3397,6 +3399,8 @@ class ServicioScanner:
             self._guardar_cache_fundamentales()
             if encontrados:
                 self.ultimo_error = None
+                self.fmp_ultimo_429 = None
+                self._fmp_429_consecutivos = 0
                 print(f"✓ FMP bulk float: {encontrados} símbolos del universo actualizados ({paginas} páginas).")
             return encontrados > 0
         except Exception as e:
@@ -3415,7 +3419,10 @@ class ServicioScanner:
         if ahora < self.fmp_pausado_hasta:
             restante = max(1, int(self.fmp_pausado_hasta - ahora))
             minutos = restante // 60 + (1 if restante % 60 else 0)
+            causa = getattr(self, "fmp_ultimo_429", None)
             self.ultimo_error = (
+                f"{causa} Pausa activa: quedan aproximadamente {minutos} min."
+                if causa else
                 "FMP está en pausa por límite de solicitudes (HTTP 429). "
                 f"Se reintentará en aproximadamente {minutos} min."
             )
@@ -3454,6 +3461,7 @@ class ServicioScanner:
                 self.ultimo_error = f"FMP devolvió HTTP {respuesta.status_code} para {ticker}."
                 return None
             self._fmp_429_consecutivos = 0
+            self.fmp_ultimo_429 = None
             try:
                 payload = respuesta.json()
             except ValueError:
