@@ -404,6 +404,7 @@ def test_alpaca_market_stream_empty_update_unsubscribes_previous_symbols(monkeyp
     stream.stop()
 
 def test_motor_velas_bridge_enforces_stream_symbol_budget_and_cleans_old_symbols():
+    import threading
 
     from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
 
@@ -415,11 +416,21 @@ def test_motor_velas_bridge_enforces_stream_symbol_budget_and_cleans_old_symbols
             self.last_symbols = list(symbols)
 
     class FakeMotor:
+        def __init__(self):
+            self.removed = []
+            self.removed_event = threading.Event()
+
         def conectar_stream_compartido(self, stream):
             pass
 
+        def quitar_simbolo_en_caliente(self, symbol):
+            self.removed.append(symbol)
+            if len(self.removed) >= 3:
+                self.removed_event.set()
+
     stream = FakeStream()
-    bridge = MotorVelasBridge("key", "secret", motor=FakeMotor(), market_stream=stream)
+    motor = FakeMotor()
+    bridge = MotorVelasBridge("key", "secret", motor=motor, market_stream=stream)
     bridge.MAX_SIMBOLOS_BASIC = 7
     symbols = ["TSLA", "AAPL", "MSFT", "NVDA", "AMD", "META", "PLTR", "AMZN", "GOOG", "INTC"]
     bridge._simbolos_cargados = set(symbols)
@@ -428,3 +439,21 @@ def test_motor_velas_bridge_enforces_stream_symbol_budget_and_cleans_old_symbols
     assert stream.last_symbols == symbols[:7]
     assert bridge._simbolos_deseados == set(symbols[:7])
     assert bridge._simbolos_cargados == set(symbols[:7])
+    assert motor.removed_event.wait(timeout=2)
+    assert set(motor.removed) == set(symbols[7:])
+
+
+
+def test_motor_velas_removes_stale_symbol_history_and_quotes():
+    from BotTradeScanner.motor_velas.motor_velas import MotorVelas
+
+    motor = MotorVelas("key", "secret")
+    motor._obtener_motor("AAPL")
+    motor._historial_precargado.add("AAPL")
+    motor._quotes["AAPL"] = {"bid": 10.0, "ask": 10.1}
+
+    motor.quitar_simbolo_en_caliente("AAPL")
+
+    assert "AAPL" not in motor.motores
+    assert "AAPL" not in motor._historial_precargado
+    assert "AAPL" not in motor._quotes
