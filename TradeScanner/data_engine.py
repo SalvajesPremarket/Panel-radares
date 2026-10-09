@@ -163,6 +163,8 @@ class AlpacaMarketStream:
                     self._connected = False
                     if self._stream is stream:
                         self._stream = None
+                        # No reutilizar símbolos de una conexión caída al reconectar.
+                        self._symbols.clear()
                 time.sleep(1.0)
             except Exception as exc:
                 with self._lock:
@@ -173,6 +175,8 @@ class AlpacaMarketStream:
                     self._connected = False
                     if self._stream is stream:
                         self._stream = None
+                        # La siguiente conexión debe partir sin suscripciones obsoletas.
+                        self._symbols.clear()
                 time.sleep(1.0)
 
         with self._lock:
@@ -206,7 +210,9 @@ class AlpacaMarketStream:
                 # El cliente de Alpaca se crea y suscribe dentro del hilo que
                 # ejecuta el event loop. Así todo el ciclo de vida del websocket
                 # queda ligado al mismo hilo/event loop.
-                self._symbols.update(symbols)
+                # Si el websocket aún no existe (inicio/reconexión), sustituimos
+                # la lista pendiente; no acumulamos símbolos de ciclos anteriores.
+                self._symbols = set(symbols)
             else:
                 quitar = self._symbols - nuevos
                 agregar = nuevos - self._symbols
