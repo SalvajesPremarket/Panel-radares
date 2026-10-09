@@ -4356,16 +4356,32 @@ try:
 except Exception as _e_patch:
     print(f"⚠️ No se pudo actualizar el motor en caliente: {_e_patch}")
 # La instancia de ServicioScanner vive en st.cache_resource y puede sobrevivir al deploy.
-# Aplicar también el límite nuevo al stream/bridge ya cacheados, sin reconstruir el motor.
+# Si conserva una versión antigua del stream, sustituirla: esa versión no entrega
+# callbacks al MotorVelas ni expone el estado operacional que necesita el diagnóstico.
 try:
     _stream_compartido = getattr(servicio, "market_stream", None)
+    _bridge_compartido = getattr(servicio, "motor_velas", None)
+    if _stream_compartido is not None and not hasattr(_stream_compartido, "add_consumer"):
+        try:
+            _stream_compartido.stop()
+        except Exception:
+            pass
+        _stream_compartido = AlpacaMarketStream(
+            servicio.api_key,
+            servicio.secret_key,
+            feed=os.getenv("ALPACA_MARKET_DATA_FEED", "iex"),
+            max_symbols=10,
+        )
+        servicio.market_stream = _stream_compartido
+        if _bridge_compartido is not None:
+            _bridge_compartido.market_stream = _stream_compartido
+            _bridge_compartido.motor.conectar_stream_compartido(_stream_compartido)
     if _stream_compartido is not None:
         _stream_compartido.max_symbols = min(10, int(getattr(_stream_compartido, "max_symbols", 10)))
-    _bridge_compartido = getattr(servicio, "motor_velas", None)
     if _bridge_compartido is not None:
         _bridge_compartido.MAX_SIMBOLOS_BASIC = 10
 except Exception as _e_cap_stream:
-    print(f"⚠️ No se pudo aplicar el límite de suscripción Alpaca en caliente: {_e_cap_stream}")
+    print(f"⚠️ No se pudo actualizar el stream compartido de Alpaca en caliente: {_e_cap_stream}")
 
 try:
     servicio.finnhub_api_key = st.secrets.get("FINNHUB_API_KEY", None)
