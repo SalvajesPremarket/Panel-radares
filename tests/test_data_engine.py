@@ -660,9 +660,9 @@ def test_alpaca_market_stream_rolls_back_partial_subscription_and_retries(monkey
             self.quotes.update(symbols)
 
         def subscribe_trades(self, callback, *symbols):
+            self.trades.update(symbols)
             if len(FakeStream.instances) == 1:
                 raise RuntimeError("simulated trade subscription failure")
-            self.trades.update(symbols)
 
         def unsubscribe_quotes(self, *symbols):
             self.quotes.difference_update(symbols)
@@ -690,6 +690,7 @@ def test_alpaca_market_stream_rolls_back_partial_subscription_and_retries(monkey
     first, second = FakeStream.instances[:2]
     assert first.stopped is True
     assert first.quotes == set()  # rolled back after trade subscription failed
+    assert first.trades == set()  # SDK may fail after partially applying trades
     assert second.ready.wait(timeout=2)
     assert second.quotes == {"AAPL"}
     assert second.trades == {"AAPL"}
@@ -734,5 +735,45 @@ def test_alpaca_market_stream_stops_live_socket_when_subscription_update_fails()
 
     assert fake.stopped is True
     assert fake.quotes == {"AAPL"}  # failed MSFT addition was rolled back
+    assert stream._subscribed_symbols == {"AAPL"}
+    assert stream.health_snapshot()["errors"] >= 1
+
+
+def test_alpaca_market_stream_rolls_back_failed_unsubscribe_even_when_no_symbols_remain():
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        def __init__(self):
+            self.quotes = {"AAPL"}
+            self.trades = {"AAPL"}
+            self.stopped = False
+
+        def subscribe_quotes(self, callback, *symbols):
+            self.quotes.update(symbols)
+
+        def subscribe_trades(self, callback, *symbols):
+            self.trades.update(symbols)
+
+        def unsubscribe_quotes(self, *symbols):
+            self.quotes.difference_update(symbols)
+
+        def unsubscribe_trades(self, *symbols):
+            self.trades.difference_update(symbols)
+            raise RuntimeError("simulated partial unsubscribe failure")
+
+        def stop(self):
+            self.stopped = True
+
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    fake = FakeStream()
+    stream._stream = fake
+    stream._symbols = {"AAPL"}
+    stream._subscribed_symbols = {"AAPL"}
+
+    stream._update_running_subscriptions(set())
+
+    assert fake.stopped is True
+    assert fake.quotes == {"AAPL"}
+    assert fake.trades == {"AAPL"}
     assert stream._subscribed_symbols == {"AAPL"}
     assert stream.health_snapshot()["errors"] >= 1
