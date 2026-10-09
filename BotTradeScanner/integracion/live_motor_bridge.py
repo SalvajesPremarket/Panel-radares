@@ -20,8 +20,8 @@ import time
 class MotorVelasBridge:
     """Conecta el motor de velas con los resultados del scanner sin decidir operaciones."""
 
-    # Conservador para el plan Basic: cada ticker usa los canales trades y quotes.
-    MAX_SIMBOLOS_BASIC = 15
+    # Safety margin under the Basic plan limit; each ticker uses trades + quotes.
+    MAX_SIMBOLOS_BASIC = 10
     MAX_NUEVOS_POR_CICLO = 10
 
     def __init__(self, api_key: str, secret_key: str, motor=None, market_stream=None):
@@ -98,16 +98,15 @@ class MotorVelasBridge:
                 candidatos.append(ticker)
 
         deseados = set(candidatos)
+        # Always synchronize, even for an empty list, so stale candidates are
+        # removed from the shared stream when scanner results disappear.
+        if getattr(self, "market_stream", None) is not None:
+            try:
+                self.market_stream.start(candidatos[: self.MAX_SIMBOLOS_BASIC])
+            except Exception as exc:
+                self._ultima_error = str(exc)
         if deseados:
             self._arrancar_stream()
-            # En modo compartido, el websocket lo administra el scanner.
-            # El bridge solo entrega la lista deseada para que el mismo stream
-            # reciba trades/quotes de candidatos y posiciones activas.
-            if getattr(self, "market_stream", None) is not None:
-                try:
-                    self.market_stream.start(candidatos[: self.MAX_SIMBOLOS_BASIC])
-                except Exception as exc:
-                    self._ultima_error = str(exc)
         with self._lock:
             self._simbolos_deseados = deseados
 
