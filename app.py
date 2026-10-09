@@ -3327,9 +3327,9 @@ class ServicioScanner:
         except Exception:
             ultima_bulk = 0.0
             _enc_prev = 0
-        # Si la ultima carga no encontro NINGUN float (clave mala, limite 429, etc.) se
-        # reintenta en ~15 min en vez de esperar 12 horas con el scanner sin datos de float.
-        _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else 7200
+        # Si la última carga no obtuvo datos, reintentar en 15 min; no dejar
+        # una caché vacía bloqueada durante 2 horas.
+        _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else PAUSA_FMP_429_SEGUNDOS
         if ahora - ultima_bulk < _ventana_bulk:
             return False
         try:
@@ -3894,7 +3894,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Mientras termina, los candidatos nuevos usan el endpoint individual como respaldo.
         try:
             meta_bulk = self.cache_fund.get("__bulk_meta__", {}) if isinstance(self.cache_fund, dict) else {}
-            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else 7200
+            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else PAUSA_FMP_429_SEGUNDOS
             bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= _ventana_chk
         except Exception:
             bulk_stale = True
