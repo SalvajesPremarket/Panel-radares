@@ -5607,6 +5607,17 @@ def _render_scanner():
         refresh_sec = 180
     if PUBLIC_PREVIEW:
         refresh_sec = 180
+
+    # Refresco real de Streamlit: el motor puede terminar un ciclo en segundo
+    # plano, pero la tabla solo se reconstruye cuando la app vuelve a ejecutarse.
+    # Se mantiene fuera de st.fragment para no desmontar el iframe del scanner.
+    # El componente usa el mismo key durante la sesión y respeta el REFRESH elegido.
+    try:
+        from streamlit_autorefresh import st_autorefresh
+        st_autorefresh(interval=int(refresh_sec) * 1000, key="ts_scanner_auto_refresh")
+    except Exception as _e_refresh:
+        print(f"⚠️ No se pudo activar el auto-refresh del scanner: {_e_refresh}")
+
     refresh_options = [5, 6, 7, 8, 9, 10, 15, 20, 25, 30, 45, 60, 90, 120, 180, 300, 600, 900, 1800, 3600]
     if refresh_sec not in refresh_options:
         refresh_options.append(refresh_sec)
