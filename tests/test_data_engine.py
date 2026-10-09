@@ -109,6 +109,50 @@ def test_alpaca_market_stream_start_update_and_stop(monkeypatch):
     assert stream.health_snapshot()["errors"] == 0
 
 
+def test_alpaca_market_stream_reconnects_after_run_error(monkeypatch):
+    import threading
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.stopped = False
+            self.ready = threading.Event()
+            FakeStream.instances.append(self)
+
+        def subscribe_quotes(self, callback, *symbols):
+            pass
+
+        def subscribe_trades(self, callback, *symbols):
+            pass
+
+        def run(self):
+            self.ready.set()
+            if len(FakeStream.instances) == 1:
+                raise RuntimeError("simulated disconnect")
+            while not self.stopped:
+                time.sleep(0.01)
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(module, "StockDataStream", FakeStream)
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream.start(["AAPL"])
+
+    deadline = time.time() + 4
+    while len(FakeStream.instances) < 2 and time.time() < deadline:
+        time.sleep(0.02)
+
+    assert len(FakeStream.instances) >= 2
+    assert FakeStream.instances[0].stopped is True
+    assert stream.health_snapshot()["running"] is True
+    stream.stop()
+
+
 def test_shared_stream_consumers_receive_trades_and_quotes():
     import asyncio
     from datetime import datetime, timezone
