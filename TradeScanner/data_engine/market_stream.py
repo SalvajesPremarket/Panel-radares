@@ -143,11 +143,11 @@ class AlpacaMarketStream:
             callbacks = list(self._trade_consumers)
         await self._notify_consumers(callbacks, data, "trade")
 
-    def _sync_subscriptions(self, stream) -> set[str]:
+    def _sync_subscriptions(self, stream) -> set[str] | None:
         """Serializa las llamadas de suscripción y reconcilia el estado deseado."""
         with self._subscription_lock:
             if self._stream is not stream:
-                return set()
+                return None
             with self._symbols_lock:
                 requested = set(self._symbols)
             current = set(self._subscribed_symbols)
@@ -198,7 +198,7 @@ class AlpacaMarketStream:
                         f"subscription rollback failed: {type(rollback_exc).__name__}: {rollback_exc}"
                     )
                 self.health.mark_error(exc)
-                return set()
+                return None
             return requested
 
     def _instrument_stream_dispatch(self, stream) -> None:
@@ -256,6 +256,12 @@ class AlpacaMarketStream:
                             self._stream = None
                     return
                 symbols = self._sync_subscriptions(stream)
+                if symbols is None:
+                    with self._symbols_lock:
+                        still_desired = bool(self._symbols)
+                    if still_desired:
+                        raise RuntimeError("alpaca_subscription_setup_failed")
+                    return
                 if not symbols:
                     with self._symbols_lock:
                         still_desired = bool(self._symbols)
@@ -336,7 +342,7 @@ class AlpacaMarketStream:
         # latest desired set before entering run(). Otherwise reconcile now.
         if stream is not None:
             reconciled = self._sync_subscriptions(stream)
-            if requested and not reconciled:
+            if reconciled is None:
                 # A failed live update must also trigger the worker's reconnect
                 # loop; otherwise the websocket could remain alive while the
                 # newly requested symbols never receive both event types.
