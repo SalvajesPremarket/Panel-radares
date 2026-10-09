@@ -114,6 +114,12 @@ class MaquinaDecisionesLong:
         with self._lock:
             self._estrategia(simbolo).confirmar_fill(float(precio_fill))
 
+    def aplicar_stop_loss(self, simbolo: str, stop_loss: float) -> None:
+        """Aplica el stop porcentual configurado a la estrategia activa."""
+        with self._lock:
+            estrategia = self._estrategia(simbolo)
+            estrategia.stop_loss = float(stop_loss)
+
     def cancelar_entrada_pendiente(self, simbolo: str) -> None:
         with self._lock:
             self._estrategia(simbolo).cancelar_entrada_pendiente()

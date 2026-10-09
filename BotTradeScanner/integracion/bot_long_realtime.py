@@ -48,6 +48,55 @@ class BotLongRealtime:
         self._ultimo_error: str | None = None
         self._ciclos = 0
         self._ultima_evaluacion = None
+        self._config_operativa = {
+            "capital_asignado": 600.0,
+            "porcentaje_operacion": 20.0,
+            "stop_loss_pct": 2.0,
+            "take_profit_pct": 4.0,
+            "estrategia": "LongSalvajesPreMarket",
+        }
+        self.configurar_riesgo(**self._config_operativa)
+
+    def configurar_riesgo(
+        self,
+        capital_asignado: float = 600.0,
+        porcentaje_operacion: float = 20.0,
+        stop_loss_pct: float = 2.0,
+        take_profit_pct: float = 4.0,
+        estrategia: str = "LongSalvajesPreMarket",
+    ) -> dict:
+        """Actualiza limites de capital/riesgo sin alterar las reglas de entrada."""
+        capital = float(capital_asignado)
+        asignacion = float(porcentaje_operacion)
+        stop_pct = float(stop_loss_pct)
+        take_pct = float(take_profit_pct)
+        if capital <= 0:
+            raise ValueError("El capital asignado debe ser mayor que cero.")
+        if not 1 <= asignacion <= 100:
+            raise ValueError("El porcentaje por operación debe estar entre 1 y 100.")
+        if not 0.1 <= stop_pct <= 50:
+            raise ValueError("El Stop Loss debe estar entre 0.1% y 50%.")
+        if not 0.1 <= take_pct <= 100:
+            raise ValueError("El Take Profit debe estar entre 0.1% y 100%.")
+        if estrategia != "LongSalvajesPreMarket":
+            raise ValueError("Estrategia no disponible.")
+        config = {
+            "capital_asignado": capital,
+            "porcentaje_operacion": asignacion,
+            "stop_loss_pct": stop_pct,
+            "take_profit_pct": take_pct,
+            "estrategia": estrategia,
+        }
+        with self._lock:
+            self._config_operativa = config
+            self.paper.risk.initial_capital = capital
+            self.paper.risk.max_exposure = asignacion / 100.0
+            self.paper.risk.max_dolares_por_operacion = capital * asignacion / 100.0
+        return dict(config)
+
+    def configuracion_operativa(self) -> dict:
+        with self._lock:
+            return dict(self._config_operativa)
 
     def iniciar(self) -> None:
         with self._lock:
@@ -162,6 +211,7 @@ class BotLongRealtime:
         with self._lock:
             candidatos = set(self._candidatos)
             candidate_metadata = dict(self._candidate_metadata)
+            config_operativa = dict(self._config_operativa)
 
         simbolos = set(candidatos)
         for simbolo in self.decisiones.simbolos():
@@ -180,8 +230,39 @@ class BotLongRealtime:
             try:
                 snap = self.motor_bridge.snapshot(simbolo)
                 candidato = simbolo in candidatos
-                decision = self.decisiones.evaluar(snap, candidato_scanner=candidato)
-                decision_data = asdict(decision)
+                estado_actual = self.decisiones.estado(simbolo)
+                vela_actual = snap.get("vela_actual") or {}
+                precio_actual = vela_actual.get("cierre")
+                entrada_actual = estado_actual.get("precio_entrada")
+                estados_long = {"long_primera_vela", "long_segunda_vela", "long_siguientes"}
+                motivo_salida = None
+                if estado_actual.get("estado") in estados_long and entrada_actual and precio_actual:
+                    try:
+                        precio_eval = float(precio_actual)
+                        stop_vigente = estado_actual.get("stop_loss")
+                        objetivo_tp = float(entrada_actual) * (1 + config_operativa["take_profit_pct"] / 100.0)
+                        if stop_vigente is not None and precio_eval <= float(stop_vigente):
+                            motivo_salida = f"Stop Loss alcanzado ({config_operativa['stop_loss_pct']:g}%)."
+                        elif precio_eval >= objetivo_tp:
+                            motivo_salida = f"Take Profit alcanzado ({config_operativa['take_profit_pct']:g}%)."
+                    except (TypeError, ValueError):
+                        motivo_salida = None
+                if motivo_salida:
+                    stop_vigente = estado_actual.get("stop_loss")
+                    self.decisiones.marcar_salida_para_pullback(simbolo)
+                    decision_data = {
+                        "simbolo": simbolo,
+                        "accion": "EXIT",
+                        "estado": "pullback_long",
+                        "motivo": motivo_salida,
+                        "stop_loss": stop_vigente,
+                        "precio": float(precio_actual),
+                        "candidato_scanner": candidato,
+                        "estrategia": config_operativa["estrategia"],
+                    }
+                else:
+                    decision = self.decisiones.evaluar(snap, candidato_scanner=candidato)
+                    decision_data = asdict(decision)
                 signal_meta = candidate_metadata.get(simbolo, {})
 
                 # La identidad/confianza de la señal acompaña la decisión,
@@ -201,14 +282,18 @@ class BotLongRealtime:
                 if anterior != comparable or decision_data.get("accion") in {"BUY", "EXIT"}:
                     ejecucion = None
                     if decision_data.get("accion") == "BUY":
-                        if self.executor is not None:
+                        # Si la ejecución externa está deshabilitada, la compra se
+                        # simula en PAPER; no se intenta enviar una orden al broker.
+                        if self.executor is not None and self.execution_config.enabled:
                             ask = snap.get("ask")
                             bid = snap.get("bid")
                             try:
                                 precio_orden = ask if ask is not None else bid
-                                stop_para_riesgo = decision_data.get("stop_loss")
                                 if precio_orden is None:
                                     raise ValueError("quote_sin_precio")
+                                stop_para_riesgo = float(precio_orden) * (1.0 - config_operativa["stop_loss_pct"] / 100.0)
+                                decision_data["stop_loss"] = stop_para_riesgo
+                                self.decisiones.aplicar_stop_loss(simbolo, stop_para_riesgo)
                                 cantidad, _, _, error_tamano = self.paper.validar_entrada(precio_orden, stop_para_riesgo, posiciones_reservadas=len(self._ordenes_pendientes))
                                 if error_tamano:
                                     raise ValueError(error_tamano)
@@ -249,9 +334,11 @@ class BotLongRealtime:
                             bid = snap.get("bid")
                             try:
                                 precio_orden = ask if ask is not None else bid
-                                stop_para_riesgo = decision_data.get("stop_loss")
                                 if precio_orden is None:
                                     raise ValueError("quote_sin_precio")
+                                stop_para_riesgo = float(precio_orden) * (1.0 - config_operativa["stop_loss_pct"] / 100.0)
+                                decision_data["stop_loss"] = stop_para_riesgo
+                                self.decisiones.aplicar_stop_loss(simbolo, stop_para_riesgo)
                                 cantidad, _, _, error_tamano = self.paper.tamano_entrada(precio_orden, stop_para_riesgo)
                                 if error_tamano:
                                     raise ValueError(error_tamano)
@@ -327,6 +414,7 @@ class BotLongRealtime:
             "ultimo_error": self._ultimo_error,
             "decisiones_guardadas": len(self._decisiones),
             "paper": self.paper.status(),
+            "config_operativa": self.configuracion_operativa(),
             "posiciones_paper": self.paper.posiciones(),
             "posiciones_observadas": [
                 self.decisiones.estado(s)["estado"]

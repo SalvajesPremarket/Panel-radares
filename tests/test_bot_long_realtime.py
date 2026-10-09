@@ -84,7 +84,7 @@ def test_full_long_cycle_candidate_watch_buy_paper_and_stop_exit():
         ),
         valid_candidate_snapshot(
             vela_actual={
-                "apertura": 10.1, "cierre": 9.9, "minimo": 9.8, "maximo": 10.1,
+                "apertura": 10.1, "cierre": 9.8, "minimo": 9.7, "maximo": 10.1,
                 "es_positiva": False, "regreso_a_apertura": False,
                 "es_libelula_en_curso": False, "es_lapida_en_curso": False,
             }
@@ -106,6 +106,43 @@ def test_full_long_cycle_candidate_watch_buy_paper_and_stop_exit():
     assert third[0]["accion"] == "EXIT"
     assert third[0]["paper"]["action"] == "sell"
     assert third[0]["paper"]["pnl_realizado"] < 0
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+    assert bot.paper.status()["operaciones_cerradas"] == 1
+
+
+def test_full_long_cycle_take_profit_closes_paper_position():
+    snapshots = [
+        valid_candidate_snapshot(),
+        valid_candidate_snapshot(
+            vela_actual={
+                "apertura": 10.0, "cierre": 10.1, "minimo": 9.8, "maximo": 10.1,
+                "es_positiva": True, "regreso_a_apertura": True,
+                "es_libelula_en_curso": True, "es_lapida_en_curso": False,
+            }
+        ),
+        valid_candidate_snapshot(
+            vela_actual={
+                "apertura": 10.5, "cierre": 10.6, "minimo": 10.4, "maximo": 10.6,
+                "es_positiva": True, "regreso_a_apertura": False,
+                "es_libelula_en_curso": False, "es_lapida_en_curso": False,
+            }
+        ),
+    ]
+    bridge = SequenceBridge(snapshots)
+    bot = BotLongRealtime(bridge)
+    bot.sync_signals([{"symbol": "TEST", "signal_id": "sig-tp",
+                       "confidence": 94, "signal_type": "LONG", "timeframe": "1m"}])
+
+    bot.evaluar_ahora()
+    opened = bot.evaluar_ahora()
+    closed = bot.evaluar_ahora()
+
+    assert opened[0]["accion"] == "BUY"
+    assert opened[0]["paper"]["action"] == "buy"
+    assert closed[0]["accion"] == "EXIT"
+    assert "Take Profit" in closed[0]["motivo"]
+    assert closed[0]["paper"]["action"] == "sell"
+    assert closed[0]["paper"]["pnl_realizado"] > 0
     assert bot.paper.status()["posiciones_abiertas"] == 0
     assert bot.paper.status()["operaciones_cerradas"] == 1
 
