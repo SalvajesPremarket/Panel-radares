@@ -327,6 +327,51 @@ def test_alpaca_market_stream_preserves_candidate_priority_order():
     ) == ["TSLA", "AAPL", "MSFT"]
 
 
+def test_stop_keeps_thread_handle_until_sdk_run_loop_exits(monkeypatch):
+    import threading
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class BlockingStream:
+        def __init__(self, *args, **kwargs):
+            self.entered = threading.Event()
+            self.release = threading.Event()
+            self.stopped = False
+
+        def subscribe_quotes(self, callback, *symbols):
+            pass
+
+        def subscribe_trades(self, callback, *symbols):
+            pass
+
+        def run(self):
+            self.entered.set()
+            self.release.wait(timeout=10)
+
+        def stop(self):
+            self.stopped = True
+            # Simulate an SDK websocket whose run() doesn't unblock immediately.
+
+    monkeypatch.setattr(module, "StockDataStream", BlockingStream)
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream.start(["AAPL"])
+    deadline = time.time() + 2
+    while stream._stream is None and time.time() < deadline:
+        time.sleep(0.01)
+    fake = stream._stream
+    assert fake is not None and fake.entered.wait(timeout=2)
+    original_thread = stream._thread
+
+    stream.stop()
+    assert original_thread.is_alive()
+    assert stream._thread is original_thread
+
+    fake.release.set()
+    original_thread.join(timeout=2)
+    assert not original_thread.is_alive()
+
+
 def test_alpaca_market_stream_empty_start_does_not_open_connection(monkeypatch):
     import time
 
