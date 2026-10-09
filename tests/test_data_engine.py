@@ -109,6 +109,38 @@ def test_alpaca_market_stream_start_update_and_stop(monkeypatch):
     assert stream.health_snapshot()["errors"] == 0
 
 
+def test_shared_stream_consumers_receive_trades_and_quotes():
+    import asyncio
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+    received_trades = []
+    received_quotes = []
+    stream.add_consumer(received_trades.append, received_quotes.append)
+
+    trade = SimpleNamespace(
+        symbol="AAPL", price=10.5, size=100,
+        timestamp=datetime(2026, 10, 9, 16, 0, tzinfo=timezone.utc),
+    )
+    quote = SimpleNamespace(
+        symbol="AAPL", bid_price=10.4, ask_price=10.6,
+        timestamp=datetime(2026, 10, 9, 16, 0, tzinfo=timezone.utc),
+    )
+    asyncio.run(stream._trade(trade))
+    asyncio.run(stream._quote(quote))
+
+    assert received_trades == [trade]
+    assert received_quotes == [quote]
+    snap = stream.health_snapshot()
+    assert snap["trades"] == 1
+    assert snap["quotes"] == 1
+    assert snap["last_event_kind"] == "quote"
+    assert snap["last_event_symbol"] == "AAPL"
+
+
 def test_alpaca_market_stream_empty_start_does_not_open_connection(monkeypatch):
     import time
 
