@@ -184,7 +184,7 @@ class AlpacaMarketStream:
                             operation(*symbols)
                         except Exception as rollback_exc:
                             rollback_errors.append(rollback_exc)
-                elif remove_started:
+                if remove_started:
                     for operation, symbols in (
                         (lambda *items: stream.subscribe_quotes(self._quote, *items), sorted(remove)),
                         (lambda *items: stream.subscribe_trades(self._trade, *items), sorted(remove)),
