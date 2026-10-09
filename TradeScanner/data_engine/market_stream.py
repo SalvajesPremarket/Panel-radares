@@ -319,8 +319,15 @@ class AlpacaMarketStream:
         thread = self._thread
         if thread and thread.is_alive():
             thread.join(timeout=3)
+        # Never drop the thread handle while the SDK run loop is still alive.
+        # Otherwise a subsequent start() could create a second websocket and
+        # consume the account's connection/subscription budget.
+        if thread is not None and thread.is_alive():
+            return
         self._thread = None
-        self._stream = None
+        with self._subscription_lock:
+            self._stream = None
+            self._subscribed_symbols.clear()
 
     def health_snapshot(self) -> dict:
         snapshot = self.health.snapshot()
