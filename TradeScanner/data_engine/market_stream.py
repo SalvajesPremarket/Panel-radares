@@ -46,6 +46,8 @@ class AlpacaMarketStream:
         self._stop = threading.Event()
         self._symbols: set[str] = set()
         self._symbols_lock = threading.RLock()
+        self._subscription_lock = threading.RLock()
+        self._subscribed_symbols: set[str] = set()
         self._trade_consumers: list[Callable] = []
         self._quote_consumers: list[Callable] = []
         self._consumer_errors = 0
@@ -139,6 +141,34 @@ class AlpacaMarketStream:
             callbacks = list(self._trade_consumers)
         await self._notify_consumers(callbacks, data, "trade")
 
+    def _sync_subscriptions(self, stream) -> set[str]:
+        """Serializa las llamadas de suscripción y reconcilia el estado deseado."""
+        with self._subscription_lock:
+            if self._stream is not stream:
+                return set()
+            with self._symbols_lock:
+                requested = set(self._symbols)
+            current = set(self._subscribed_symbols)
+            add = requested - current
+            remove = current - requested
+            try:
+                if add:
+                    symbols = sorted(add)
+                    stream.subscribe_quotes(self._quote, *symbols)
+                    stream.subscribe_trades(self._trade, *symbols)
+                    self._subscribed_symbols.update(add)
+                if remove:
+                    symbols = sorted(remove)
+                    stream.unsubscribe_quotes(*symbols)
+                    stream.unsubscribe_trades(*symbols)
+                    self._subscribed_symbols.difference_update(remove)
+                if requested:
+                    with self._symbols_lock:
+                        self._last_subscription_request_ts = time.time()
+            except Exception as exc:
+                self.health.mark_error(exc)
+            return requested
+
     def _run(self) -> None:
         self.health.start(self.feed_name)
         while not self._stop.is_set():
@@ -150,16 +180,24 @@ class AlpacaMarketStream:
                     feed=self._feed(),
                     data_timeout=60,
                 )
-                self._stream = stream
-                with self._symbols_lock:
-                    symbols = sorted(self._symbols)
-                if not symbols:
-                    self._stream = None
+                # Publish the stream and reconcile desired symbols atomically
+                # against concurrent start()/update_symbols() calls.
+                with self._subscription_lock:
+                    self._stream = stream
+                    self._subscribed_symbols.clear()
+                    with self._symbols_lock:
+                        has_symbols = bool(self._symbols)
+                if not has_symbols:
+                    with self._subscription_lock:
+                        if self._stream is stream:
+                            self._stream = None
                     return
-                stream.subscribe_quotes(self._quote, *symbols)
-                stream.subscribe_trades(self._trade, *symbols)
-                with self._symbols_lock:
-                    self._last_subscription_request_ts = time.time()
+                symbols = self._sync_subscriptions(stream)
+                if not symbols:
+                    with self._subscription_lock:
+                        if self._stream is stream:
+                            self._stream = None
+                    return
                 # La conexión real se confirma al recibir el primer evento.
                 stream.run()
                 if not self._stop.is_set():
@@ -175,10 +213,12 @@ class AlpacaMarketStream:
                         stream.stop()
                     except Exception:
                         pass
+                with self._subscription_lock:
+                    self._subscribed_symbols.clear()
+                    if self._stream is stream:
+                        self._stream = None
                 with self.health._lock:
                     self.health.connected = False
-                if self._stream is stream:
-                    self._stream = None
             if not self._stop.wait(1.0):
                 continue
 
@@ -214,26 +254,12 @@ class AlpacaMarketStream:
 
     def _update_running_subscriptions(self, requested: set[str]) -> None:
         with self._symbols_lock:
-            old = set(self._symbols)
             self._symbols = set(requested)
             stream = self._stream
-        # The websocket may still be connecting. Save the desired set now;
-        # _run() will read it before subscribing, so updates are not lost.
-        if stream is None:
-            return
-        add = requested - old
-        remove = old - requested
-        try:
-            if add:
-                symbols = sorted(add)
-                stream.subscribe_quotes(self._quote, *symbols)
-                stream.subscribe_trades(self._trade, *symbols)
-            if remove:
-                symbols = sorted(remove)
-                stream.unsubscribe_quotes(*symbols)
-                stream.unsubscribe_trades(*symbols)
-        except Exception as exc:
-            self.health.mark_error(exc)
+        # If connection setup is still in progress, _run() will reconcile the
+        # latest desired set before entering run(). Otherwise reconcile now.
+        if stream is not None:
+            self._sync_subscriptions(stream)
 
     def update_symbols(self, symbols: Iterable[str]) -> None:
         requested = {
@@ -267,7 +293,7 @@ class AlpacaMarketStream:
         with self._symbols_lock:
             snapshot.update({
                 "running": bool(self._thread is not None and self._thread.is_alive()),
-                "subscribed_symbols": sorted(self._symbols),
+                "subscribed_symbols": sorted(self._subscribed_symbols),
                 "consumer_errors": int(self._consumer_errors),
                 "trade_consumer_errors": int(self._trade_consumer_errors),
                 "quote_consumer_errors": int(self._quote_consumer_errors),
