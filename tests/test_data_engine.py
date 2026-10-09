@@ -327,6 +327,30 @@ def test_alpaca_market_stream_preserves_candidate_priority_order():
     ) == ["TSLA", "AAPL", "MSFT"]
 
 
+def test_shared_stream_records_consumer_errors_without_killing_dispatch():
+    import asyncio
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+
+    def broken_consumer(trade):
+        raise RuntimeError("consumer exploded")
+
+    stream.add_consumer(trade_callback=broken_consumer)
+    trade = SimpleNamespace(
+        symbol="AAPL", price=10.5, size=100,
+        timestamp=datetime(2026, 10, 9, 16, 0, tzinfo=timezone.utc),
+    )
+    asyncio.run(stream._trade(trade))
+    snapshot = stream.health_snapshot()
+    assert snapshot["trades"] == 1
+    assert snapshot["trade_consumer_errors"] == 1
+    assert "consumer exploded" in snapshot["last_consumer_error"]
+
+
 def test_alpaca_market_stream_empty_start_does_not_open_connection(monkeypatch):
     import time
 
