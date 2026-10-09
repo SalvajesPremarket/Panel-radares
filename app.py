@@ -4280,6 +4280,18 @@ try:
             servicio.__dict__[_nombre] = _types.MethodType(_fn, servicio)
 except Exception as _e_patch:
     print(f"⚠️ No se pudo actualizar el motor en caliente: {_e_patch}")
+# La instancia de ServicioScanner vive en st.cache_resource y puede sobrevivir al deploy.
+# Aplicar también el límite nuevo al stream/bridge ya cacheados, sin reconstruir el motor.
+try:
+    _stream_compartido = getattr(servicio, "market_stream", None)
+    if _stream_compartido is not None:
+        _stream_compartido.max_symbols = min(15, int(getattr(_stream_compartido, "max_symbols", 15)))
+    _bridge_compartido = getattr(servicio, "motor_velas", None)
+    if _bridge_compartido is not None:
+        _bridge_compartido.MAX_SIMBOLOS_BASIC = 15
+except Exception as _e_cap_stream:
+    print(f"⚠️ No se pudo aplicar el límite de suscripción Alpaca en caliente: {_e_cap_stream}")
+
 try:
     servicio.finnhub_api_key = st.secrets.get("FINNHUB_API_KEY", None)
 except Exception:
