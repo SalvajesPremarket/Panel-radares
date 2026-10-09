@@ -3877,6 +3877,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Filtros de ESTA temporalidad (precio, gap, volumen, float...). Se toman una vez
         # al inicio para que todo el ciclo use un conjunto coherente.
         filtros_tf = self._filtros_para(tf)
+        float_activa = _filtro_activo(
+            filtros_tf, "flotacion_activa",
+            _filtro_activo(filtros_tf, "f_float_on", False),
+        )
         # Inicializar siempre la duración para que las métricas no comparen
         # None contra float en ciclos donde el universo ya está cargado.
         self.duracion_ciclo = time.monotonic() - inicio
@@ -3901,21 +3905,24 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                     self.resultados = []
                 return
 
-        # El float masivo se actualiza en un hilo auxiliar: NUNCA bloquea el radar.
-        # Mientras termina, los candidatos nuevos usan el endpoint individual como respaldo.
-        try:
-            meta_bulk = self.cache_fund.get("__bulk_meta__", {}) if isinstance(self.cache_fund, dict) else {}
-            _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else PAUSA_FMP_429_SEGUNDOS
-            bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= _ventana_chk
-        except Exception:
-            bulk_stale = True
-        if (bulk_stale
-                and time.time() >= float(getattr(self, "fmp_pausado_hasta", 0) or 0)
-                and not getattr(self, "_bulk_float_running", False)):
-            with self._bulk_float_lock:
-                if not self._bulk_float_running:
-                    self._bulk_float_running = True
-                    threading.Thread(target=self._actualizar_float_bulk, daemon=True).start()
+        # No consumir la cuota de FMP si el filtro de flotación está apagado.
+        # La caché existente se conserva; si el usuario activa FLOAT, la carga se reanuda.
+        if float_activa:
+            # El float masivo se actualiza en un hilo auxiliar: NUNCA bloquea el radar.
+            # Mientras termina, los candidatos nuevos usan el endpoint individual como respaldo.
+            try:
+                meta_bulk = self.cache_fund.get("__bulk_meta__", {}) if isinstance(self.cache_fund, dict) else {}
+                _ventana_chk = FMP_BULK_FLOAT_TTL if int(meta_bulk.get("encontrados", 0) or 0) > 0 else PAUSA_FMP_429_SEGUNDOS
+                bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= _ventana_chk
+            except Exception:
+                bulk_stale = True
+            if (bulk_stale
+                    and time.time() >= float(getattr(self, "fmp_pausado_hasta", 0) or 0)
+                    and not getattr(self, "_bulk_float_running", False)):
+                with self._bulk_float_lock:
+                    if not self._bulk_float_running:
+                        self._bulk_float_running = True
+                        threading.Thread(target=self._actualizar_float_bulk, daemon=True).start()
 
         snapshots = snapshots_pre if snapshots_pre else self._descargar_snapshots()
         self._ultimos_snapshots = snapshots
@@ -4047,18 +4054,18 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             c.update(self._cache_ema_extra(tf).get(c["ticker"], {}))
             c["tiene_noticia"] = False
 
-        # Después de EMA/MACD, pedimos FLOAT solo a candidatos técnicos.
-        # Esto elimina el cuello de botella que estaba dejando el scanner en 0.
+        # Después de EMA/MACD, FLOAT solo se consulta cuando el filtro está ON.
+        # Con FLOAT OFF, la ausencia de ese dato no debe consumir cuota ni bloquear señales.
         candidatos_tecnicos = [c for c in radar_gap if cumple_condiciones_ema(c, filtros_tf) and cumple_macd(c, filtros_tf)]
         # Las noticias son decorativas: consultamos solo una muestra de candidatos
         # técnicos, nunca los cientos de símbolos del radar base.
         con_noticia = self._noticias_recientes([c["ticker"] for c in candidatos_tecnicos[:100]])
         for c in candidatos_tecnicos:
             c["tiene_noticia"] = c["ticker"] in con_noticia
-        self._asegurar_fundamentales([c["ticker"] for c in candidatos_tecnicos])
+        if float_activa:
+            self._asegurar_fundamentales([c["ticker"] for c in candidatos_tecnicos])
 
         limite_float = float(filtros_tf.get("flotacion_max", 20_000_000))
-        float_activa = _filtro_activo(filtros_tf, "flotacion_activa", _filtro_activo(filtros_tf, "f_float_on", False))
         enriquecidos = []
         float_sin_dato_count = 0
         float_excede_count = 0
