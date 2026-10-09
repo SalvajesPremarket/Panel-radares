@@ -99,12 +99,16 @@ class MotorVelasBridge:
             if ticker and ticker not in candidatos:
                 candidatos.append(ticker)
 
-        deseados = set(candidatos)
+        # Enfocar el bridge en los mismos símbolos que realmente puede recibir
+        # el websocket. También limpia motores precargados por una versión
+        # anterior que permitía más símbolos.
+        seleccionados = candidatos[: self.MAX_SIMBOLOS_BASIC]
+        deseados = set(seleccionados)
         # Always synchronize, even for an empty list, so stale candidates are
         # removed from the shared stream when scanner results disappear.
         if getattr(self, "market_stream", None) is not None:
             try:
-                self.market_stream.start(candidatos[: self.MAX_SIMBOLOS_BASIC])
+                self.market_stream.start(seleccionados)
             except Exception as exc:
                 self._ultima_error = str(exc)
         if deseados:
@@ -125,7 +129,7 @@ class MotorVelasBridge:
             self._simbolos_solicitados.difference_update(retirar)
 
             disponibles = [
-                s for s in candidatos
+                s for s in seleccionados
                 if s not in self._simbolos_solicitados
                 and s not in self._simbolos_cargados
             ]
