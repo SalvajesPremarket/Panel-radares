@@ -3186,8 +3186,8 @@ class ServicioScanner:
             self.resultados_por_tf = {}
             self.diag_por_tf = {}
             self._raw_prev_por_tf = {}
-            self.fmp_pausado_hasta = 0.0
-            self._ultima_peticion_fmp = 0.0
+            # No borrar la pausa/rítmica de FMP al reiniciar el motor:
+            # hacerlo provoca otro 429 inmediato tras cada OFF/ON.
             self._ultima_peticion = 0.0
 
             # Nuevo hilo único. Las credenciales y la configuración permanecen intactas.
@@ -3316,6 +3316,9 @@ class ServicioScanner:
             return False
         ahora = time.time()
         if ahora < float(getattr(self, "fmp_pausado_hasta", 0) or 0):
+            # Este método se lanza con _bulk_float_running=True; liberar la bandera
+            # evita dejar bloqueadas para siempre las futuras cargas masivas.
+            self._bulk_float_running = False
             return False
         try:
             _meta_b = self.cache_fund.get("__bulk_meta__", {}) or {}
@@ -3895,7 +3898,9 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             bulk_stale = time.time() - float(meta_bulk.get("ts", 0)) >= _ventana_chk
         except Exception:
             bulk_stale = True
-        if bulk_stale and not getattr(self, "_bulk_float_running", False):
+        if (bulk_stale
+                and time.time() >= float(getattr(self, "fmp_pausado_hasta", 0) or 0)
+                and not getattr(self, "_bulk_float_running", False)):
             with self._bulk_float_lock:
                 if not self._bulk_float_running:
                     self._bulk_float_running = True
