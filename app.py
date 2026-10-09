@@ -3892,22 +3892,18 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         if not self.universo:
             self.ultima_actualizacion = datetime.now(ET)
             self.duracion_ciclo = time.monotonic() - inicio
-            self._metrica_sumar("duracion_ciclo_total", self.duracion_ciclo)
-            with self._metricas_lock:
-                self.metricas["duracion_ciclo_min"] = self.duracion_ciclo if self.metricas["duracion_ciclo_min"] is None else min(self.metricas["duracion_ciclo_min"], self.duracion_ciclo)
-                self.metricas["duracion_ciclo_max"] = max(self.metricas["duracion_ciclo_max"], self.duracion_ciclo)
-                self.metricas["ultimo_ciclo_ts"] = time.time(); self.metricas["ultimo_ciclo_duracion"] = self.duracion_ciclo
-                self.metricas["simbolos_procesados"] += 0
-                if not self.ultimo_error:
-                    self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
-                self.resultados_por_tf[tf] = []
-                if es_principal:
-                    self.resultados = []
-                    # Un ciclo sin universo no debe dejar suscripciones antiguas
-                    # vivas; BotLong conserva por sí mismo los símbolos con una
-                    # posición/estado LONG activo.
-                    self._sincronizar_motor_velas([])
-                return
+            # El cierre y la duración se registran en el wrapper común para cubrir
+            # todos los caminos de salida sin duplicar métricas.
+            if not self.ultimo_error:
+                self.ultimo_error = "No se pudo cargar el universo de acciones desde Alpaca."
+            self.resultados_por_tf[tf] = []
+            if es_principal:
+                self.resultados = []
+                # Un ciclo sin universo no debe dejar suscripciones antiguas
+                # vivas; BotLong conserva por sí mismo los símbolos con una
+                # posición/estado LONG activo.
+                self._sincronizar_motor_velas([])
+            return
 
         # No consumir la cuota de FMP si el filtro de flotación está apagado.
         # La caché existente se conserva; si el usuario activa FLOAT, la carga se reanuda.
@@ -4315,6 +4311,31 @@ try:
     servicio._ciclo = ServicioScanner._ciclo.__get__(servicio, type(servicio))
 except Exception as _e_ciclo_runtime:
     print(f"⚠️ No se pudo actualizar el ciclo del scanner en caliente: {_e_ciclo_runtime}")
+
+# Instrumentación uniforme del ciclo: registra finalización también cuando hay
+# snapshots vacíos, retorno temprano o excepción. No altera filtros ni resultados.
+def _ciclo_con_metricas_runtime(_self, *args, **kwargs):
+    _t_ciclo = time.monotonic()
+    try:
+        return ServicioScanner._ciclo(_self, *args, **kwargs)
+    finally:
+        _duracion = max(0.0, time.monotonic() - _t_ciclo)
+        try:
+            _self.duracion_ciclo = _duracion
+            _self._metrica_sumar("duracion_ciclo_total", _duracion)
+            with _self._metricas_lock:
+                _m = _self.metricas
+                _m["duracion_ciclo_min"] = _duracion if _m.get("duracion_ciclo_min") is None else min(_m["duracion_ciclo_min"], _duracion)
+                _m["duracion_ciclo_max"] = max(float(_m.get("duracion_ciclo_max", 0.0) or 0.0), _duracion)
+                _m["ultimo_ciclo_ts"] = time.time()
+                _m["ultimo_ciclo_duracion"] = _duracion
+        except Exception as _e_metricas_ciclo:
+            print(f"⚠️ No se pudieron registrar las métricas de cierre del ciclo: {_e_metricas_ciclo}")
+
+try:
+    servicio._ciclo = _types.MethodType(_ciclo_con_metricas_runtime, servicio)
+except Exception as _e_ciclo_metricas:
+    print(f"⚠️ No se pudo instrumentar el cierre del ciclo: {_e_ciclo_metricas}")
 
 # TELEGRAM: bloqueo de emergencia a nivel de instancia.
 # El motor vive en st.cache_resource y puede conservar una instancia/hilo creado
