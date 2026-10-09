@@ -435,14 +435,28 @@ class BotLongRealtime:
             candidatos = sorted(self._candidatos)
             hilo = self._hilo
 
+        try:
+            estado_market_data = self.motor_bridge.status()
+        except Exception as exc:
+            estado_market_data = {"error": str(exc)}
+
+        # Distinguir con claridad la simulación local de cualquier envío a broker.
+        # ExecutionConfig.enabled por sí solo no basta: también hace falta un
+        # executor inyectado y conectado para poder enviar órdenes externas.
+        broker_habilitado = bool(self.execution_config.enabled and self.executor is not None)
         return {
             "hilo_vivo": bool(hilo is not None and hilo.is_alive()),
             "intervalo_segundos": self.intervalo_segundos,
             "candidatos": candidatos,
+            "cantidad_candidatos": len(candidatos),
             "ciclos": self._ciclos,
             "ultima_evaluacion": self._ultima_evaluacion,
             "ultimo_error": self._ultimo_error,
             "decisiones_guardadas": len(self._decisiones),
+            "modo_ejecucion": "broker_habilitado" if broker_habilitado else "paper_simulation",
+            "envio_broker_habilitado": broker_habilitado,
+            "executor_configurado": self.executor is not None,
+            "market_data": estado_market_data,
             "paper": self.paper.status(),
             "config_operativa": self.configuracion_operativa(),
             "posiciones_paper": self.paper.posiciones(),
