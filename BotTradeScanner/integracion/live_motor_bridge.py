@@ -20,7 +20,8 @@ import time
 class MotorVelasBridge:
     """Conecta el motor de velas con los resultados del scanner sin decidir operaciones."""
 
-    MAX_SIMBOLOS_BASIC = 30
+    # Conservador para el plan Basic: cada ticker usa los canales trades y quotes.
+    MAX_SIMBOLOS_BASIC = 15
     MAX_NUEVOS_POR_CICLO = 10
 
     def __init__(self, api_key: str, secret_key: str, motor=None, market_stream=None):

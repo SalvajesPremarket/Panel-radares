@@ -37,11 +37,14 @@ class _LiveCache:
 
 
 class AlpacaMarketStream:
-    def __init__(self, api_key: str, secret_key: str, feed: str = "iex", max_symbols: int = 30):
+    def __init__(self, api_key: str, secret_key: str, feed: str = "iex", max_symbols: int = 15):
         self.api_key = api_key
         self.secret_key = secret_key
         self.feed = str(feed or "iex").strip().lower()
-        self.max_symbols = max(1, int(max_symbols or 30))
+        # Basic permits 30 stock symbol subscriptions. This stream subscribes each
+        # ticker to BOTH trades and quotes; cap at 15 tickers to stay within the
+        # conservative combined subscription budget and avoid server-side 405s.
+        self.max_symbols = max(1, min(15, int(max_symbols or 15)))
         self._lock = threading.RLock()
         self._stream = None
         self._thread = None
@@ -222,7 +225,8 @@ class AlpacaMarketStream:
                 # Alpaca procesa unsubscribe/subscribe de forma asíncrona.
                 # Primero reducimos la suscripción; el siguiente ciclo agregará
                 # los símbolos faltantes cuando el servidor ya haya procesado el
-                # unsubscribe. Así nunca solicitamos más de max_symbols.
+                # unsubscribe. El límite conservador evita exceder el presupuesto
+                # combinado de canales trades y quotes y recibir rechazos 405.
                 if quitar:
                     symbols_quitar = sorted(quitar)
                     self._stream.unsubscribe_trades(*symbols_quitar)
