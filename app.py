@@ -6608,8 +6608,8 @@ def _render_robot_long_page(servicio):
         if _rb.get("error"):
             st.caption(f"Detalle: {_rb.get('error')}")
 
-    _t_panel, _t_riesgo, _t_estrategia, _t_ordenes = st.tabs([
-        "Panel principal", "Capital y riesgo", "Estrategia", "Órdenes e historial"
+    _t_panel, _t_riesgo, _t_sl_tp, _t_estrategia, _t_ordenes = st.tabs([
+        "Panel principal", "Capital y riesgo", "Stop Loss / Take Profit", "Estrategia", "Órdenes e historial"
     ])
 
     with _t_panel:
@@ -6640,17 +6640,6 @@ def _render_robot_long_page(servicio):
                 "Porcentaje máximo del capital por operación", min_value=1, max_value=100,
                 value=int(_cfg.get("porcentaje_operacion", 20)), step=1, format="%d%%"
             )
-            _sl, _tp = st.columns(2)
-            with _sl:
-                _stop = st.number_input(
-                    "Stop Loss (%)", min_value=0.1, max_value=50.0,
-                    value=float(_cfg.get("stop_loss_pct", 2.0)), step=0.1, format="%.1f"
-                )
-            with _tp:
-                _take = st.number_input(
-                    "Take Profit (%)", min_value=0.1, max_value=100.0,
-                    value=float(_cfg.get("take_profit_pct", 4.0)), step=0.1, format="%.1f"
-                )
             _presupuesto_nuevo = _capital * _porcentaje / 100.0
             st.info(f"Presupuesto máximo estimado por operación: **$ {_presupuesto_nuevo:,.2f}**")
             _guardar_riesgo = st.form_submit_button("Guardar capital y riesgo", type="primary", use_container_width=True)
@@ -6659,14 +6648,45 @@ def _render_robot_long_page(servicio):
                 servicio.configurar_bot_long(
                     capital_asignado=_capital,
                     porcentaje_operacion=_porcentaje,
-                    stop_loss_pct=_stop,
-                    take_profit_pct=_take,
+                    stop_loss_pct=float(_cfg.get("stop_loss_pct", 2.0)),
+                    take_profit_pct=float(_cfg.get("take_profit_pct", 4.0)),
                     estrategia=str(_cfg.get("estrategia", "LongSalvajesPreMarket")),
                 )
                 st.success("Configuración de capital y riesgo aplicada al robot.")
                 st.rerun()
             except Exception as _e_config:
                 st.error(f"No se pudo aplicar la configuración: {_e_config}")
+
+    with _t_sl_tp:
+        st.markdown("#### Protección porcentual de cada operación")
+        st.caption("El Stop Loss define el nivel de salida por pérdida y el Take Profit el objetivo de salida por ganancia. Son parámetros operativos del modo PAPER.")
+        with st.form("ts_robot_sl_tp_form"):
+            _sl_col, _tp_col = st.columns(2)
+            with _sl_col:
+                _stop = st.number_input(
+                    "Stop Loss (%)", min_value=0.1, max_value=50.0,
+                    value=float(_cfg.get("stop_loss_pct", 2.0)), step=0.1, format="%.1f"
+                )
+            with _tp_col:
+                _take = st.number_input(
+                    "Take Profit (%)", min_value=0.1, max_value=100.0,
+                    value=float(_cfg.get("take_profit_pct", 4.0)), step=0.1, format="%.1f"
+                )
+            st.caption("Ejemplo: con entrada a $10 y Stop Loss de 2%, el nivel de stop será aproximadamente $9.80. Un Take Profit de 4% establece un objetivo aproximado de $10.40.")
+            _guardar_sl_tp = st.form_submit_button("Guardar Stop Loss y Take Profit", type="primary", use_container_width=True)
+        if _guardar_sl_tp:
+            try:
+                servicio.configurar_bot_long(
+                    capital_asignado=float(_cfg.get("capital_asignado", 600.0)),
+                    porcentaje_operacion=float(_cfg.get("porcentaje_operacion", 20.0)),
+                    stop_loss_pct=_stop,
+                    take_profit_pct=_take,
+                    estrategia=str(_cfg.get("estrategia", "LongSalvajesPreMarket")),
+                )
+                st.success("Stop Loss y Take Profit aplicados al robot.")
+                st.rerun()
+            except Exception as _e_sltp:
+                st.error(f"No se pudieron aplicar los parámetros: {_e_sltp}")
 
     with _t_estrategia:
         st.markdown("#### Estrategia de trading")
