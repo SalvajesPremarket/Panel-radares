@@ -2753,7 +2753,7 @@ class ServicioScanner:
 
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
-        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed=os.getenv("ALPACA_MARKET_DATA_FEED", "iex"), max_symbols=15)
+        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed=os.getenv("ALPACA_MARKET_DATA_FEED", "iex"), max_symbols=10)
 
         self.motor_velas = None
         if MotorVelasBridge is not None:
@@ -4353,10 +4353,10 @@ except Exception as _e_patch:
 try:
     _stream_compartido = getattr(servicio, "market_stream", None)
     if _stream_compartido is not None:
-        _stream_compartido.max_symbols = min(15, int(getattr(_stream_compartido, "max_symbols", 15)))
+        _stream_compartido.max_symbols = min(10, int(getattr(_stream_compartido, "max_symbols", 10)))
     _bridge_compartido = getattr(servicio, "motor_velas", None)
     if _bridge_compartido is not None:
-        _bridge_compartido.MAX_SIMBOLOS_BASIC = 15
+        _bridge_compartido.MAX_SIMBOLOS_BASIC = 10
 except Exception as _e_cap_stream:
     print(f"⚠️ No se pudo aplicar el límite de suscripción Alpaca en caliente: {_e_cap_stream}")
 
