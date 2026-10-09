@@ -25,7 +25,7 @@ class AlpacaMarketStream:
         api_key: str,
         secret_key: str,
         feed: str = "iex",
-        max_symbols: int = 30,
+        max_symbols: int = 10,
         cache: MarketCache | None = None,
         bars: LiveBarBuilder | None = None,
         health: DataHealth | None = None,
@@ -34,7 +34,7 @@ class AlpacaMarketStream:
         self.api_key = str(api_key or "").strip()
         self.secret_key = str(secret_key or "").strip()
         self.feed_name = str(feed or "iex").strip().lower()
-        self.max_symbols = max(1, int(max_symbols or 30))
+        self.max_symbols = max(1, min(10, int(max_symbols or 10)))
         self.cache = cache or MarketCache()
         self.bars = bars or LiveBarBuilder()
         self.health = health or DataHealth()
@@ -101,6 +101,15 @@ class AlpacaMarketStream:
             if str(symbol).strip()
         }
         requested = set(sorted(requested)[:self.max_symbols])
+        if not requested:
+            # Do not open an authenticated websocket when the scanner has no
+            # candidates. If already running, release the previous subscriptions.
+            if self._thread and self._thread.is_alive():
+                self._update_running_subscriptions(set())
+            else:
+                with self._symbols_lock:
+                    self._symbols.clear()
+            return
         if self._thread and self._thread.is_alive():
             self._update_running_subscriptions(requested)
             return
@@ -116,12 +125,14 @@ class AlpacaMarketStream:
 
 
     def _update_running_subscriptions(self, requested: set[str]) -> None:
-        stream = self._stream
-        if stream is None:
-            return
         with self._symbols_lock:
             old = set(self._symbols)
             self._symbols = set(requested)
+            stream = self._stream
+        # The websocket may still be connecting. Save the desired set now;
+        # _run() will read it before subscribing, so updates are not lost.
+        if stream is None:
+            return
         add = requested - old
         remove = old - requested
         try:
