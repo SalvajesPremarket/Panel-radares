@@ -134,60 +134,66 @@ class AlpacaMarketStream:
             self._stream = StockDataStream(self.api_key, self.secret_key, feed=self._feed_enum(), data_timeout=60)
 
     def _run_stream(self):
+        """Mantiene el websocket vivo y recupera la suscripción tras una caída."""
         with self._lock:
             self._running = True
             self._stop_requested = False
 
-        while True:
-            with self._lock:
-                if self._stop_requested:
-                    break
-                stream = self._stream
-                # Tras una caída, esperar a que el scanner publique los símbolos actuales.
-                # Así no se abre un websocket vacío ni se pierden candidatos por el cooldown.
-                if stream is None and self._symbols:
-                    self._create_stream_locked()
+        try:
+            while True:
+                with self._lock:
+                    if self._stop_requested:
+                        break
                     stream = self._stream
-                    if stream is not None:
-                        if self._symbols:
-                            symbols = sorted(self._symbols)
-                            stream.subscribe_trades(self._on_trade, *symbols)
-                            stream.subscribe_quotes(self._on_quote, *symbols)
-                            self._last_subscription_request = time.time()
+                    crear_stream = stream is None and bool(self._symbols)
+                    symbols = sorted(self._symbols)
+                    if crear_stream:
+                        self._create_stream_locked()
+                        stream = self._stream
 
-            try:
                 if stream is None:
                     time.sleep(1.0)
                     continue
-                stream.run()
-                with self._lock:
-                    if self._stop_requested:
-                        break
-                    self._errors += 1
-                    self._last_error = "StockDataStream.run() terminó sin excepción; reconectando"
-                    self._connected = False
-                    if self._stream is stream:
-                        self._stream = None
-                        # No reutilizar símbolos de una conexión caída al reconectar.
-                        self._symbols.clear()
-                time.sleep(1.0)
-            except Exception as exc:
-                with self._lock:
-                    if self._stop_requested:
-                        break
-                    self._errors += 1
-                    self._last_error = str(exc)
-                    self._connected = False
-                    if self._stream is stream:
-                        self._stream = None
-                        # La siguiente conexión debe partir sin suscripciones obsoletas.
-                        self._symbols.clear()
-                time.sleep(1.0)
 
-        with self._lock:
-            self._running = False
-            self._connected = False
-            self._stream = None
+                try:
+                    # Toda la inicialización/suscripción queda dentro del try:
+                    # un rechazo de Alpaca no debe matar silenciosamente el hilo.
+                    if crear_stream:
+                        if symbols:
+                            stream.subscribe_trades(self._on_trade, *symbols)
+                            stream.subscribe_quotes(self._on_quote, *symbols)
+                            with self._lock:
+                                self._last_subscription_request = time.time()
+
+                    stream.run()
+                    with self._lock:
+                        if self._stop_requested:
+                            break
+                        self._errors += 1
+                        self._last_error = "StockDataStream.run() terminó; reconectando"
+                        self._connected = False
+                        if self._stream is stream:
+                            self._stream = None
+                        # No borramos _symbols: son la suscripción deseada y se
+                        # reaplican al crear el siguiente websocket.
+                    time.sleep(1.0)
+                except Exception as exc:
+                    with self._lock:
+                        if self._stop_requested:
+                            break
+                        self._errors += 1
+                        self._last_error = str(exc)
+                        self._connected = False
+                        if self._stream is stream:
+                            self._stream = None
+                        # Conservar símbolos permite reconectar automáticamente
+                        # en la siguiente vuelta, sin esperar otro ciclo del radar.
+                    time.sleep(1.0)
+        finally:
+            with self._lock:
+                self._running = False
+                self._connected = False
+                self._stream = None
 
     def start(self, tickers: Iterable[str]):
         symbols: List[str] = []
@@ -203,6 +209,11 @@ class AlpacaMarketStream:
             return
         with self._lock:
             self._stop_requested = False
+            # Si un hilo terminó inesperadamente, no conservar un websocket
+            # viejo que impediría volver a suscribir los candidatos actuales.
+            if (self._thread is None or not self._thread.is_alive()) and not self._running:
+                self._stream = None
+                self._connected = False
             nuevos = set(symbols)
             # No renegociamos la suscripción en cada ciclo de 10 s. El radar
             # puede cambiar de candidatos muy rápido y eso provoca tráfico
