@@ -3903,6 +3903,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 self.resultados_por_tf[tf] = []
                 if es_principal:
                     self.resultados = []
+                    # Un ciclo sin universo no debe dejar suscripciones antiguas
+                    # vivas; BotLong conserva por sí mismo los símbolos con una
+                    # posición/estado LONG activo.
+                    self._sincronizar_motor_velas([])
                 return
 
         # No consumir la cuota de FMP si el filtro de flotación está apagado.
@@ -3934,6 +3938,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             self.resultados_por_tf[tf] = []
             if es_principal:
                 self.resultados = []
+                # Si Alpaca no entrega snapshots, liberar candidatos obsoletos
+                # del websocket compartido en vez de seguir escuchando tickers
+                # del ciclo anterior.
+                self._sincronizar_motor_velas([])
             return
 
         base = []
