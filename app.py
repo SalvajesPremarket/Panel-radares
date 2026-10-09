@@ -3981,7 +3981,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if not cierre_prev or cierre_prev <= 0:
                 snapshots_cierre_previo_invalido += 1
                 continue
-            if not (BASE_PRECIO_MIN <= precio <= BASE_PRECIO_MAX):
+            # El motor no impone un rango de precio fijo: el precio lo filtra
+            # cada usuario en su pantalla, después del análisis técnico.
+            # Solo descartamos precios inválidos/no positivos.
+            if precio <= 0:
                 snapshots_fuera_precio_base += 1
                 continue
             snapshots_validos_base += 1
@@ -4026,20 +4029,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
                 "actualizado": snap.latest_trade.timestamp,
             })
 
-        # Primero aplicamos SOLO los filtros baratos y disponibles en Alpaca.
+        # Primero aplicamos filtros de selección disponibles en Alpaca.
+        # No imponer aquí precio_min/precio_max: el pool es compartido y cada
+        # usuario aplica su propio rango después del análisis técnico.
         # IMPORTANTE: NO pedimos FLOAT aquí. FMP solo entrega aproximadamente
         # un ticker por intervalo y pedirlo antes de EMA/MACD hacía que casi
         # todo el universo quedara descartado por float desconocido.
         radar_gap = []
         for c in base:
-            # El precio del usuario se aplica ANTES de recortar a los 300 de mayor volumen.
-            # Antes solo se aplicaba al final, asi que un rango estrecho dejaba pocos resultados
-            # aunque hubiera muchas acciones validas fuera de esos 300.
-            try:
-                if not (float(filtros_tf.get("precio_min", BASE_PRECIO_MIN)) <= float(c["precio"]) <= float(filtros_tf.get("precio_max", BASE_PRECIO_MAX))):
-                    continue
-            except Exception:
-                pass
             if _filtro_activo(filtros_tf, "gap_activo", _filtro_activo(filtros_tf, "f_gap_on", False)):
                 gap = c.get("gap_pct")
                 if gap is None or not (float(filtros_tf.get("gap_min", 3.0)) <= float(gap) <= float(filtros_tf.get("gap_max", 50.0))):
@@ -4053,7 +4050,14 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         radar_base_total = len(base)
         self.n_radar_base = radar_base_total
         self.n_radar_gap = len(radar_gap)
-        radar_gap.sort(key=lambda c: c["volumen_dia"], reverse=True)
+        # El límite de enriquecimiento se mantiene para proteger recursos.
+        # Ordenar por volumen negociado estimado (precio × volumen) evita
+        # favorecer sistemáticamente acciones baratas frente a acciones caras.
+        radar_gap.sort(
+            key=lambda c: max(0.0, float(c.get("precio") or 0.0))
+            * max(0.0, float(c.get("volumen_dia") or 0.0)),
+            reverse=True,
+        )
         radar_gap = radar_gap[:MAX_ENRIQUECER]
 
         # EMA/MACD se calculan ANTES del float. Así FMP se usa únicamente
