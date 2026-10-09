@@ -486,3 +486,45 @@ def test_health_snapshot_is_safe_during_subscription_updates():
 
     assert not worker.is_alive()
     assert failures == []
+
+
+
+def test_alpaca_server_subscription_errors_are_exposed_in_health_snapshot():
+    import asyncio
+
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    class FakeSDKStream:
+        def __init__(self):
+            self.received = []
+
+        async def _dispatch(self, message):
+            self.received.append(message)
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+    sdk_stream = FakeSDKStream()
+    stream._instrument_stream_dispatch(sdk_stream)
+
+    asyncio.run(sdk_stream._dispatch({
+        "T": "error",
+        "code": 405,
+        "msg": "symbol limit exceeded",
+    }))
+
+    health = stream.health_snapshot()
+    assert health["errors"] == 1
+    assert "405" in health["last_error"]
+    assert "symbol limit exceeded" in health["last_error"]
+    assert sdk_stream.received[0]["code"] == 405
+
+    asyncio.run(sdk_stream._dispatch({
+        "T": "subscription",
+        "trades": ["AAPL"],
+        "quotes": ["AAPL"],
+        "corrections": ["AAPL"],
+        "cancelErrors": ["AAPL"],
+    }))
+    health = stream.health_snapshot()
+    assert health["server_subscription_state"]["trades"] == ["AAPL"]
+    assert health["server_subscription_state"]["quotes"] == ["AAPL"]
+    assert health["last_subscription_ack_ts"] is not None

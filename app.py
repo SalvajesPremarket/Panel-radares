@@ -6353,7 +6353,12 @@ def _render_scanner():
                         + f" · running: {'sí' if _mv.get('stream_running') else 'no'}"
                         + f" · connected: {'sí' if _mv.get('stream_connected') else 'no'}"
                         + f" · vistos: {_mv.get('symbols_seen', 0)}"
-                        + f" · suscritos: {len(_mv.get('subscribed_symbols', []) or [])}"
+                        + f" · suscritos local: {len(_mv.get('subscribed_symbols', []) or [])}"
+                        + (
+                            f" · ACK servidor: {len((_mv.get('server_subscription_state') or {}).get('trades', []))} trades/"
+                            f"{len((_mv.get('server_subscription_state') or {}).get('quotes', []))} quotes"
+                            if _mv.get("last_subscription_ack_ts") else " · ACK servidor: pendiente"
+                        )
                         + f" · errores: {_mv.get('stream_errors', 0)}"
                         + (f" · último: {_mv_last}" if _mv_last else "")
                         + f" · quotes: {_mv.get('quotes', 0)}"

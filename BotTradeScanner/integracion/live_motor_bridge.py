@@ -242,4 +242,6 @@ class MotorVelasBridge:
             "last_event_age_sec": salud.get("last_event_age_sec") if stream_compartido is not None else None,
             "subscribed_symbols": list(salud.get("subscribed_symbols") or []) if stream_compartido is not None else [],
             "last_subscription_request_ts": salud.get("last_subscription_request_ts") if stream_compartido is not None else None,
+            "server_subscription_state": dict(salud.get("server_subscription_state") or {}) if stream_compartido is not None else {},
+            "last_subscription_ack_ts": salud.get("last_subscription_ack_ts") if stream_compartido is not None else None,
         }
