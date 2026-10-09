@@ -3315,6 +3315,7 @@ class ServicioScanner:
         consulta individual solo como respaldo para símbolos que no aparezcan.
         """
         if not self.fmp_api_key:
+            self._bulk_float_running = False
             return False
         ahora = time.time()
         if ahora < float(getattr(self, "fmp_pausado_hasta", 0) or 0):
@@ -3333,6 +3334,7 @@ class ServicioScanner:
         # una caché vacía bloqueada durante 2 horas.
         _ventana_bulk = FMP_BULK_FLOAT_TTL if _enc_prev > 0 else PAUSA_FMP_429_SEGUNDOS
         if ahora - ultima_bulk < _ventana_bulk:
+            self._bulk_float_running = False
             return False
         try:
             universo_set = set(self.universo or [])
