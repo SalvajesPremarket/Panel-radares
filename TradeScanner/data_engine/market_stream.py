@@ -322,7 +322,15 @@ class AlpacaMarketStream:
         # If connection setup is still in progress, _run() will reconcile the
         # latest desired set before entering run(). Otherwise reconcile now.
         if stream is not None:
-            self._sync_subscriptions(stream)
+            reconciled = self._sync_subscriptions(stream)
+            if requested and not reconciled:
+                # A failed live update must also trigger the worker's reconnect
+                # loop; otherwise the websocket could remain alive while the
+                # newly requested symbols never receive both event types.
+                try:
+                    stream.stop()
+                except Exception as exc:
+                    self.health.mark_error(f"stop after subscription failure: {type(exc).__name__}: {exc}")
 
     def update_symbols(self, symbols: Iterable[str]) -> None:
         requested = set(self._normalizar_simbolos(symbols))
