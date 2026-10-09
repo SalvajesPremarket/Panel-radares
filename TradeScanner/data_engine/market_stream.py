@@ -143,24 +143,28 @@ class AlpacaMarketStream:
             callbacks = list(self._trade_consumers)
         await self._notify_consumers(callbacks, data, "trade")
 
-    def _sync_subscriptions(self, stream) -> set[str]:
+    def _sync_subscriptions(self, stream) -> set[str] | None:
         """Serializa las llamadas de suscripción y reconcilia el estado deseado."""
         with self._subscription_lock:
             if self._stream is not stream:
-                return set()
+                return None
             with self._symbols_lock:
                 requested = set(self._symbols)
             current = set(self._subscribed_symbols)
             add = requested - current
             remove = current - requested
+            add_started = False
+            remove_started = False
             try:
                 if add:
                     symbols = sorted(add)
+                    add_started = True
                     stream.subscribe_quotes(self._quote, *symbols)
                     stream.subscribe_trades(self._trade, *symbols)
                     self._subscribed_symbols.update(add)
                 if remove:
                     symbols = sorted(remove)
+                    remove_started = True
                     stream.unsubscribe_quotes(*symbols)
                     stream.unsubscribe_trades(*symbols)
                     self._subscribed_symbols.difference_update(remove)
@@ -168,7 +172,36 @@ class AlpacaMarketStream:
                     with self._symbols_lock:
                         self._last_subscription_request_ts = time.time()
             except Exception as exc:
+                # SDK calls may fail after partially changing server-side
+                # subscriptions. Compensate BOTH event types independently.
+                rollback_errors = []
+                if add_started:
+                    for operation, symbols in (
+                        (stream.unsubscribe_quotes, sorted(add)),
+                        (stream.unsubscribe_trades, sorted(add)),
+                    ):
+                        try:
+                            operation(*symbols)
+                        except Exception as rollback_exc:
+                            rollback_errors.append(rollback_exc)
+                if remove_started:
+                    for operation, symbols in (
+                        (lambda *items: stream.subscribe_quotes(self._quote, *items), sorted(remove)),
+                        (lambda *items: stream.subscribe_trades(self._trade, *items), sorted(remove)),
+                    ):
+                        try:
+                            operation(*symbols)
+                        except Exception as rollback_exc:
+                            rollback_errors.append(rollback_exc)
+                # Keep the local subscription ledger at the pre-operation
+                # snapshot; the caller will stop this socket and reconcile again.
+                self._subscribed_symbols = current
+                for rollback_exc in rollback_errors:
+                    self.health.mark_error(
+                        f"subscription rollback failed: {type(rollback_exc).__name__}: {rollback_exc}"
+                    )
                 self.health.mark_error(exc)
+                return None
             return requested
 
     def _instrument_stream_dispatch(self, stream) -> None:
@@ -226,7 +259,20 @@ class AlpacaMarketStream:
                             self._stream = None
                     return
                 symbols = self._sync_subscriptions(stream)
+                if symbols is None:
+                    with self._symbols_lock:
+                        still_desired = bool(self._symbols)
+                    if still_desired:
+                        raise RuntimeError("alpaca_subscription_setup_failed")
+                    return
                 if not symbols:
+                    with self._symbols_lock:
+                        still_desired = bool(self._symbols)
+                    if still_desired:
+                        # A synchronous subscription failure must not leave a
+                        # live-but-idle websocket. Let the outer loop close it
+                        # and retry with a fresh SDK connection.
+                        raise RuntimeError("alpaca_subscription_setup_failed")
                     with self._subscription_lock:
                         if self._stream is stream:
                             self._stream = None
@@ -298,7 +344,15 @@ class AlpacaMarketStream:
         # If connection setup is still in progress, _run() will reconcile the
         # latest desired set before entering run(). Otherwise reconcile now.
         if stream is not None:
-            self._sync_subscriptions(stream)
+            reconciled = self._sync_subscriptions(stream)
+            if reconciled is None:
+                # A failed live update must also trigger the worker's reconnect
+                # loop; otherwise the websocket could remain alive while the
+                # newly requested symbols never receive both event types.
+                try:
+                    stream.stop()
+                except Exception as exc:
+                    self.health.mark_error(f"stop after subscription failure: {type(exc).__name__}: {exc}")
 
     def update_symbols(self, symbols: Iterable[str]) -> None:
         requested = set(self._normalizar_simbolos(symbols))
