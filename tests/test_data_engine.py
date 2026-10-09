@@ -457,3 +457,32 @@ def test_motor_velas_removes_stale_symbol_history_and_quotes():
     assert "AAPL" not in motor.motores
     assert "AAPL" not in motor._historial_precargado
     assert "AAPL" not in motor._quotes
+
+
+
+def test_health_snapshot_is_safe_during_subscription_updates():
+    import threading
+
+    from TradeScanner.data_engine import AlpacaMarketStream
+
+    stream = AlpacaMarketStream("key", "secret", feed="iex")
+    failures = []
+
+    def mutate():
+        for i in range(3000):
+            with stream._subscription_lock:
+                stream._subscribed_symbols.clear()
+                stream._subscribed_symbols.update(f"S{i}_{j}" for j in range(i % 20))
+
+    worker = threading.Thread(target=mutate)
+    worker.start()
+    for _ in range(3000):
+        try:
+            snapshot = stream.health_snapshot()
+            assert isinstance(snapshot["subscribed_symbols"], list)
+        except Exception as exc:
+            failures.append(exc)
+    worker.join(timeout=3)
+
+    assert not worker.is_alive()
+    assert failures == []
