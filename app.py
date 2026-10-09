@@ -3934,11 +3934,40 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             self.resultados_por_tf[tf] = []
             if es_principal:
                 self.resultados = []
+                self.diagnostico_filtros = {
+                    "snapshots_recibidos": 0,
+                    "snapshots_sin_trade": 0,
+                    "snapshots_sin_daily_bar": 0,
+                    "snapshots_sin_previous_daily_bar": 0,
+                    "snapshots_cierre_previo_invalido": 0,
+                    "snapshots_fuera_precio_base": 0,
+                    "snapshots_validos_base": 0,
+                    "radar_base": 0,
+                    "enviados_tecnico": 0,
+                    "con_40_barras": 0,
+                    "ema_calculable": 0,
+                    "macd_calculable": 0,
+                    "ema_arriba": 0,
+                    "macd_positivo": 0,
+                    "ema_y_macd": 0,
+                    "resultados": 0,
+                    "timeframe": tf,
+                    "sesion": str(self.sesion),
+                }
                 # Si Alpaca no entrega snapshots, liberar candidatos obsoletos
                 # del websocket compartido en vez de seguir escuchando tickers
                 # del ciclo anterior.
                 self._sincronizar_motor_velas([])
             return
+
+        # Contadores de diagnóstico: observan los datos recibidos sin alterar el filtro.
+        snapshots_recibidos = len(snapshots)
+        snapshots_sin_trade = sum(1 for s in snapshots.values() if not s or not getattr(s, "latest_trade", None))
+        snapshots_sin_daily_bar = sum(1 for s in snapshots.values() if not s or not getattr(s, "daily_bar", None))
+        snapshots_sin_previous_daily_bar = sum(1 for s in snapshots.values() if not s or not getattr(s, "previous_daily_bar", None))
+        snapshots_cierre_previo_invalido = 0
+        snapshots_fuera_precio_base = 0
+        snapshots_validos_base = 0
 
         base = []
         for ticker, snap in snapshots.items():
@@ -3947,9 +3976,12 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             precio = snap.latest_trade.price
             cierre_prev = snap.previous_daily_bar.close
             if not cierre_prev or cierre_prev <= 0:
+                snapshots_cierre_previo_invalido += 1
                 continue
             if not (BASE_PRECIO_MIN <= precio <= BASE_PRECIO_MAX):
+                snapshots_fuera_precio_base += 1
                 continue
+            snapshots_validos_base += 1
             cambio = ((precio - cierre_prev) / cierre_prev) * 100
 
             # GAP REAL, adaptado a la sesión:
@@ -4140,6 +4172,13 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             if cumple_condiciones_ema(c, filtros_tf) and cumple_macd(c, filtros_tf)
         )
         _diag_tf = {
+            "snapshots_recibidos": snapshots_recibidos,
+            "snapshots_sin_trade": snapshots_sin_trade,
+            "snapshots_sin_daily_bar": snapshots_sin_daily_bar,
+            "snapshots_sin_previous_daily_bar": snapshots_sin_previous_daily_bar,
+            "snapshots_cierre_previo_invalido": snapshots_cierre_previo_invalido,
+            "snapshots_fuera_precio_base": snapshots_fuera_precio_base,
+            "snapshots_validos_base": snapshots_validos_base,
             "radar_base": radar_base_total,
             "enviados_tecnico": len(radar_gap),
             "lote_tecnico": 30,
@@ -5891,12 +5930,11 @@ def _render_scanner():
 
     if ES_ADMIN and not PUBLIC_PREVIEW:
         _m1 = servicio.metricas_snapshot(); _up_h = int(_m1.get("uptime_segundos",0)//3600); _up_m = int((_m1.get("uptime_segundos",0)%3600)//60)
-        h += ("<div class='simple-card' style='margin:4px 0 6px;'><div class='simple-title'>📊 MOTOR · CONSUMO REAL · FASE 1</div>"
-              f"<div style='font-size:10px;line-height:1.55;color:#d7d0bd;'><b>Uptime:</b> {_up_h}h {_up_m}m · <b>Ciclos:</b> {int(_m1.get('ciclos',0))} · <b>Prom:</b> {_m1.get('ciclo_promedio',0):.2f}s · <b>Máx:</b> {_m1.get('duracion_ciclo_max',0):.2f}s<br>"
-              f"<b>Universo:</b> {int(_m1.get('simbolos_universo',0)):,} · <b>Snapshots:</b> {int(_m1.get('snapshots',0))} · <b>Bars:</b> {int(_m1.get('bars',0))} · <b>Resultados:</b> {int(_m1.get('resultados_publicados',0))}<br>"
-              f"<b>FMP:</b> {int(_m1.get('fmp_total',0))} · <b>Bulk:</b> {int(_m1.get('fmp_bulk',0))} · <b>Individual:</b> {int(_m1.get('fmp_individual',0))} · <b>429:</b> {int(_m1.get('fmp_429',0))} · <b>Cache H/M:</b> {int(_m1.get('fmp_cache_hits',0))}/{int(_m1.get('fmp_cache_misses',0))}<br>"
-              f"<b>Alpaca errores:</b> {int(_m1.get('errores_alpaca',0))} · <b>429:</b> {int(_m1.get('alpaca_429',0))} · <b>Tiempo Snap:</b> {_m1.get('tiempo_snapshots',0):.1f}s · <b>Bars:</b> {_m1.get('tiempo_bars',0):.1f}s · <b>FMP:</b> {_m1.get('tiempo_fmp',0):.1f}s<br>"
-              f"<b>Diagnóstico:</b> TF={str(getattr(servicio,'tf_principal','—'))} · Último ciclo={_m1.get('ultimo_ciclo_ts') or '—'} · Error={str(getattr(servicio,'ultimo_error',None) or '—')}</div></div>")
+        h += ("<div class='simple-card' style='margin:4px 0 6px;'><div class='simple-title'>📊 MOTOR · ESTADO</div>"
+              f"<div style='font-size:10px;line-height:1.55;color:#d7d0bd;'><b>Uptime:</b> {_up_h}h {_up_m}m · <b>Ciclos:</b> {int(_m1.get('ciclos',0))} · <b>Promedio ciclo:</b> {_m1.get('ciclo_promedio',0):.2f}s<br>"
+              f"<b>Universo:</b> {int(_m1.get('simbolos_universo',0)):,} · <b>Solicitudes snapshot:</b> {int(_m1.get('snapshots',0))} · <b>Barras:</b> {int(_m1.get('bars',0))} · <b>Resultados publicados:</b> {int(_m1.get('resultados_publicados',0))}<br>"
+              f"<b>Errores Alpaca:</b> {int(_m1.get('errores_alpaca',0))} · <b>429:</b> {int(_m1.get('alpaca_429',0))} · <b>Tiempo snapshots:</b> {_m1.get('tiempo_snapshots',0):.1f}s · <b>Tiempo barras:</b> {_m1.get('tiempo_bars',0):.1f}s<br>"
+              f"<b>Último ciclo:</b> {_m1.get('ultimo_ciclo_ts') or '—'} · <b>Error:</b> {str(getattr(servicio,'ultimo_error',None) or '—')}</div></div>")
 
     h += "<div class='filtros-grid'>"
     h += "<div class='logo'>TRADE SCANNER</div>"
@@ -6291,115 +6329,59 @@ def _render_scanner():
         except Exception as _e_ifr:
             st.error(f"No se pudo dibujar el scanner: {_e_ifr}")
 
-    # Panel de diagnostico: cuantas acciones sobreviven en cada paso del embudo.
-    # Sirve para probar pestana por pestana si un filtro realmente influye en el escaneo.
+    # Diagnóstico mínimo: recepción de datos, embudo técnico y estado real del stream.
     try:
         _dg = dict(getattr(servicio, "diagnostico_filtros", {}) or {})
-        with st.expander("🔎 Diagnóstico del escaneo (embudo)", expanded=False):
+        with st.expander("🔎 Diagnóstico del escaneo", expanded=False):
             if not _dg:
-                st.caption("Aún no hay un ciclo de escaneo completado.")
+                st.caption("Aún no hay datos de un ciclo de escaneo.")
             else:
                 _etiquetas = [
-                    ("radar_base", "1. Acciones en el radar base (precio/volumen del mercado)"),
-                    ("enviados_tecnico", "2. Enviadas a análisis técnico"),
-                    ("con_40_barras", "3. Con suficientes velas (40+) para calcular"),
-                    ("ema_calculable", "4. EMA calculable"),
-                    ("macd_calculable", "5. MACD calculable"),
-                    ("tras_float", "6. Después del filtro de flotación"),
-                    ("float_sin_dato", "   · descartadas por flotación sin dato"),
-                    ("float_excede", "   · descartadas por flotación mayor al máximo"),
-                    ("tras_gap_volumen", "7. Después de gap / volumen relativo"),
-                    ("ema_arriba", "8. Con EMA en la condición pedida"),
-                    ("macd_positivo", "9. Con MACD positivo"),
-                    ("macd_negativo", "   · Con MACD negativo"),
-                    ("macd_neutro", "   · MACD neutro / no calculable"),
-                    ("ema_y_macd_positivo", "   · EMA + MACD positivo"),
-                    ("ema_y_macd_negativo", "   · EMA + MACD negativo"),
-                    ("ema_y_macd", "10. Cumplen EMA y MACD según selección"),
-                    ("resultados", "RESULTADO FINAL (lo que ves en la tabla)"),
+                    ("snapshots_recibidos", "Snapshots recibidos de Alpaca"),
+                    ("snapshots_sin_trade", "Snapshots sin última operación"),
+                    ("snapshots_sin_daily_bar", "Snapshots sin barra diaria"),
+                    ("snapshots_sin_previous_daily_bar", "Snapshots sin barra diaria anterior"),
+                    ("snapshots_cierre_previo_invalido", "Snapshots con cierre previo inválido"),
+                    ("snapshots_fuera_precio_base", "Snapshots fuera del precio base del motor"),
+                    ("snapshots_validos_base", "Snapshots válidos antes de filtros"),
+                    ("radar_base", "Acciones en radar base"),
+                    ("enviados_tecnico", "Enviadas a análisis técnico"),
+                    ("con_40_barras", "Con 40+ velas"),
+                    ("ema_calculable", "EMA calculable"),
+                    ("macd_calculable", "MACD calculable"),
+                    ("ema_arriba", "Cumplen condición EMA"),
+                    ("macd_positivo", "MACD positivo"),
+                    ("ema_y_macd", "Cumplen EMA + MACD"),
+                    ("resultados", "Resultado final"),
                 ]
-                _filas = [{"Paso": _t, "Cantidad": _dg.get(_k, "—")} for _k, _t in _etiquetas if _k in _dg]
-                st.table(_filas)
-                st.caption(
-                    f"Temporalidad: {_dg.get('timeframe', '—')} · Sesión: {_dg.get('sesion', '—')} · "
-                    f"Gap aplicado: {_dg.get('gap_min', '—')}% a {_dg.get('gap_max', '—')}%"
+                st.table([{"Etapa": label, "Cantidad": _dg.get(key, "—")} for key, label in _etiquetas if key in _dg])
+                st.caption(f"Temporalidad: {_dg.get('timeframe', '—')} · Sesión: {_dg.get('sesion', '—')}")
+            try:
+                _mv = servicio.estado_motor_velas()
+                _mv_symbols = _mv.get("simbolos_cargados", []) or []
+                _stream_state = (
+                    "conectado" if _mv.get("stream_connected")
+                    else ("conectando/reintentando" if _mv.get("stream_running") else "sin conexión")
                 )
-                try:
-                    _cf = list(getattr(servicio, "cache_fund", {}).items())
-                    _meta_f = dict(getattr(servicio, "cache_fund", {}).get("__bulk_meta__", {}) or {})
-                    _con_float = sum(1 for _k, _v in _cf if not str(_k).startswith("__") and isinstance(_v, dict) and _v.get("float") is not None)
-                    _hace = (time.time() - float(_meta_f.get("ts", 0))) / 60 if _meta_f.get("ts") else None
-                    _pausa = float(getattr(servicio, "fmp_pausado_hasta", 0) or 0) - time.time()
-                    st.caption(
-                        f"FMP (flotación): clave configurada: {'sí' if getattr(servicio, 'fmp_api_key', None) else 'NO'} · "
-                        f"tickers con flotación en caché: {_con_float} · "
-                        f"última carga masiva: {'nunca' if _hace is None else f'hace {_hace:.0f} min'} "
-                        f"(páginas: {_meta_f.get('paginas', '—')}, encontrados: {_meta_f.get('encontrados', '—')}) · "
-                        f"pausa por límite: {'sí, ' + str(int(_pausa)) + ' s' if _pausa > 0 else 'no'}"
-                    )
-                    _fuentes = {}
-                    _solo_circ = 0
-                    for _k, _v in _cf:
-                        if str(_k).startswith("__") or not isinstance(_v, dict):
-                            continue
-                        if _v.get("float") is not None:
-                            _s = str(_v.get("float_source", "FMP"))
-                            _fuentes[_s] = _fuentes.get(_s, 0) + 1
-                        elif _v.get("outstanding") is not None:
-                            _solo_circ += 1
-                    st.caption(
-                        "Flotación por fuente: "
-                        + (" · ".join(f"{k}: {n}" for k, n in sorted(_fuentes.items())) or "ninguna aún")
-                        + f" · solo acciones en circulación (Finnhub): {_solo_circ}"
-                        + f" · Yahoo: {getattr(servicio, '_yahoo_estado', 'sin usar')}"
-                        + f" · Finnhub: {'clave sí' if getattr(servicio, 'finnhub_api_key', None) else 'SIN clave'}"
-                        + (f" ({getattr(servicio, '_finnhub_estado', '')})" if getattr(servicio, '_finnhub_estado', '') else "")
-                    )
-                except Exception as _e_fmp:
-                    st.caption(f"FMP: estado no disponible ({_e_fmp})")
-                try:
-                    _mv = servicio.estado_motor_velas()
-                    _mv_symbols = _mv.get("simbolos_cargados", []) or []
-                    _mv_last = _mv.get("ultimo_trade")
-                    st.caption(
-                        "Motor velas: "
-                        + (
-                            "🟢 conectado" if _mv.get("stream_connected")
-                            else ("🟡 conectando/reintentando" if _mv.get("stream_running") else "🔴 sin conexión")
-                        )
-                        + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 10)}"
-                        + f" · trades: {_mv.get('total_trades', 0)} motor/{_mv.get('stream_trades', 0)} stream"
-                        + f" · errores callback: {_mv.get('trade_consumer_errors', 0)} trades/{_mv.get('quote_consumer_errors', 0)} quotes"
-                        + (f" · feed: {_mv.get('feed')}" if _mv.get('feed') else "")
-                        + f" · running: {'sí' if _mv.get('stream_running') else 'no'}"
-                        + f" · connected: {'sí' if _mv.get('stream_connected') else 'no'}"
-                        + f" · vistos: {_mv.get('symbols_seen', 0)}"
-                        + f" · suscritos local: {len(_mv.get('subscribed_symbols', []) or [])}"
-                        + (
-                            f" · ACK servidor: {len((_mv.get('server_subscription_state') or {}).get('trades', []))} trades/"
-                            f"{len((_mv.get('server_subscription_state') or {}).get('quotes', []))} quotes"
-                            if _mv.get("last_subscription_ack_ts") else " · ACK servidor: pendiente"
-                        )
-                        + f" · errores: {_mv.get('stream_errors', 0)}"
-                        + (f" · último: {_mv_last}" if _mv_last else "")
-                        + f" · quotes: {_mv.get('quotes', 0)}"
-                        + (f" · evento: {_mv.get('last_event_kind')} {_mv.get('last_event_symbol')}" if _mv.get('last_event_kind') else "")
-                        + (f" · edad evento: {float(_mv.get('last_event_age_sec')):.1f}s" if _mv.get('last_event_age_sec') is not None else "")
-                    )
-                    if _mv.get("last_consumer_error"):
-                        st.caption(f"Motor velas — error procesando evento: {_mv.get('last_consumer_error')}")
-                    if _mv.get("stream_last_error"):
-                        st.caption(f"Stream Alpaca — último error: {_mv.get('stream_last_error')}")
-                    elif _mv.get("error"):
-                        st.caption(f"Motor velas — último error: {_mv.get('error')}")
-                except Exception:
-                    pass
-                _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
-                if _err:
-                    st.warning(f"Último error del motor: {_err}")
+                _ack = _mv.get("server_subscription_state") or {}
+                st.caption(
+                    f"Motor velas: {_stream_state} · símbolos {len(_mv_symbols)}/{_mv.get('limite_simbolos', 10)}"
+                    f" · ACK trades/quotes: {len(_ack.get('trades', []))}/{len(_ack.get('quotes', []))}"
+                    f" · errores stream: {_mv.get('stream_errors', 0)}"
+                )
+                if _mv.get("stream_last_error"):
+                    st.warning(f"Stream Alpaca: {_mv.get('stream_last_error')}")
+                elif _mv.get("last_consumer_error"):
+                    st.warning(f"Motor velas: {_mv.get('last_consumer_error')}")
+                elif _mv.get("error"):
+                    st.warning(f"Motor velas: {_mv.get('error')}")
+            except Exception:
+                pass
+            _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
+            if _err:
+                st.warning(f"Último error del motor: {_err}")
     except Exception as _e_dg:
         print(f"⚠️ Panel de diagnóstico no disponible: {_e_dg}")
-
 
 # El temporizador se mantiene FUERA del iframe.
 # No navega el navegador ni modifica window.location desde el iframe.
