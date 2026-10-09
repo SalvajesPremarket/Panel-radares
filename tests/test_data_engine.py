@@ -109,6 +109,74 @@ def test_alpaca_market_stream_start_update_and_stop(monkeypatch):
     assert stream.health_snapshot()["errors"] == 0
 
 
+def test_alpaca_market_stream_empty_update_during_connect_does_not_leave_stale_symbols(monkeypatch):
+    import threading
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.quotes = set()
+            self.trades = set()
+            self.stopped = False
+            self.entered_subscribe = threading.Event()
+            self.allow_subscribe = threading.Event()
+            FakeStream.instances.append(self)
+
+        def subscribe_quotes(self, callback, *symbols):
+            self.entered_subscribe.set()
+            assert self.allow_subscribe.wait(timeout=3)
+            self.quotes.update(symbols)
+
+        def subscribe_trades(self, callback, *symbols):
+            self.trades.update(symbols)
+
+        def unsubscribe_quotes(self, *symbols):
+            self.quotes.difference_update(symbols)
+
+        def unsubscribe_trades(self, *symbols):
+            self.trades.difference_update(symbols)
+
+        def run(self):
+            while not self.stopped:
+                time.sleep(0.01)
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(module, "StockDataStream", FakeStream)
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream.start(["AAPL"])
+    deadline = time.time() + 2
+    while not FakeStream.instances and time.time() < deadline:
+        time.sleep(0.01)
+    assert FakeStream.instances
+    fake = FakeStream.instances[0]
+    assert fake.entered_subscribe.wait(timeout=2)
+
+    update_done = threading.Event()
+    updater = threading.Thread(target=lambda: (stream.start([]), update_done.set()))
+    updater.start()
+    deadline = time.time() + 2
+    while stream._symbols and time.time() < deadline:
+        time.sleep(0.01)
+    assert stream._symbols == set()
+
+    fake.allow_subscribe.set()
+    assert update_done.wait(timeout=2)
+    deadline = time.time() + 2
+    while (fake.quotes or fake.trades) and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert fake.quotes == set()
+    assert fake.trades == set()
+    assert stream.health_snapshot()["subscribed_symbols"] == []
+    stream.stop()
+
+
 def test_alpaca_market_stream_reconnects_after_run_error(monkeypatch):
     import threading
     import time
