@@ -148,6 +148,8 @@ def test_alpaca_market_stream_reconnects_after_run_error(monkeypatch):
         time.sleep(0.02)
 
     assert len(FakeStream.instances) >= 2
+    assert FakeStream.instances[1].ready.wait(timeout=2)
+    assert stream._stream is FakeStream.instances[1]
     assert FakeStream.instances[0].stopped is True
     assert stream.health_snapshot()["running"] is True
     stream.stop()
