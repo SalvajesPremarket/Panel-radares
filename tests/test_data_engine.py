@@ -528,3 +528,44 @@ def test_alpaca_server_subscription_errors_are_exposed_in_health_snapshot():
     assert health["server_subscription_state"]["trades"] == ["AAPL"]
     assert health["server_subscription_state"]["quotes"] == ["AAPL"]
     assert health["last_subscription_ack_ts"] is not None
+
+
+
+def test_server_subscription_ack_is_cleared_before_new_connection(monkeypatch):
+    import threading
+    import time
+
+    import TradeScanner.data_engine.market_stream as module
+
+    class FakeStream:
+        def __init__(self, *args, **kwargs):
+            self.ready = threading.Event()
+            self.stopped = False
+
+        def subscribe_quotes(self, callback, *symbols):
+            pass
+
+        def subscribe_trades(self, callback, *symbols):
+            pass
+
+        def run(self):
+            self.ready.set()
+            while not self.stopped:
+                time.sleep(0.01)
+
+        def stop(self):
+            self.stopped = True
+
+    monkeypatch.setattr(module, "StockDataStream", FakeStream)
+    stream = module.AlpacaMarketStream("key", "secret", feed="iex")
+    stream._server_subscription_state = {"trades": ["OLD"]}
+    stream._last_subscription_ack_ts = time.time()
+    stream.start(["AAPL"])
+
+    deadline = time.time() + 2
+    while stream._stream is None and time.time() < deadline:
+        time.sleep(0.01)
+
+    assert stream._server_subscription_state == {}
+    assert stream._last_subscription_ack_ts is None
+    stream.stop()
