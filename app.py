@@ -6302,7 +6302,8 @@ def _render_scanner():
                         "Motor velas: "
                         + ("🟢 conectado" if (_mv.get("stream_hilo_vivo") or _mv.get("stream_iniciado")) else "🔴 sin conexión")
                         + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 30)}"
-                        + f" · trades: {_mv.get('total_trades', 0)}"
+                        + f" · trades: {_mv.get('total_trades', 0)} motor/{_mv.get('stream_trades', 0)} stream"
+                        + f" · errores callback: {_mv.get('trade_consumer_errors', 0)} trades/{_mv.get('quote_consumer_errors', 0)} quotes"
                         + (f" · feed: {_mv.get('feed')}" if _mv.get('feed') else "")
                         + f" · running: {'sí' if _mv.get('stream_running') else 'no'}"
                         + f" · connected: {'sí' if _mv.get('stream_connected') else 'no'}"
@@ -6314,6 +6315,8 @@ def _render_scanner():
                         + (f" · evento: {_mv.get('last_event_kind')} {_mv.get('last_event_symbol')}" if _mv.get('last_event_kind') else "")
                         + (f" · edad evento: {float(_mv.get('last_event_age_sec')):.1f}s" if _mv.get('last_event_age_sec') is not None else "")
                     )
+                    if _mv.get("last_consumer_error"):
+                        st.caption(f"Motor velas — error procesando evento: {_mv.get('last_consumer_error')}")
                     if _mv.get("stream_last_error"):
                         st.caption(f"Stream Alpaca — último error: {_mv.get('stream_last_error')}")
                     elif _mv.get("error"):
