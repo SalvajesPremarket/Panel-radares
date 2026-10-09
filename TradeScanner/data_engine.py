@@ -66,6 +66,11 @@ class AlpacaMarketStream:
         self.cache = _LiveCache()
         self._trade_consumers = []
         self._quote_consumers = []
+        # Los errores de consumidores se registran aparte de los errores del websocket.
+        self._consumer_errors = 0
+        self._trade_consumer_errors = 0
+        self._quote_consumer_errors = 0
+        self._last_consumer_error = ""
 
     # API estable del stream compartido. No abrir otro websocket para consumidores.
     def add_consumer(self, trade_callback=None, quote_callback=None):
@@ -108,8 +113,11 @@ class AlpacaMarketStream:
         for callback in consumidores:
             try:
                 callback(data)
-            except Exception:
-                pass
+            except Exception as exc:
+                with self._lock:
+                    self._consumer_errors += 1
+                    self._quote_consumer_errors += 1
+                    self._last_consumer_error = f"quote {getattr(callback, '__qualname__', type(callback).__name__)}: {type(exc).__name__}: {exc}"[:500]
 
     async def _on_trade(self, data: Any):
         with self._lock:
@@ -126,8 +134,11 @@ class AlpacaMarketStream:
         for callback in consumidores:
             try:
                 callback(data)
-            except Exception:
-                pass
+            except Exception as exc:
+                with self._lock:
+                    self._consumer_errors += 1
+                    self._trade_consumer_errors += 1
+                    self._last_consumer_error = f"trade {getattr(callback, '__qualname__', type(callback).__name__)}: {type(exc).__name__}: {exc}"[:500]
 
     def _create_stream_locked(self):
         if self._stream is None:
@@ -291,6 +302,10 @@ class AlpacaMarketStream:
                 "trades": int(self._trades),
                 "symbols_seen": len(self._symbols_seen),
                 "errors": int(self._errors),
+                "consumer_errors": int(self._consumer_errors),
+                "trade_consumer_errors": int(self._trade_consumer_errors),
+                "quote_consumer_errors": int(self._quote_consumer_errors),
+                "last_consumer_error": self._last_consumer_error,
                 "last_event_ts": float(self._last_event_ts),
                 "last_error": self._last_error,
                 "subscribed_symbols": sorted(self._symbols),

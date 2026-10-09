@@ -449,11 +449,41 @@ class MotorVelas:
         self._procesar_trade(trade)
 
     def _procesar_trade(self, trade):
-        motor = self._obtener_motor(trade.symbol)
-        momento = trade.timestamp
+        """Normaliza y procesa un trade recibido del SDK o de un payload compatible."""
+        def campo(*nombres):
+            for nombre in nombres:
+                if isinstance(trade, dict):
+                    valor = trade.get(nombre)
+                else:
+                    valor = getattr(trade, nombre, None)
+                if valor is not None:
+                    return valor
+            return None
+
+        simbolo = str(campo("symbol", "S") or "").strip().upper()
+        precio_raw = campo("price", "p")
+        tamano_raw = campo("size", "s")
+        momento = campo("timestamp", "t")
+        if not simbolo:
+            raise ValueError("trade_sin_simbolo")
+        if precio_raw is None:
+            raise ValueError(f"trade_sin_precio:{simbolo}")
+        if momento is None:
+            raise ValueError(f"trade_sin_timestamp:{simbolo}")
+        if isinstance(momento, str):
+            try:
+                momento = datetime.fromisoformat(momento.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(f"timestamp_trade_invalido:{simbolo}") from exc
+        if not isinstance(momento, datetime):
+            raise ValueError(f"tipo_timestamp_trade_invalido:{simbolo}:{type(momento).__name__}")
         if momento.tzinfo is None:
             momento = momento.replace(tzinfo=timezone.utc)
-        motor.procesar_trade(precio=float(trade.price), tamano=float(trade.size), momento=momento)
+
+        precio = float(precio_raw)
+        tamano = float(tamano_raw or 0)
+        motor = self._obtener_motor(simbolo)
+        motor.procesar_trade(precio=precio, tamano=tamano, momento=momento)
         self.total_trades += 1
         self.ultimo_trade = momento
 
