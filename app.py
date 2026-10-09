@@ -4388,7 +4388,7 @@ except Exception as _metricas_init_error:
 try:
     import types as _types
     for _nombre, _fn in list(vars(ServicioScanner).items()):
-        if isinstance(_fn, _types.FunctionType) and not (_nombre.startswith("__") and _nombre.endswith("__")):
+        if isinstance(_fn, _types.FunctionType) and _nombre != "_ciclo" and not (_nombre.startswith("__") and _nombre.endswith("__")):
             servicio.__dict__[_nombre] = _types.MethodType(_fn, servicio)
 except Exception as _e_patch:
     print(f"⚠️ No se pudo actualizar el motor en caliente: {_e_patch}")
