@@ -6582,14 +6582,14 @@ def _render_robot_long_page(servicio):
 
     st.markdown("""
     <style>
-    .ts-robot-hero{background:linear-gradient(120deg,#101a2b,#1a2a3e);border:1px solid #34485f;border-radius:16px;padding:20px 22px;margin:0 0 16px}
-    .ts-robot-brand{font-size:12px;letter-spacing:.18em;font-weight:800;color:#9fb6d2}
-    .ts-robot-heading{font-size:28px;font-weight:850;color:#f5f8fc;line-height:1.2;margin-top:5px}
-    .ts-robot-sub{font-size:13px;color:#bac8d8;margin-top:7px}
-    .ts-robot-paper{display:inline-block;border:1px solid #c5a35b;border-radius:30px;padding:5px 11px;color:#f0cf7a;font-weight:800;font-size:11px;letter-spacing:.08em;margin-top:12px}
-    div[data-testid="stMetric"]{background:#1c2633;border:1px solid #354557;border-radius:12px;padding:12px 14px}
-    div[data-testid="stMetricLabel"]{color:#b8c7d8}
-    .ts-robot-note{font-size:12px;color:#aab8c8}
+    .ts-robot-hero{background:#17191d;border:1px solid #34383e;border-radius:16px;padding:20px 22px;margin:0 0 16px}
+    .ts-robot-brand{font-size:12px;letter-spacing:.18em;font-weight:800;color:#b7bdc6}
+    .ts-robot-heading{font-size:28px;font-weight:850;color:#f4f5f6;line-height:1.2;margin-top:5px}
+    .ts-robot-sub{font-size:13px;color:#b0b5bc;margin-top:7px}
+    .ts-robot-paper{display:inline-block;border:1px solid #777e87;border-radius:30px;padding:5px 11px;color:#d7dbe0;font-weight:800;font-size:11px;letter-spacing:.08em;margin-top:12px}
+    div[data-testid="stMetric"]{background:#202328;border:1px solid #34383e;border-radius:12px;padding:12px 14px}
+    div[data-testid="stMetricLabel"]{color:#b8bdc5}
+    .ts-robot-note{font-size:12px;color:#aeb4bc}
     </style>
     <div class="ts-robot-hero">
       <div class="ts-robot-brand">SALVAJES PREMARKET · AUTOMATED TRADING</div>
