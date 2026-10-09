@@ -90,6 +90,7 @@ class BotLongRealtime:
         with self._lock:
             self._config_operativa = config
             self.paper.risk.initial_capital = capital
+            self.paper.risk.max_exposure = asignacion / 100.0
             self.paper.risk.max_dolares_por_operacion = capital * asignacion / 100.0
         return dict(config)
 
