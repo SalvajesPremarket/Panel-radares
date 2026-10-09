@@ -328,6 +328,15 @@ class BotLongRealtime:
                 }
                 if anterior != comparable or decision_data.get("accion") in {"BUY", "EXIT"}:
                     ejecucion = None
+                    if decision_data.get("accion") == "BUY" and exigir_trade_vivo:
+                        edad_quote = snap.get("market_data_quote_age_sec")
+                        if edad_quote is None or float(edad_quote) > 30.0:
+                            decision_data["accion"] = "WAIT"
+                            decision_data["motivo"] = (
+                                "quote_live_ausente_o_obsoleta"
+                                if edad_quote is None
+                                else f"quote_live_obsoleta:{float(edad_quote):.1f}s"
+                            )
                     if decision_data.get("accion") == "BUY":
                         # Si la ejecución externa está deshabilitada, la compra se
                         # simula en PAPER; no se intenta enviar una orden al broker.
