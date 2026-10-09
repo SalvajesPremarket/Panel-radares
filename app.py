@@ -6651,6 +6651,17 @@ def _render_robot_long_page(servicio):
             font-size: 1.3rem !important;
         }
     }
+    /* Error de configuración: contraste alto y apariencia sobria. */
+    .st-key-ts-robot-config-error [data-testid="stAlert"] {
+        background: #351D22 !important;
+        border: 1px solid #B85C66 !important;
+        color: #FFFFFF !important;
+    }
+    .st-key-ts-robot-config-error [data-testid="stAlert"] p,
+    .st-key-ts-robot-config-error [data-testid="stAlert"] span,
+    .st-key-ts-robot-config-error [data-testid="stAlert"] div {
+        color: #FFFFFF !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -6701,7 +6712,8 @@ def _render_robot_long_page(servicio):
                 st.success("Configuración de capital y riesgo aplicada al robot.")
                 st.rerun()
             except Exception as _e_config:
-                st.error(f"No se pudo aplicar la configuración: {_e_config}")
+                with st.container(key="ts-robot-config-error"):
+                    st.error(f"No se pudo aplicar la configuración: {_e_config}")
 
     with _t_sl_tp:
         st.markdown("#### Protección porcentual de cada operación")
@@ -6732,7 +6744,8 @@ def _render_robot_long_page(servicio):
                 st.success("Stop Loss y Take Profit aplicados al robot.")
                 st.rerun()
             except Exception as _e_sltp:
-                st.error(f"No se pudieron aplicar los parámetros: {_e_sltp}")
+                with st.container(key="ts-robot-config-error"):
+                    st.error(f"No se pudieron aplicar los parámetros: {_e_sltp}")
 
     with _t_estrategia:
         st.markdown("#### Estrategia de trading")
