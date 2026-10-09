@@ -2753,7 +2753,7 @@ class ServicioScanner:
 
         # Motor de velas en tiempo real: una sola conexión compartida y solo
         # para los candidatos que el scanner publica. No toma decisiones de trading.
-        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed=os.getenv("ALPACA_MARKET_DATA_FEED", "iex"), max_symbols=10)
+        self.market_stream = AlpacaMarketStream(api_key, secret_key, feed=os.getenv("ALPACA_MARKET_DATA_FEED", "iex"), max_symbols=7)
 
         self.motor_velas = None
         if MotorVelasBridge is not None:
@@ -4389,16 +4389,16 @@ try:
             servicio.api_key,
             servicio.secret_key,
             feed=os.getenv("ALPACA_MARKET_DATA_FEED", "iex"),
-            max_symbols=10,
+            max_symbols=7,
         )
         servicio.market_stream = _stream_compartido
         if _bridge_compartido is not None:
             _bridge_compartido.market_stream = _stream_compartido
             _bridge_compartido.motor.conectar_stream_compartido(_stream_compartido)
     if _stream_compartido is not None:
-        _stream_compartido.max_symbols = min(10, int(getattr(_stream_compartido, "max_symbols", 10)))
+        _stream_compartido.max_symbols = min(7, int(getattr(_stream_compartido, "max_symbols", 7)))
     if _bridge_compartido is not None:
-        _bridge_compartido.MAX_SIMBOLOS_BASIC = 10
+        _bridge_compartido.MAX_SIMBOLOS_BASIC = 7
 except Exception as _e_cap_stream:
     print(f"⚠️ No se pudo actualizar el stream compartido de Alpaca en caliente: {_e_cap_stream}")
 
