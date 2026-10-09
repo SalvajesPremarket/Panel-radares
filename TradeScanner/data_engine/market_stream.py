@@ -168,6 +168,13 @@ class AlpacaMarketStream:
                 if not self._stop.is_set():
                     self.health.mark_error(exc)
             finally:
+                # Release the previous SDK websocket before retrying. This avoids
+                # stale sessions consuming Alpaca's connection budget on reconnect.
+                if stream is not None:
+                    try:
+                        stream.stop()
+                    except Exception:
+                        pass
                 with self.health._lock:
                     self.health.connected = False
                 if self._stream is stream:
