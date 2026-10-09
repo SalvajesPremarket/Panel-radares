@@ -41,10 +41,10 @@ class AlpacaMarketStream:
         self.api_key = api_key
         self.secret_key = secret_key
         self.feed = str(feed or "iex").strip().lower()
-        # Basic permits 30 stock symbol subscriptions. This stream subscribes each
-        # ticker to BOTH trades and quotes; cap at 15 tickers to stay within the
-        # conservative combined subscription budget and avoid server-side 405s.
-        self.max_symbols = max(1, min(15, int(max_symbols or 15)))
+        # Keep a safety margin below the Basic plan's 30-symbol websocket limit.
+        # Each candidate is requested on both trades and quotes channels; using
+        # 10 tickers leaves room for subscription state that may still be settling.
+        self.max_symbols = max(1, min(10, int(max_symbols or 10)))
         self._lock = threading.RLock()
         self._stream = None
         self._thread = None
@@ -223,6 +223,25 @@ class AlpacaMarketStream:
             if len(symbols) >= self.max_symbols:
                 break
         if not symbols:
+            # An empty candidate list is a real subscription update, not a no-op.
+            # Release stale symbols so later candidate rotations cannot retain
+            # obsolete subscriptions or push the stream over Alpaca's symbol limit.
+            with self._lock:
+                stream = self._stream
+                quitar = sorted(self._symbols)
+                if stream is not None and quitar:
+                    try:
+                        stream.unsubscribe_trades(*quitar)
+                        stream.unsubscribe_quotes(*quitar)
+                    except Exception as exc:
+                        self._errors += 1
+                        self._last_error = f"unsubscribe all: {type(exc).__name__}: {exc}"[:500]
+                        self._connected = False
+                        self._stream = None
+                self._symbols.clear()
+                self._last_subscription_request = time.time()
+                self._last_subscription_change = time.monotonic()
+                self._stop_requested = False
             return
         with self._lock:
             self._stop_requested = False
