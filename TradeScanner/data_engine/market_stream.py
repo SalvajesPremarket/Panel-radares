@@ -153,34 +153,47 @@ class AlpacaMarketStream:
             current = set(self._subscribed_symbols)
             add = requested - current
             remove = current - requested
-            added_quotes = False
-            removed_quotes = False
+            add_started = False
+            remove_started = False
             try:
                 if add:
                     symbols = sorted(add)
+                    add_started = True
                     stream.subscribe_quotes(self._quote, *symbols)
-                    added_quotes = True
                     stream.subscribe_trades(self._trade, *symbols)
                     self._subscribed_symbols.update(add)
                 if remove:
                     symbols = sorted(remove)
+                    remove_started = True
                     stream.unsubscribe_quotes(*symbols)
-                    removed_quotes = True
                     stream.unsubscribe_trades(*symbols)
                     self._subscribed_symbols.difference_update(remove)
                 if requested:
                     with self._symbols_lock:
                         self._last_subscription_request_ts = time.time()
             except Exception as exc:
-                # Local subscribe/unsubscribe calls can fail between the quote
-                # and trade operations. Compensate the first operation so the
-                # next reconciliation starts from a consistent local state.
-                try:
-                    if add and added_quotes:
-                        stream.unsubscribe_quotes(*sorted(add))
-                    elif remove and removed_quotes:
-                        stream.subscribe_quotes(self._quote, *sorted(remove))
-                except Exception as rollback_exc:
+                # SDK calls may fail after partially changing server-side
+                # subscriptions. Compensate BOTH event types independently.
+                rollback_errors = []
+                if add_started:
+                    for operation, symbols in (
+                        (stream.unsubscribe_quotes, sorted(add)),
+                        (stream.unsubscribe_trades, sorted(add)),
+                    ):
+                        try:
+                            operation(*symbols)
+                        except Exception as rollback_exc:
+                            rollback_errors.append(rollback_exc)
+                elif remove_started:
+                    for operation, symbols in (
+                        (lambda *items: stream.subscribe_quotes(self._quote, *items), sorted(remove)),
+                        (lambda *items: stream.subscribe_trades(self._trade, *items), sorted(remove)),
+                    ):
+                        try:
+                            operation(*symbols)
+                        except Exception as rollback_exc:
+                            rollback_errors.append(rollback_exc)
+                for rollback_exc in rollback_errors:
                     self.health.mark_error(
                         f"subscription rollback failed: {type(rollback_exc).__name__}: {rollback_exc}"
                     )
