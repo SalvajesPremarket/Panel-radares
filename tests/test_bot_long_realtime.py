@@ -65,6 +65,37 @@ def test_sync_signals_preserves_scanner_priority_order():
     ]
 
 
+def test_active_long_symbols_are_prioritized_before_new_candidates():
+    from BotTradeScanner.estrategias.long.premarket_salvajes import (
+        EstadoLong,
+        PreMarketSalvajesLong,
+    )
+
+    bridge = FakeBridge({"sin_datos": True})
+    bot = BotLongRealtime(bridge)
+    active = PreMarketSalvajesLong()
+    active.estado = EstadoLong.LONG_PRIMERA_VELA
+    bot.decisiones._estrategias["ZZACTIVE"] = active
+
+    bot.sync_signals([
+        {"ticker": "ZZZ"},
+        {"ticker": "AAA"},
+        {"ticker": "MMM"},
+        {"ticker": "BBB"},
+        {"ticker": "CCC"},
+        {"ticker": "DDD"},
+        {"ticker": "EEE"},
+        {"ticker": "FFF"},
+    ])
+
+    assert bridge.synced[0] == {"ticker": "ZZACTIVE"}
+    assert bridge.synced[1:4] == [
+        {"ticker": "ZZZ"},
+        {"ticker": "AAA"},
+        {"ticker": "MMM"},
+    ]
+
+
 def test_normalized_signal_metadata_reaches_bot_decision():
     bridge = FakeBridge({"sin_datos": True})
     bot = BotLongRealtime(bridge)
