@@ -4361,7 +4361,10 @@ except Exception as _e_patch:
 try:
     _stream_compartido = getattr(servicio, "market_stream", None)
     _bridge_compartido = getattr(servicio, "motor_velas", None)
-    if _stream_compartido is not None and not hasattr(_stream_compartido, "add_consumer"):
+    if _stream_compartido is not None and (
+        not hasattr(_stream_compartido, "add_consumer")
+        or not hasattr(_stream_compartido, "_subscription_lock")
+    ):
         try:
             _stream_compartido.stop()
         except Exception:
