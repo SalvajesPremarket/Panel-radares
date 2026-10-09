@@ -27,7 +27,7 @@ class AlpacaMarketStream:
         api_key: str,
         secret_key: str,
         feed: str = "iex",
-        max_symbols: int = 10,
+        max_symbols: int = 7,
         cache: MarketCache | None = None,
         bars: LiveBarBuilder | None = None,
         health: DataHealth | None = None,
@@ -36,7 +36,7 @@ class AlpacaMarketStream:
         self.api_key = str(api_key or "").strip()
         self.secret_key = str(secret_key or "").strip()
         self.feed_name = str(feed or "iex").strip().lower()
-        self.max_symbols = max(1, min(10, int(max_symbols or 10)))
+        self.max_symbols = max(1, min(7, int(max_symbols or 7)))
         self.cache = cache or MarketCache()
         self.bars = bars or LiveBarBuilder()
         self.health = health or DataHealth()
