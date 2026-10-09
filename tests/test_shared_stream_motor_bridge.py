@@ -70,3 +70,14 @@ def test_bridge_empty_results_clears_shared_stream_symbols():
         assert motor._stream is None
     finally:
         motor.desconectar_stream_compartido()
+
+
+
+def test_market_stream_preserves_scanner_priority_within_symbol_cap():
+    stream = AlpacaMarketStream("test-key", "test-secret", feed="iex", max_symbols=3)
+
+    selected = stream._normalizar_simbolos(
+        ["ZETA", "aapl", "ZETA", "MSFT", "AMD", "NVDA"]
+    )
+
+    assert selected == ["ZETA", "AAPL", "MSFT"]
