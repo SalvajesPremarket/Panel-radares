@@ -6323,8 +6323,11 @@ def _render_scanner():
                     _mv_last = _mv.get("ultimo_trade")
                     st.caption(
                         "Motor velas: "
-                        + ("🟢 conectado" if (_mv.get("stream_hilo_vivo") or _mv.get("stream_iniciado")) else "🔴 sin conexión")
-                        + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 30)}"
+                        + (
+                            "🟢 conectado" if _mv.get("stream_connected")
+                            else ("🟡 conectando/reintentando" if _mv.get("stream_running") else "🔴 sin conexión")
+                        )
+                        + f" · símbolos: {len(_mv_symbols)}/{_mv.get('limite_simbolos', 10)}"
                         + f" · trades: {_mv.get('total_trades', 0)} motor/{_mv.get('stream_trades', 0)} stream"
                         + f" · errores callback: {_mv.get('trade_consumer_errors', 0)} trades/{_mv.get('quote_consumer_errors', 0)} quotes"
                         + (f" · feed: {_mv.get('feed')}" if _mv.get('feed') else "")
