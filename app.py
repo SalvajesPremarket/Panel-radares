@@ -2277,6 +2277,7 @@ def evaluar_tecnico(velas):
 
         cruzo_arriba = estructura_alcista
         cruzo_abajo = estructura_bajista
+        # Positivo/Negativo significa signo de la línea MACD respecto a cero.
         macd_positivo = bool(macd_val is not None and macd_val > 0)
         macd_negativo = bool(macd_val is not None and macd_val < 0)
         bb_dist_pct = ((bb_upper_val - precio_act) / precio_act * 100.0) if bb_upper_val is not None and precio_act > 0 else None
@@ -4094,6 +4095,21 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Diagnóstico del embudo: no cambia ningún filtro ni el resultado del scanner.
         ema_arriba_count = sum(1 for c in radar_gap if cumple_condiciones_ema(c, filtros_tf))
         macd_positivo_count = sum(1 for c in radar_gap if c.get("macd_positivo"))
+        macd_negativo_count = sum(1 for c in radar_gap if c.get("macd_negativo"))
+        macd_neutro_count = sum(
+            1 for c in radar_gap
+            if not c.get("macd_positivo") and not c.get("macd_negativo")
+        )
+        # Intersecciones independientes del selector para que el embudo permita
+        # saber si faltan candidatos negativos o si el filtro combinado los elimina.
+        ema_y_macd_positivo_count = sum(
+            1 for c in radar_gap
+            if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_positivo")
+        )
+        ema_y_macd_negativo_count = sum(
+            1 for c in radar_gap
+            if cumple_condiciones_ema(c, filtros_tf) and c.get("macd_negativo")
+        )
         ema_y_macd_count = sum(
             1 for c in enriquecidos
             if cumple_condiciones_ema(c, filtros_tf) and cumple_macd(c, filtros_tf)
@@ -4127,6 +4143,10 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "tras_vol_rel": tras_vol_rel_count,
             "ema_arriba": ema_arriba_count,
             "macd_positivo": macd_positivo_count,
+            "macd_negativo": macd_negativo_count,
+            "macd_neutro": macd_neutro_count,
+            "ema_y_macd_positivo": ema_y_macd_positivo_count,
+            "ema_y_macd_negativo": ema_y_macd_negativo_count,
             "ema_y_macd": ema_y_macd_count,
             "candidatos_ema_macd_brutos": candidatos_ema_macd_brutos,
             "tickers_unicos": tickers_enr_unicos,
@@ -6228,7 +6248,11 @@ def _render_scanner():
                     ("tras_gap_volumen", "7. Después de gap / volumen relativo"),
                     ("ema_arriba", "8. Con EMA en la condición pedida"),
                     ("macd_positivo", "9. Con MACD positivo"),
-                    ("ema_y_macd", "10. Cumplen EMA y MACD a la vez"),
+                    ("macd_negativo", "   · Con MACD negativo"),
+                    ("macd_neutro", "   · MACD neutro / no calculable"),
+                    ("ema_y_macd_positivo", "   · EMA + MACD positivo"),
+                    ("ema_y_macd_negativo", "   · EMA + MACD negativo"),
+                    ("ema_y_macd", "10. Cumplen EMA y MACD según selección"),
                     ("resultados", "RESULTADO FINAL (lo que ves en la tabla)"),
                 ]
                 _filas = [{"Paso": _t, "Cantidad": _dg.get(_k, "—")} for _k, _t in _etiquetas if _k in _dg]
