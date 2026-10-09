@@ -3304,7 +3304,7 @@ class ServicioScanner:
         self.fmp_pausado_hasta = max(float(getattr(self, "fmp_pausado_hasta", 0) or 0), reanudar)
         detalle = f" Respuesta FMP: {cuerpo[:220]}" if cuerpo else " FMP no incluyó detalle en el cuerpo."
         self.ultimo_error = f"FMP HTTP 429 ({contexto}). {pausa_txt}{detalle}"
-        self.fmp_ultimo_429 = self.ultimo_error"
+        self.fmp_ultimo_429 = self.ultimo_error
 
     def _actualizar_float_bulk(self):
         """Carga la tabla masiva de float de FMP y la mezcla con la caché local.
