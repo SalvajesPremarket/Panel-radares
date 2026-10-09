@@ -193,6 +193,9 @@ class AlpacaMarketStream:
                             operation(*symbols)
                         except Exception as rollback_exc:
                             rollback_errors.append(rollback_exc)
+                # Keep the local subscription ledger at the pre-operation
+                # snapshot; the caller will stop this socket and reconcile again.
+                self._subscribed_symbols = current
                 for rollback_exc in rollback_errors:
                     self.health.mark_error(
                         f"subscription rollback failed: {type(rollback_exc).__name__}: {rollback_exc}"
