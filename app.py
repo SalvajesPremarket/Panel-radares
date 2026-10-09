@@ -2971,7 +2971,10 @@ class ServicioScanner:
         with self._metricas_lock:
             m = dict(self.metricas); m["ciclos_por_tf"] = dict(self.metricas.get("ciclos_por_tf", {}))
         m["uptime_segundos"] = max(0.0, time.time() - float(m.get("inicio", time.time())))
-        m["ciclo_promedio"] = m["duracion_ciclo_total"] / m["ciclos"] if m.get("ciclos") else 0.0
+        # Promedio sobre ciclos cuya duración ya fue registrada, no sobre ciclos históricos
+        # anteriores a la instrumentación (que podrían tener duración acumulada cero).
+        _ciclos_con_duracion = int(m.get("ciclos_con_duracion", 0) or 0)
+        m["ciclo_promedio"] = m["duracion_ciclo_total"] / _ciclos_con_duracion if _ciclos_con_duracion else 0.0
         m["fmp_total"] = m.get("fmp_bulk", 0) + m.get("fmp_individual", 0)
         return m
 
@@ -4202,6 +4205,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             "tickers_unicos": tickers_enr_unicos,
             "duplicados": len(enriquecidos) - tickers_enr_unicos,
             "resultados": len(filtrar_resultados(enriquecidos, filtros_tf)),
+            "limite_resultados": max(1, int(filtros_tf.get("top_n", 10) or 10)),
             "gap_aplicado": True,
             "gap_min": filtros_tf.get("gap_min", BASE_GAP_MIN),
             "gap_max": filtros_tf.get("gap_max", BASE_GAP_MAX),
@@ -4368,6 +4372,7 @@ def _ciclo_con_metricas_runtime(_self, *args, **kwargs):
                 _m["duracion_ciclo_max"] = max(float(_m.get("duracion_ciclo_max", 0.0) or 0.0), _duracion)
                 _m["ultimo_ciclo_ts"] = time.time()
                 _m["ultimo_ciclo_duracion"] = _duracion
+                _m["ciclos_con_duracion"] = int(_m.get("ciclos_con_duracion", 0) or 0) + 1
         except Exception as _e_metricas_ciclo:
             print(f"⚠️ No se pudieron registrar las métricas de cierre del ciclo: {_e_metricas_ciclo}")
 
@@ -4431,6 +4436,12 @@ try:
             servicio.__dict__[_nombre] = _types.MethodType(_fn, servicio)
 except Exception as _e_patch:
     print(f"⚠️ No se pudo actualizar el motor en caliente: {_e_patch}")
+# Reaplicar al final la instrumentación de cierre del ciclo en la instancia cacheada.
+# Así queda por encima de cualquier método re-enlazado durante la actualización en caliente.
+try:
+    servicio._ciclo = _types.MethodType(_ciclo_con_metricas_runtime, servicio)
+except Exception as _e_ciclo_metricas_final:
+    print(f"⚠️ No se pudo fijar la instrumentación final del ciclo: {_e_ciclo_metricas_final}")
 # La instancia de ServicioScanner vive en st.cache_resource y puede sobrevivir al deploy.
 # Si conserva una versión antigua del stream, sustituirla: esa versión no entrega
 # callbacks al MotorVelas ni expone el estado operacional que necesita el diagnóstico.
@@ -6352,6 +6363,8 @@ def _render_scanner():
                     ("ema_arriba", "Cumplen condición EMA"),
                     ("macd_positivo", "MACD positivo"),
                     ("ema_y_macd", "Cumplen EMA + MACD"),
+                    ("candidatos_ema_macd_brutos", "Candidatos EMA + MACD antes del límite"),
+                    ("limite_resultados", "Límite de resultados publicados"),
                     ("resultados", "Resultado final"),
                 ]
                 st.table([{"Etapa": label, "Cantidad": _dg.get(key, "—")} for key, label in _etiquetas if key in _dg])
