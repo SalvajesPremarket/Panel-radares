@@ -1,6 +1,7 @@
 """Integration regressions for the current mainline shared stream -> MotorVelas bridge."""
 
 import asyncio
+import time
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -42,14 +43,30 @@ def test_bridge_delivers_trade_and_quote_to_motor_velas():
 def test_bridge_sync_results_uses_shared_stream_without_second_connection(monkeypatch):
     stream = AlpacaMarketStream("test-key", "test-secret", feed="iex")
     motor = MotorVelas("test-key", "test-secret")
-    monkeypatch.setattr(motor, "precargar_historial", lambda symbols, cantidad=300: None)
+    def preload(symbols, cantidad=300):
+        for symbol in symbols:
+            motor._historial_precargado.add(symbol)
+            motor._obtener_motor(symbol)
+
+    monkeypatch.setattr(motor, "precargar_historial", preload)
     bridge = MotorVelasBridge("test-key", "test-secret", motor=motor, market_stream=stream)
     starts = []
-    monkeypatch.setattr(stream, "start", lambda symbols: starts.append(list(symbols)))
+
+    def record_start(symbols):
+        symbols = list(symbols)
+        if symbols:
+            assert all(symbol in motor._historial_precargado for symbol in symbols)
+        starts.append(symbols)
+
+    monkeypatch.setattr(stream, "start", record_start)
 
     try:
         bridge.sync_results([{"ticker": "aapl"}, {"ticker": "MSFT"}, {"ticker": "AAPL"}])
-        assert starts == [["AAPL", "MSFT"]]
+        deadline = time.time() + 3
+        while ["AAPL", "MSFT"] not in starts and time.time() < deadline:
+            time.sleep(0.01)
+        assert starts[0] == []
+        assert ["AAPL", "MSFT"] in starts
         assert bridge.status()["stream_compartido"] is True
         assert motor._stream is None
         assert motor._stream_compartido is stream
