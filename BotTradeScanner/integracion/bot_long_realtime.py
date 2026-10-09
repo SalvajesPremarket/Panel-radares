@@ -249,11 +249,28 @@ class BotLongRealtime:
                 simbolos.add(simbolo)
 
         nuevas, fills_confirmados = self._procesar_ordenes_pendientes()
+        try:
+            estado_feed = self.motor_bridge.status()
+        except Exception:
+            estado_feed = {}
+        exigir_trade_vivo = bool(estado_feed.get("stream_compartido"))
+
         for simbolo in sorted(simbolos):
             if simbolo in fills_confirmados:
                 continue
             try:
                 snap = self.motor_bridge.snapshot(simbolo)
+                if exigir_trade_vivo:
+                    # La precarga histórica solo inicializa indicadores; no puede
+                    # autorizar entradas/salidas como si fuera precio en vivo.
+                    edad_trade = snap.get("market_data_trade_age_sec")
+                    if edad_trade is None or float(edad_trade) > 30.0:
+                        self._ultimo_error = (
+                            f"{simbolo}: trade_live_ausente_o_obsoleto"
+                            if edad_trade is None
+                            else f"{simbolo}: trade_live_obsoleto:{float(edad_trade):.1f}s"
+                        )
+                        continue
                 candidato = simbolo in candidatos
                 estado_actual = self.decisiones.estado(simbolo)
                 vela_actual = snap.get("vela_actual") or {}
