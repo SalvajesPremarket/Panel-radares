@@ -395,3 +395,49 @@ def test_scanner_context_is_attached_to_bot_decision():
     assert decisions[0]["scanner_conditions"]["macd_positivo"] is True
     assert decisions[0]["scanner_conditions"]["gap_pct"] == 12.5
 
+def test_shared_live_feed_rejects_candidate_without_fresh_trade():
+    class SharedBridge:
+        def sync_results(self, rows):
+            self.synced = list(rows)
+
+        def snapshot(self, symbol):
+            data = valid_candidate_snapshot()
+            data["simbolo"] = symbol
+            data["market_data_trade_age_sec"] = 45.0
+            return data
+
+        def status(self):
+            return {"stream_compartido": True, "stream_connected": True}
+
+    bridge = SharedBridge()
+    bot = BotLongRealtime(bridge)
+    bot.sync_candidates([{"ticker": "TEST", "precio": 10.25}])
+
+    decisions = bot.evaluar_ahora()
+
+    assert decisions == []
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+    assert bot.status()["ultimo_error"] == "TEST: trade_live_obsoleto:45.0s"
+
+
+def test_shared_live_feed_waits_for_first_trade_after_historical_preload():
+    class SharedBridge:
+        def sync_results(self, rows):
+            self.synced = list(rows)
+
+        def snapshot(self, symbol):
+            data = valid_candidate_snapshot()
+            data["simbolo"] = symbol
+            data["market_data_trade_age_sec"] = None
+            return data
+
+        def status(self):
+            return {"stream_compartido": True, "stream_connected": True}
+
+    bot = BotLongRealtime(SharedBridge())
+    bot.sync_candidates([{"ticker": "TEST", "precio": 10.25}])
+
+    assert bot.evaluar_ahora() == []
+    assert bot.paper.status()["posiciones_abiertas"] == 0
+    assert bot.status()["ultimo_error"] == "TEST: trade_live_ausente_o_obsoleto"
+
