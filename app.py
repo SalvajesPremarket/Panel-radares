@@ -6831,6 +6831,66 @@ def _render_robot_long_page(servicio):
         if _rb.get("ultimo_error"):
             st.warning(f"Último aviso del motor: {_rb.get('ultimo_error')}")
 
+        # Diagnóstico operativo del feed compartido. Permite verificar en el
+        # entorno desplegado que llegan trades y quotes recientes por símbolo.
+        with st.expander("Diagnóstico de datos en vivo", expanded=True):
+            _md = _rb.get("market_data", {}) or {}
+            _connected = bool(_md.get("stream_connected"))
+            _running = bool(_md.get("stream_running"))
+            _feed_label = str(_md.get("feed") or "no informado").upper()
+            _feed_state = "CONECTADO" if _connected else ("CONECTANDO" if _running else "DESCONECTADO")
+            _d1, _d2, _d3, _d4 = st.columns(4)
+            _d1.metric("WebSocket", _feed_state)
+            _d2.metric("Feed", _feed_label)
+            _d3.metric("Trades recibidos", f"{int(_md.get('stream_trades', 0) or 0):,}")
+            _d4.metric("Quotes recibidas", f"{int(_md.get('quotes', 0) or 0):,}")
+            _subs = _md.get("subscribed_symbols", []) or []
+            _loaded = _md.get("simbolos_cargados", []) or []
+            st.caption(
+                f"Stream compartido: {'sí' if _md.get('stream_compartido') else 'no'} · "
+                f"Símbolos suscritos: {', '.join(map(str, _subs)) or 'ninguno'} · "
+                f"Símbolos preparados: {len(_loaded)}/{_md.get('limite_simbolos', 7)} · "
+                f"Eventos recientes: {_md.get('last_event_kind') or 'ninguno'}"
+                + (f" ({_md.get('last_event_symbol')})" if _md.get('last_event_symbol') else "")
+            )
+            _event_age = _md.get("last_event_age_sec")
+            if _event_age is not None:
+                try:
+                    st.caption(f"Antigüedad del último evento del stream: {float(_event_age):.1f} s")
+                except (TypeError, ValueError):
+                    pass
+            if _md.get("stream_last_error") or _md.get("last_consumer_error") or _md.get("error"):
+                st.warning(
+                    "Error de feed/motor: "
+                    + str(_md.get("stream_last_error") or _md.get("last_consumer_error") or _md.get("error"))
+                )
+            _live_rows = []
+            for _sym in (_rb.get("candidatos", []) or [])[:7]:
+                try:
+                    _snap = servicio.snapshot_motor_velas(_sym) or {}
+                    _row = {"Símbolo": _sym}
+                    for _key, _label in (
+                        ("market_data_trade_age_sec", "Trade (s)"),
+                        ("market_data_quote_age_sec", "Quote (s)"),
+                    ):
+                        _age = _snap.get(_key)
+                        if _age is None:
+                            _row[_label] = "SIN DATO"
+                        else:
+                            try:
+                                _age = float(_age)
+                                _row[_label] = f"{_age:.1f}" + (" · OBSOLETO" if _age > 30 else " · RECIENTE")
+                            except (TypeError, ValueError):
+                                _row[_label] = "NO DISPONIBLE"
+                    _live_rows.append(_row)
+                except Exception as _live_exc:
+                    _live_rows.append({"Símbolo": _sym, "Trade (s)": "ERROR", "Quote (s)": str(_live_exc)})
+            if _live_rows:
+                st.dataframe(_live_rows, hide_index=True, use_container_width=True)
+            else:
+                st.caption("Aún no hay candidatos para comprobar la antigüedad de trades y quotes.")
+            st.caption("El bot bloquea entradas LONG si no hay trade reciente o la cotización supera 30 segundos. Esta pantalla informa el estado; no activa órdenes reales.")
+
     with _t_riesgo:
         st.markdown("#### Configuración de capital y protección")
         st.caption("Estos parámetros se aplican al bot compartido de esta instancia y permanecen en memoria hasta que se reinicie el servicio.")
