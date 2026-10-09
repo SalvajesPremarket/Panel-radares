@@ -125,6 +125,7 @@ class BotLongRealtime:
         + MaquinaDecisionesLong + PreMarketSalvajes.
         """
         candidatos: set[str] = set()
+        candidatos_ordenados: list[str] = []
         metadata: dict[str, dict] = {}
         for row in signals or []:
             try:
@@ -132,6 +133,8 @@ class BotLongRealtime:
             except Exception:
                 ticker = ""
             if ticker:
+                if ticker not in candidatos:
+                    candidatos_ordenados.append(ticker)
                 candidatos.add(ticker)
                 metadata[ticker] = {
                     "signal_id": row.get("signal_id") or row.get("signalId"),
@@ -154,8 +157,14 @@ class BotLongRealtime:
             }:
                 activos.add(simbolo)
 
-        observados = candidatos | activos
-        self.motor_bridge.sync_results([{"ticker": s} for s in sorted(observados)])
+        # El límite del websocket es estricto: mantener primero los símbolos
+        # con estado LONG activo para poder gestionar salidas, y después respetar
+        # el orden de prioridad publicado por el scanner para nuevos candidatos.
+        observados_ordenados = sorted(activos)
+        observados_ordenados.extend(
+            simbolo for simbolo in candidatos_ordenados if simbolo not in activos
+        )
+        self.motor_bridge.sync_results([{"ticker": s} for s in observados_ordenados])
 
     def _procesar_ordenes_pendientes(self) -> tuple[list[dict], set[str]]:
         """Consulta fills/rechazos antes de evaluar nuevas entradas."""
