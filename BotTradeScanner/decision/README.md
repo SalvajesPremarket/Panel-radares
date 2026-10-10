@@ -1,3 +1,5 @@
-# Máquina de decisiones
+# Máquina de decisiones LONG
 
-Aquí se construirá la máquina de estados que consumirá los snapshots del motor y aplicará la estrategia LONG.
+`maquina_decisiones.py` coordina los candidatos de TradeScanner con la estrategia `PreMarketSalvajesLong`, mantiene el estado por símbolo y evalúa condiciones de salida por stop-loss.
+
+La capa no contiene interfaz Streamlit ni credenciales. La estrategia SHORT no está implementada y permanece fuera del alcance actual.
