@@ -41,6 +41,10 @@ jobs:
         run: |
           PYTHONPATH=. pytest tests/test_webapp_startup.py -vv --tb=long
 
+      - name: Run full repository test suite
+        run: |
+          PYTHONPATH=. pytest tests BotTradeScanner/pruebas -vv --tb=long
+
       - name: Smoke check active Streamlit entrypoint
         run: |
           python -m py_compile app.py
