@@ -186,3 +186,38 @@ def test_corrupt_paper_runtime_state_fails_closed(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="no se puede leer"):
         runtime._read_runtime_state()
+
+
+def test_corrupt_short_position_snapshot_fails_closed(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from webapp import storage
+    from webapp.tradebot.pullback_corto import PullbackCortoEMA
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "corrupt-short-runtime.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+
+    runtime = TradeBotPaperRuntime()
+    runtime.configure({
+        "capital_asignado": 600,
+        "porcentaje_operacion": 20,
+        "stop_loss_pct": 2,
+        "take_profit_pct": 4,
+        "estrategia": "Pullback corto ema50 ó 200 día ó semana",
+    })
+    runtime._init_runtime_state_schema()
+    corrupt = {
+        "strategy": "Pullback corto ema50 ó 200 día ó semana",
+        "short_position": {"symbol": "AAPL"},
+        "strategy_state": {},
+        "strategy_decisions": [],
+    }
+    import json
+    with storage.db() as conn:
+        conn.execute(
+            "INSERT INTO tradebot_runtime_state(runtime_id,state_json,updated_at) VALUES(?,?,?)",
+            ("singleton", json.dumps(corrupt), datetime.now(timezone.utc).isoformat()),
+        )
+
+    with pytest.raises(RuntimeError, match="posición corta Paper guardada está incompleta"):
+        runtime._restore_short_runtime_state(PullbackCortoEMA())
