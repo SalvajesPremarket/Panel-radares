@@ -24,7 +24,7 @@ keys = (
 target = Path("/app/.streamlit/secrets.toml")
 target.parent.mkdir(parents=True, exist_ok=True)
 target.write_text(
-    "\\n".join(f"{key} = {json.dumps(os.environ.get(key, ''))}" for key in keys) + "\\n",
+    "\n".join(f"{key} = {json.dumps(os.environ.get(key, ''))}" for key in keys) + "\n",
     encoding="utf-8",
 )
 target.chmod(0o600)
