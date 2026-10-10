@@ -15,7 +15,7 @@ El bot LONG usa su integración y motor de velas compartido dentro de `BotTradeS
 - `webapp/auth/server.py`: registro, inicio/cierre de sesión y validación de sesiones.
 - `webapp/account/server.py`: datos de cuenta, control de acceso y recomendaciones.
 - `webapp/api/server.py`: API privada de señales; protege la ingestión con una clave del servidor.
-- `webapp/api/signal_service.py`: contrato y almacenamiento temporal de señales.
+- `webapp/api/signal_service.py`: contrato y almacenamiento persistente de señales en PostgreSQL/SQLite.
 - `webapp/api/publisher.py`: publica señales finales del scanner cuando están configurados el endpoint y el secreto.
 - `BotTradeScanner/integracion/live_motor_bridge.py`: puente del motor de velas para el bot.
 - `BotTradeScanner/integracion/bot_long_realtime.py`: ciclo del bot LONG en tiempo real.
@@ -34,6 +34,6 @@ Los endpoints heredados `BotTradeScanner/api/server.py` y el adaptador `webapp/a
 
 ## Próximas verificaciones
 
-Probar por separado autenticación, permisos, ingestión de señales e idempotencia. Confirmar que el publisher esté configurado en el entorno de despliegue antes de dar por hecho que las señales llegan a la API. La ejecución real contra un broker y la integración de pagos requieren proyectos separados y autorización explícita.
+Probar por separado autenticación, permisos, ingestión de señales, persistencia de señales y del simulador Paper manual, e idempotencia. Confirmar que el publisher esté configurado en el entorno de despliegue antes de dar por hecho que las señales llegan a la API. La ejecución real contra un broker y la integración de pagos requieren proyectos separados y autorización explícita.
 
 Las recomendaciones de usuarios nunca modifican automáticamente el motor.

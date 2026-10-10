@@ -6,10 +6,14 @@ No broker executor is created and real order submission remains disabled.
 """
 from __future__ import annotations
 
+import json
 import os
+from datetime import datetime, timezone
 from threading import Event, Lock, Thread
 import time
 from typing import Any
+
+from webapp.storage import db
 
 
 class TradeBotPaperRuntime:
@@ -31,6 +35,8 @@ class TradeBotPaperRuntime:
         self._short_position = None
         self._last_strategy_decision = None
         self._strategy_decisions = []
+        self._last_state_persist_at = 0.0
+        self._last_long_state_persist_at = 0.0
         self._operational_config = {
             "capital_asignado": 600.0,
             "porcentaje_operacion": 20.0,
@@ -115,6 +121,26 @@ class TradeBotPaperRuntime:
             self._thread = Thread(target=self._run, name="tradebot-paper-runtime", daemon=True)
             self._thread.start()
 
+    @staticmethod
+    def _fresh_signals(signals, max_age_seconds: float = 300.0) -> list[dict]:
+        """Ignore old scanner candidates so a removed symbol is not selected indefinitely."""
+        now = datetime.now(timezone.utc)
+        fresh = []
+        for signal in signals:
+            raw_timestamp = str(signal.get("timestamp") or signal.get("actualizado") or "").strip()
+            if not raw_timestamp:
+                continue
+            try:
+                timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                age = (now - timestamp.astimezone(timezone.utc)).total_seconds()
+            except (TypeError, ValueError):
+                continue
+            if -30.0 <= age <= max_age_seconds:
+                fresh.append(signal)
+        return fresh
+
     def _run(self) -> None:
         try:
             from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
@@ -123,6 +149,17 @@ class TradeBotPaperRuntime:
             from webapp.api.signal_service import store
 
             config = self.configuration()
+            with self._lock:
+                selected_strategy = self._operational_config["estrategia"]
+            saved_runtime_state = self._read_runtime_state()
+            if (
+                saved_runtime_state.get("short_position")
+                and saved_runtime_state.get("strategy") == "Pullback corto ema50 ó 200 día ó semana"
+                and selected_strategy != "Pullback corto ema50 ó 200 día ó semana"
+            ):
+                raise RuntimeError(
+                    "Hay una posición corta Paper guardada. Selecciona la estrategia Pullback corto para recuperar su seguimiento."
+                )
             bridge = MotorVelasBridge(
                 api_key=os.getenv("ALPACA_API_KEY", "").strip(),
                 secret_key=os.getenv("ALPACA_SECRET_KEY", "").strip(),
@@ -145,6 +182,8 @@ class TradeBotPaperRuntime:
             with self._lock:
                 operational_config = dict(self._operational_config)
             bot.configurar_riesgo(**operational_config)
+            self._restore_long_runtime_state(bot)
+            bot.set_state_callback(self._persist_long_runtime_state)
             bot.iniciar()
             with self._lock:
                 self._bridge = bridge
@@ -153,7 +192,7 @@ class TradeBotPaperRuntime:
                 self._started_at = time.time()
 
             while not self._stop.wait(5.0):
-                signals = store.list(limit=100)
+                signals = self._fresh_signals(store.list(limit=100))
                 # Select the highest-confidence scanner symbol for new entries.
                 # Existing LONG states remain managed by BotLongRealtime for exits.
                 candidates_by_symbol: dict[str, dict] = {}
@@ -201,8 +240,146 @@ class TradeBotPaperRuntime:
                 self._last_error = f"{type(exc).__name__}: {exc}"[:500]
 
 
+    @staticmethod
+    def _init_runtime_state_schema() -> None:
+        with db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS tradebot_runtime_state (
+                    runtime_id TEXT PRIMARY KEY,
+                    state_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+
+    def _read_runtime_state(self, runtime_id: str = "singleton") -> dict:
+        self._init_runtime_state_schema()
+        with db() as conn:
+            row = conn.execute(
+                "SELECT state_json FROM tradebot_runtime_state WHERE runtime_id = ?",
+                (runtime_id,),
+            ).fetchone()
+        if not row:
+            return {}
+        encoded = row["state_json"] if hasattr(row, "keys") else row[0]
+        try:
+            value = json.loads(encoded)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("El estado Paper guardado no se puede leer; runtime bloqueado para no olvidar posiciones.") from exc
+        if not isinstance(value, dict):
+            raise RuntimeError("El estado Paper guardado tiene un formato inválido; runtime bloqueado por seguridad.")
+        return value
+
+    def _persist_long_runtime_state(self, bot, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_long_state_persist_at < 2.0:
+            return
+        state = bot.export_paper_state()
+        encoded = json.dumps(state, separators=(",", ":"))
+        self._init_runtime_state_schema()
+        with db() as conn:
+            conn.execute("""
+                INSERT INTO tradebot_runtime_state(runtime_id,state_json,updated_at)
+                VALUES(?,?,?)
+                ON CONFLICT(runtime_id) DO UPDATE SET
+                    state_json=excluded.state_json,
+                    updated_at=excluded.updated_at
+            """, ("long", encoded, datetime.now(timezone.utc).isoformat()))
+        self._last_long_state_persist_at = now
+
+    def _restore_long_runtime_state(self, bot) -> bool:
+        state = self._read_runtime_state("long")
+        if not state or state.get("strategy") != "LongSalvajesPreMarket":
+            return False
+        bot.restore_paper_state(state)
+        with self._lock:
+            self._operational_config = dict(state.get("operational_config") or self._operational_config)
+        return True
+
+    def _persist_short_runtime_state(self, strategy, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_state_persist_at < 1.0:
+            return
+        with self._lock:
+            state = {
+                "strategy": "Pullback corto ema50 ó 200 día ó semana",
+                "operational_config": dict(self._operational_config),
+                "short_position": dict(self._short_position) if self._short_position else None,
+                "strategy_state": dict(strategy.__dict__),
+                "last_strategy_decision": dict(self._last_strategy_decision) if self._last_strategy_decision else None,
+                "strategy_decisions": list(self._strategy_decisions[-100:]),
+                "selected_symbol": self._selected_symbol,
+                "selected_confidence": self._selected_confidence,
+                "candidate_count": self._candidate_count,
+            }
+        encoded = json.dumps(state, separators=(",", ":"))
+        self._init_runtime_state_schema()
+        with db() as conn:
+            conn.execute("""
+                INSERT INTO tradebot_runtime_state(runtime_id,state_json,updated_at)
+                VALUES(?,?,?)
+                ON CONFLICT(runtime_id) DO UPDATE SET
+                    state_json=excluded.state_json,
+                    updated_at=excluded.updated_at
+            """, ("singleton", encoded, datetime.now(timezone.utc).isoformat()))
+        self._last_state_persist_at = now
+
+    def _restore_short_runtime_state(self, strategy) -> dict:
+        state = self._read_runtime_state()
+        if not state:
+            return {}
+        if state.get("strategy") != "Pullback corto ema50 ó 200 día ó semana":
+            return {}
+        raw_position = state.get("short_position")
+        if raw_position is not None:
+            if not isinstance(raw_position, dict):
+                raise RuntimeError("La posición corta Paper guardada tiene un formato inválido; recuperación bloqueada.")
+            required = {"symbol", "entry_price", "stop_loss", "quantity", "strategy"}
+            if not required.issubset(raw_position):
+                raise RuntimeError("La posición corta Paper guardada está incompleta; recuperación bloqueada.")
+            try:
+                valid_position = (
+                    bool(str(raw_position["symbol"]).strip())
+                    and float(raw_position["entry_price"]) > 0
+                    and float(raw_position["stop_loss"]) > 0
+                    and int(raw_position["quantity"]) > 0
+                    and raw_position["strategy"] == state.get("strategy")
+                )
+            except (TypeError, ValueError):
+                valid_position = False
+            if not valid_position:
+                raise RuntimeError("La posición corta Paper guardada no supera la validación; recuperación bloqueada.")
+            if self._operational_config.get("estrategia") != state.get("strategy"):
+                raise RuntimeError("Hay una posición corta Paper guardada. Selecciona la estrategia Pullback corto para recuperar su seguimiento.")
+        strategy_state = state.get("strategy_state") or {}
+        if not isinstance(strategy_state, dict):
+            raise RuntimeError("El estado de la estrategia corta Paper está corrupto; recuperación bloqueada.")
+        decisions = state.get("strategy_decisions") or []
+        if not isinstance(decisions, list) or any(not isinstance(item, dict) for item in decisions):
+            raise RuntimeError("El historial de decisiones cortas Paper está corrupto; recuperación bloqueada.")
+        last_decision = state.get("last_strategy_decision")
+        if last_decision is not None and not isinstance(last_decision, dict):
+            raise RuntimeError("La última decisión corta Paper está corrupta; recuperación bloqueada.")
+        try:
+            candidate_count = int(state.get("candidate_count") or 0)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("El contador de candidatos Paper está corrupto; recuperación bloqueada.") from exc
+        for key, value in strategy_state.items():
+            if key == "last_previous_candle" and isinstance(value, list):
+                value = tuple(value)
+            if hasattr(strategy, key):
+                setattr(strategy, key, value)
+        with self._lock:
+            self._short_position = dict(raw_position) if raw_position is not None else None
+            self._last_strategy_decision = last_decision
+            self._strategy_decisions = decisions[-100:]
+            self._selected_symbol = str(state.get("selected_symbol") or "")
+            self._selected_confidence = state.get("selected_confidence")
+            self._candidate_count = candidate_count
+        return state
+
     def _run_pullback_corto(self, bridge, store, strategy) -> None:
         """Run the short strategy against live one-minute snapshots in Paper only."""
+        self._restore_short_runtime_state(strategy)
         with self._lock:
             self._bridge = bridge
             self._bot = strategy
@@ -211,7 +388,7 @@ class TradeBotPaperRuntime:
             self._started_at = time.time()
         while not self._stop.wait(0.25):
             try:
-                signals = store.list(limit=100)
+                signals = self._fresh_signals(store.list(limit=100))
                 by_symbol = {}
                 for signal in signals:
                     symbol = str(signal.get("symbol") or signal.get("simbolo") or signal.get("ticker") or "").strip().upper()
@@ -289,6 +466,7 @@ class TradeBotPaperRuntime:
                     except (TypeError, ValueError):
                         self._selected_confidence = None
                     self._last_sync_at = time.time()
+                self._persist_short_runtime_state(strategy)
             except Exception as exc:
                 with self._lock:
                     self._last_error = f"{type(exc).__name__}: {exc}"[:500]
@@ -370,11 +548,19 @@ class TradeBotPaperRuntime:
                     self._strategy_decisions.append({"symbol": position["symbol"], "action": "EXIT", "reason": "TradeBot apagado; cierre Paper al último precio observado.", "price": float(price), "entry_price": position["entry_price"], "quantity": position["quantity"], "pnl_realizado": pnl, "mode": "paper", "created_at": time.time()})
                     self._strategy_decisions = self._strategy_decisions[-100:]
                     self._short_position = None
+                try:
+                    self._persist_short_runtime_state(strategy, force=True)
+                except Exception as exc:
+                    with self._lock:
+                        self._last_error = f"No se pudo guardar el estado Paper al apagar: {type(exc).__name__}: {exc}"[:500]
         if bot is not None and hasattr(bot, "detener"):
             try:
                 bot.detener()
-            except Exception:
-                pass
+                if hasattr(bot, "export_paper_state"):
+                    self._persist_long_runtime_state(bot, force=True)
+            except Exception as exc:
+                with self._lock:
+                    self._last_error = f"No se pudo guardar el estado LONG Paper al apagar: {type(exc).__name__}: {exc}"[:500]
 
 
 runtime = TradeBotPaperRuntime()

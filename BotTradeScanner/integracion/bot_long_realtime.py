@@ -13,13 +13,16 @@ La frecuencia de evaluacion es independiente del refresh visual del scanner.
 from __future__ import annotations
 
 from collections import deque
+from copy import deepcopy
 from dataclasses import asdict
+from enum import Enum
 from threading import Event, Lock, Thread
 import time
 from typing import Iterable
 
 from BotTradeScanner.decision.maquina_decisiones import MaquinaDecisionesLong
-from BotTradeScanner.riesgo.paper import PaperBot
+from BotTradeScanner.estrategias.long.premarket_salvajes import EstadoLong, PreMarketSalvajesLong
+from BotTradeScanner.riesgo.paper import PaperBot, PaperPosition, RiskConfig
 from BotTradeScanner.ejecucion.configuracion import ExecutionConfig
 from BotTradeScanner.ejecucion.alpaca import AlpacaExecutor, preparar_buy, ESTADOS_TERMINALES
 
@@ -48,6 +51,7 @@ class BotLongRealtime:
         self._ultimo_error: str | None = None
         self._ciclos = 0
         self._ultima_evaluacion = None
+        self._state_callback = None
         self._config_operativa = {
             "capital_asignado": 600.0,
             "porcentaje_operacion": 20.0,
@@ -97,6 +101,88 @@ class BotLongRealtime:
     def configuracion_operativa(self) -> dict:
         with self._lock:
             return dict(self._config_operativa)
+
+    def set_state_callback(self, callback) -> None:
+        """Set an optional persistence callback invoked after each evaluation cycle."""
+        self._state_callback = callback
+
+    def export_paper_state(self) -> dict:
+        """Export all LONG strategy and Paper state needed for restart recovery."""
+        with self._lock:
+            config = deepcopy(self._config_operativa)
+            decisions = deepcopy(list(self._decisiones))
+            last_decision = deepcopy(self._ultima_decision_por_simbolo)
+            cycles = self._ciclos
+            last_evaluation = self._ultima_evaluacion
+
+        with self.decisiones._lock:
+            strategies = {}
+            for symbol, strategy in self.decisiones._estrategias.items():
+                strategies[symbol] = {
+                    key: (value.value if isinstance(value, Enum) else value)
+                    for key, value in strategy.__dict__.items()
+                }
+
+        with self.paper._lock:
+            risk = asdict(self.paper.risk)
+            positions = {symbol: asdict(position) for symbol, position in self.paper.positions.items()}
+            paper_decisions = deepcopy(self.paper.decisions[-1000:])
+            closed_trades = deepcopy(self.paper.closed_trades[-1000:])
+
+        return {
+            "strategy": "LongSalvajesPreMarket",
+            "operational_config": config,
+            "strategy_states": strategies,
+            "paper": {
+                "risk": risk,
+                "positions": positions,
+                "decisions": paper_decisions,
+                "closed_trades": closed_trades,
+            },
+            "recent_decisions": decisions[-1000:],
+            "last_decision_by_symbol": last_decision,
+            "cycles": cycles,
+            "last_evaluation": last_evaluation,
+        }
+
+    def restore_paper_state(self, state: dict) -> None:
+        """Restore persisted LONG strategy state; never restores broker orders."""
+        if state.get("strategy") != "LongSalvajesPreMarket":
+            raise ValueError("El estado guardado no pertenece a la estrategia LONG.")
+        config = state.get("operational_config") or {}
+        if config:
+            self.configurar_riesgo(**config)
+
+        with self.decisiones._lock:
+            restored = {}
+            for symbol, values in (state.get("strategy_states") or {}).items():
+                strategy = PreMarketSalvajesLong()
+                for key, value in values.items():
+                    if key == "estado":
+                        value = EstadoLong(value)
+                    if hasattr(strategy, key):
+                        setattr(strategy, key, value)
+                restored[str(symbol).upper()] = strategy
+            self.decisiones._estrategias = restored
+
+        paper_state = state.get("paper") or {}
+        risk_values = paper_state.get("risk") or {}
+        risk = RiskConfig(**{key: value for key, value in risk_values.items() if key in RiskConfig.__dataclass_fields__})
+        positions = {}
+        for symbol, raw in (paper_state.get("positions") or {}).items():
+            positions[str(symbol).upper()] = PaperPosition(**raw)
+        with self.paper._lock:
+            self.paper.risk = risk
+            self.paper.positions = positions
+            self.paper.decisions = list(paper_state.get("decisions") or [])[-1000:]
+            self.paper.closed_trades = list(paper_state.get("closed_trades") or [])[-1000:]
+
+        with self._lock:
+            self._config_operativa = dict(config) if config else self._config_operativa
+            self._decisiones = deque(state.get("recent_decisions") or [], maxlen=self.max_decisiones)
+            self._ultima_decision_por_simbolo = dict(state.get("last_decision_by_symbol") or {})
+            self._ciclos = int(state.get("cycles") or 0)
+            self._ultima_evaluacion = state.get("last_evaluation")
 
     def iniciar(self) -> None:
         with self._lock:
@@ -448,6 +534,12 @@ class BotLongRealtime:
             inicio = time.monotonic()
             try:
                 self.evaluar_ahora()
+                callback = self._state_callback
+                if callback is not None:
+                    try:
+                        callback(self)
+                    except Exception as exc:
+                        self._ultimo_error = f"Error guardando estado Paper: {exc}"
             except Exception as exc:
                 self._ultimo_error = str(exc)
 

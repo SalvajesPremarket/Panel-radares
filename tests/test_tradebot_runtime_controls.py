@@ -56,3 +56,247 @@ def test_runtime_accepts_pullback_short_strategy_in_paper(monkeypatch):
     })
     assert config["estrategia"] == "Pullback corto ema50 ó 200 día ó semana"
     assert runtime.status()["real_trading_enabled"] is False
+
+def test_pullback_paper_runtime_state_survives_restart(tmp_path, monkeypatch):
+    from webapp import storage
+    from webapp.tradebot.pullback_corto import PullbackCortoEMA
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "runtime.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+    config = {
+        "capital_asignado": 600,
+        "porcentaje_operacion": 20,
+        "stop_loss_pct": 2,
+        "take_profit_pct": 4,
+        "estrategia": "Pullback corto ema50 ó 200 día ó semana",
+    }
+
+    first = TradeBotPaperRuntime()
+    first.configure(config)
+    strategy = PullbackCortoEMA()
+    strategy.position_open = True
+    strategy.entry_price = 12.5
+    strategy.stop_loss = 12.8
+    strategy.last_previous_candle = (12.4, 13.0, 12.0, 12.6)
+    strategy.last_symbol = "AAPL"
+    strategy.last_price = 12.55
+    first._short_position = {
+        "symbol": "AAPL",
+        "entry_price": 12.5,
+        "stop_loss": 12.8,
+        "quantity": 9,
+        "strategy": config["estrategia"],
+    }
+    first._strategy_decisions = [{"symbol": "AAPL", "action": "SHORT", "mode": "paper"}]
+    first._persist_short_runtime_state(strategy, force=True)
+
+    restarted = TradeBotPaperRuntime()
+    restarted.configure(config)
+    restored_strategy = PullbackCortoEMA()
+    restored = restarted._restore_short_runtime_state(restored_strategy)
+
+    assert restored["strategy"] == config["estrategia"]
+    assert restarted._short_position["symbol"] == "AAPL"
+    assert restarted._short_position["quantity"] == 9
+    assert restored_strategy.position_open is True
+    assert restored_strategy.entry_price == 12.5
+    assert restored_strategy.stop_loss == 12.8
+    assert restored_strategy.last_previous_candle == (12.4, 13.0, 12.0, 12.6)
+    assert restarted._strategy_decisions[-1]["action"] == "SHORT"
+
+def test_runtime_ignores_stale_scanner_candidates():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    fresh = (now - timedelta(seconds=20)).isoformat()
+    stale = (now - timedelta(minutes=10)).isoformat()
+    runtime = TradeBotPaperRuntime()
+
+    result = runtime._fresh_signals([
+        {"symbol": "AAPL", "timestamp": fresh},
+        {"symbol": "MSFT", "timestamp": stale},
+        {"symbol": "NVDA"},
+        {"symbol": "TSLA", "timestamp": "not-a-timestamp"},
+    ])
+
+    assert [item["symbol"] for item in result] == ["AAPL"]
+
+def test_long_paper_position_and_strategy_state_survive_runtime_restart(tmp_path, monkeypatch):
+    from webapp import storage
+    from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
+    from BotTradeScanner.estrategias.long.premarket_salvajes import EstadoLong
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "runtime.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+
+    config = {
+        "capital_asignado": 600,
+        "porcentaje_operacion": 20,
+        "stop_loss_pct": 2,
+        "take_profit_pct": 4,
+        "estrategia": "LongSalvajesPreMarket",
+    }
+    runtime = TradeBotPaperRuntime()
+    runtime.configure(config)
+    bot = BotLongRealtime(object())
+    bot.configurar_riesgo(**config)
+
+    strategy = bot.decisiones._estrategia("AAPL")
+    strategy.estado = EstadoLong.LONG_PRIMERA_VELA
+    strategy.simbolo = "AAPL"
+    strategy.precio_entrada = 10.0
+    strategy.stop_loss = 9.5
+    bot.paper.evaluar({
+        "signal_id": "paper-position-1",
+        "simbolo": "AAPL",
+        "accion": "BUY",
+        "precio": 10.0,
+        "stop_loss": 9.5,
+        "estrategia": "PreMarketSalvajes LONG",
+    })
+    runtime._persist_long_runtime_state(bot, force=True)
+
+    restarted_runtime = TradeBotPaperRuntime()
+    restarted_bot = BotLongRealtime(object())
+    assert restarted_runtime._restore_long_runtime_state(restarted_bot) is True
+
+    assert restarted_bot.paper.posiciones()[0]["simbolo"] == "AAPL"
+    assert restarted_bot.paper.posiciones()[0]["precio_entrada"] == 10.0
+    assert restarted_bot.decisiones.estado("AAPL")["estado"] == "long_primera_vela"
+    assert restarted_bot.decisiones.estado("AAPL")["stop_loss"] == 9.5
+    assert restarted_bot.paper.status()["modo"] == "paper"
+    assert restarted_runtime._operational_config["capital_asignado"] == 600
+
+def test_corrupt_paper_runtime_state_fails_closed(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from webapp import storage
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "corrupt-runtime.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+    runtime = TradeBotPaperRuntime()
+    runtime._init_runtime_state_schema()
+    with storage.db() as conn:
+        conn.execute(
+            "INSERT INTO tradebot_runtime_state(runtime_id,state_json,updated_at) VALUES(?,?,?)",
+            ("singleton", "{not-json", datetime.now(timezone.utc).isoformat()),
+        )
+
+    with pytest.raises(RuntimeError, match="no se puede leer"):
+        runtime._read_runtime_state()
+
+
+def test_corrupt_short_position_snapshot_fails_closed(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from webapp import storage
+    from webapp.tradebot.pullback_corto import PullbackCortoEMA
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "corrupt-short-runtime.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+
+    runtime = TradeBotPaperRuntime()
+    runtime.configure({
+        "capital_asignado": 600,
+        "porcentaje_operacion": 20,
+        "stop_loss_pct": 2,
+        "take_profit_pct": 4,
+        "estrategia": "Pullback corto ema50 ó 200 día ó semana",
+    })
+    runtime._init_runtime_state_schema()
+    corrupt = {
+        "strategy": "Pullback corto ema50 ó 200 día ó semana",
+        "short_position": {"symbol": "AAPL"},
+        "strategy_state": {},
+        "strategy_decisions": [],
+    }
+    import json
+    with storage.db() as conn:
+        conn.execute(
+            "INSERT INTO tradebot_runtime_state(runtime_id,state_json,updated_at) VALUES(?,?,?)",
+            ("singleton", json.dumps(corrupt), datetime.now(timezone.utc).isoformat()),
+        )
+
+    with pytest.raises(RuntimeError, match="posición corta Paper guardada está incompleta"):
+        runtime._restore_short_runtime_state(PullbackCortoEMA())
+
+
+
+def test_short_runtime_loop_selects_scanner_candidate_and_persists_paper_entry(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from webapp import storage
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "runtime-loop.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+
+    config = {
+        "capital_asignado": 600,
+        "porcentaje_operacion": 20,
+        "stop_loss_pct": 2,
+        "take_profit_pct": 4,
+        "estrategia": "Pullback corto ema50 ó 200 día ó semana",
+    }
+    runtime = TradeBotPaperRuntime()
+    runtime.configure(config)
+
+    class OneCycleStop:
+        def __init__(self):
+            self.calls = 0
+
+        def wait(self, _seconds):
+            self.calls += 1
+            return self.calls > 1
+
+    runtime._stop = OneCycleStop()
+
+    class FakeStore:
+        def list(self, limit=100):
+            assert limit == 100
+            return [{
+                "symbol": "aapl",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "confidence": 91,
+                "scanner_conditions": {"ema50_dia": 11.0},
+            }]
+
+    class FakeBridge:
+        def __init__(self):
+            self.synced = []
+
+        def sync_results(self, items):
+            self.synced.append(items)
+
+        def snapshot(self, symbol):
+            assert symbol == "AAPL"
+            return {"market_data_trade_age_sec": 0.1, "simbolo": symbol}
+
+    class FakeStrategy:
+        def evaluate(self, snapshot, conditions):
+            assert snapshot["simbolo"] == "AAPL"
+            assert conditions == {"ema50_dia": 11.0}
+            return {"accion": "SHORT", "precio": 10.0, "stop_loss": 10.5, "motivo": "synthetic test"}
+
+    bridge = FakeBridge()
+    runtime._run_pullback_corto(bridge, FakeStore(), FakeStrategy())
+
+    assert bridge.synced == [[{"ticker": "AAPL"}]]
+    assert runtime._selected_symbol == "AAPL"
+    assert runtime._selected_confidence == 91
+    assert runtime._short_position == {
+        "symbol": "AAPL",
+        "entry_price": 10.0,
+        "stop_loss": 10.5,
+        "quantity": 12,
+        "strategy": config["estrategia"],
+    }
+    assert runtime._last_strategy_decision["accion"] == "SHORT"
+    assert runtime._strategy_decisions[-1]["mode"] == "paper"
+
+    restarted = TradeBotPaperRuntime()
+    restored_state = restarted._read_runtime_state()
+    assert restored_state["short_position"]["symbol"] == "AAPL"
+    assert restored_state["short_position"]["quantity"] == 12
+    assert restored_state["last_strategy_decision"]["accion"] == "SHORT"

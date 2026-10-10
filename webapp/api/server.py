@@ -1,6 +1,9 @@
 """Private TradeScanner signal API and paper-only TradeBot simulator."""
 import hmac
+import json
 import os
+from dataclasses import asdict
+from datetime import datetime, timezone
 from typing import Literal
 from threading import Lock
 from urllib.parse import urlparse
@@ -9,10 +12,10 @@ from uuid import uuid4
 from fastapi import FastAPI, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from BotTradeScanner.riesgo.paper import PaperBot
-from webapp.auth.server import get_current_user
+from BotTradeScanner.riesgo.paper import PaperBot, PaperPosition, RiskConfig
+from webapp.storage import db
+from webapp.auth.server import get_current_user, trial_has_expired
 from webapp.api.signal_service import store, publish_signal
-from webapp.tradebot.runtime import runtime as tradebot_runtime
 from webapp.tradebot.runtime import runtime as tradebot_runtime
 
 app=FastAPI(title="TradeScanner Private API",version="0.3.0")
@@ -21,13 +24,74 @@ app=FastAPI(title="TradeScanner Private API",version="0.3.0")
 _paper_bots: dict[str, PaperBot] = {}
 _paper_bots_lock = Lock()
 
+
+def init_paper_schema():
+    with db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_bot_states (
+                user_id TEXT PRIMARY KEY,
+                state_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
+
+def _restore_paper_bot(user_key: str) -> PaperBot:
+    init_paper_schema()
+    with db() as conn:
+        row = conn.execute(
+            "SELECT state_json FROM paper_bot_states WHERE user_id = ?",
+            (user_key,),
+        ).fetchone()
+    if not row:
+        return PaperBot()
+    encoded = row["state_json"] if hasattr(row, "keys") else row[0]
+    try:
+        state = json.loads(encoded)
+        bot = PaperBot(RiskConfig(**state.get("risk", {})))
+        bot.positions = {
+            position["simbolo"]: PaperPosition(**position)
+            for position in state.get("positions", [])
+        }
+        bot.decisions = state.get("decisions", [])[-1000:]
+        bot.closed_trades = state.get("closed_trades", [])[-1000:]
+        return bot
+    except (TypeError, ValueError, KeyError) as exc:
+        # Fail closed: never turn a corrupt snapshot into an apparently empty account.
+        raise RuntimeError(
+            f"El estado Paper guardado para el usuario {user_key!r} no se puede leer; "
+            "se bloqueó la recuperación para proteger las posiciones. "
+            "Revisa el backup o recupera el estado antes de continuar."
+        ) from exc
+
+
+def _persist_paper_bot(user_key: str, bot: PaperBot):
+    init_paper_schema()
+    with bot._lock:
+        state = {
+            "risk": asdict(bot.risk),
+            "positions": [asdict(position) for position in bot.positions.values()],
+            "decisions": bot.decisions[-1000:],
+            "closed_trades": bot.closed_trades[-1000:],
+        }
+    encoded = json.dumps(state, separators=(",", ":"))
+    with db() as conn:
+        conn.execute("""
+            INSERT INTO paper_bot_states(user_id,state_json,updated_at)
+            VALUES(?,?,?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                state_json=excluded.state_json,
+                updated_at=excluded.updated_at
+        """, (user_key, encoded, datetime.now(timezone.utc).isoformat()))
+
+
 def paper_bot_for(user: dict) -> PaperBot:
     user_key = str(user.get("user_id") or user.get("email") or "").strip()
     if not user_key:
         raise HTTPException(status_code=401, detail="Identidad de usuario requerida")
     with _paper_bots_lock:
         if user_key not in _paper_bots:
-            _paper_bots[user_key] = PaperBot()
+            _paper_bots[user_key] = _restore_paper_bot(user_key)
         return _paper_bots[user_key]
 
 # Deployed Streamlit scanner. Can still be overridden by the server environment.
@@ -60,8 +124,14 @@ class TradeBotStartIn(BaseModel):
     estrategia: Literal["LongSalvajesPreMarket", "Pullback corto ema50 ó 200 día ó semana"] = "LongSalvajesPreMarket"
 
 def commercial_user(user=Depends(get_current_user)):
-    if user["account_status"] not in {"trial","active_monthly","active_annual","admin"}:
+    if user["account_status"] not in {"trial","active_monthly","active_annual","admin"} or trial_has_expired(user):
         raise HTTPException(status_code=403,detail="Acceso comercial no activo")
+    return user
+
+def runtime_operator(user=Depends(commercial_user)):
+    """Only an administrator may control the single shared automatic Paper runtime."""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo un administrador puede encender o apagar el runtime global de TradeBot")
     return user
 
 def scanner_ui_url():
@@ -118,7 +188,7 @@ def tradebot_status(user=Depends(commercial_user)):
 
 
 @app.post("/api/v1/tradebot/start")
-def tradebot_start(payload: TradeBotStartIn, user=Depends(commercial_user)):
+def tradebot_start(payload: TradeBotStartIn, user=Depends(runtime_operator)):
     """Start the selected automatic strategy in Paper mode only."""
     return {
         "mode": "paper",
@@ -127,7 +197,7 @@ def tradebot_start(payload: TradeBotStartIn, user=Depends(commercial_user)):
     }
 
 @app.post("/api/v1/tradebot/stop")
-def tradebot_stop(user=Depends(commercial_user)):
+def tradebot_stop(user=Depends(runtime_operator)):
     """Stop the automatic Paper runtime; never sends broker orders."""
     return {
         "mode": "paper",
@@ -162,6 +232,8 @@ def tradebot_evaluate(payload: PaperTradeIn, user=Depends(commercial_user)):
         "motivo": payload.reason or "paper_manual",
         "estrategia": "TradeBot Paper (manual)",
     })
+    user_key = str(user.get("user_id") or user.get("email") or "").strip()
+    _persist_paper_bot(user_key, bot)
     return {"mode": "paper", "real_trading_enabled": False, "result": result, "status": bot.status()}
 
 @app.post("/api/v1/signals/ingest", status_code=202)

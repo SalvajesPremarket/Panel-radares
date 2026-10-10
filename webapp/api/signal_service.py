@@ -1,8 +1,16 @@
-"""Private scanner signal adapter. The existing app.py remains untouched."""
+"""Persistent private signal adapter shared by TradeScanner and TradeBot."""
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
+import json
 from threading import Lock
-from uuid import uuid4
+
+from webapp import storage as _storage
+from webapp.storage import db
+
+SIGNAL_RETENTION = 1000
+_schema_lock = Lock()
+_schema_identity = None
+
 
 @dataclass
 class Signal:
@@ -18,34 +26,126 @@ class Signal:
     signal_id: str = ""
 
     def __post_init__(self):
+        self.symbol = self.symbol.strip().upper()
         if not self.signal_id:
+            from uuid import uuid4
             self.signal_id = uuid4().hex
 
+
+def init_schema():
+    """Create the durable signal table once per configured database."""
+    global _schema_identity
+    identity = (_storage.DATABASE_URL, str(_storage.SQLITE_PATH))
+    with _schema_lock:
+        if _schema_identity == identity:
+            return
+        with db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS scanner_signals (
+                    signal_id TEXT PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    signal_type TEXT NOT NULL,
+                    price DOUBLE PRECISION NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    confidence DOUBLE PRECISION,
+                    scanner_conditions TEXT,
+                    risk_context TEXT
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS scanner_signals_time_idx "
+                "ON scanner_signals(timestamp)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS scanner_signals_symbol_idx "
+                "ON scanner_signals(symbol, timeframe)"
+            )
+        _schema_identity = identity
+
+
 class SignalStore:
-    def __init__(self):
-        self._signals=[]
-        self._lock=Lock()
+    """Database-backed store; a web process restart no longer erases signals."""
 
     def publish(self, signal):
-        with self._lock:
-            self._signals.append(signal)
-            self._signals=self._signals[-1000:]
+        init_schema()
+        item = asdict(signal)
+        with db() as conn:
+            conn.execute("""
+                INSERT INTO scanner_signals
+                (signal_id,symbol,timeframe,signal_type,price,timestamp,source,
+                 confidence,scanner_conditions,risk_context)
+                VALUES (?,?,?,?,?,?,?,?,?,?)
+            """, (
+                item["signal_id"], item["symbol"], item["timeframe"],
+                item["signal_type"], item["price"], item["timestamp"],
+                item["source"], item["confidence"],
+                json.dumps(item["scanner_conditions"], separators=(",", ":"))
+                if item["scanner_conditions"] is not None else None,
+                json.dumps(item["risk_context"], separators=(",", ":"))
+                if item["risk_context"] is not None else None,
+            ))
+            conn.execute("""
+                DELETE FROM scanner_signals
+                WHERE signal_id NOT IN (
+                    SELECT signal_id FROM scanner_signals
+                    ORDER BY timestamp DESC, signal_id DESC LIMIT ?
+                )
+            """, (SIGNAL_RETENTION,))
         return signal
 
+    @staticmethod
+    def _mapping(row):
+        if hasattr(row, "keys"):
+            return dict(row)
+        return dict(zip((
+            "signal_id", "symbol", "timeframe", "signal_type", "price",
+            "timestamp", "source", "confidence", "scanner_conditions", "risk_context"
+        ), row))
+
     def list(self, since=None, timeframe=None, symbol=None, limit=100):
-        with self._lock:
-            items=list(reversed(self._signals))
-        if since: items=[x for x in items if x.timestamp >= since]
-        if timeframe: items=[x for x in items if x.timeframe == timeframe]
-        if symbol: items=[x for x in items if x.symbol.upper() == symbol.upper()]
-        return [asdict(x) for x in items[:max(1,min(limit,500))]]
+        init_schema()
+        with db() as conn:
+            rows = conn.execute("""
+                SELECT signal_id,symbol,timeframe,signal_type,price,timestamp,
+                       source,confidence,scanner_conditions,risk_context
+                FROM scanner_signals
+                ORDER BY timestamp DESC, signal_id DESC
+                LIMIT ?
+            """, (SIGNAL_RETENTION,)).fetchall()
+        items = [self._mapping(row) for row in rows]
+        for item in items:
+            for key in ("scanner_conditions", "risk_context"):
+                value = item.get(key)
+                if isinstance(value, str):
+                    try:
+                        item[key] = json.loads(value)
+                    except (TypeError, ValueError):
+                        item[key] = None
+            item["price"] = float(item["price"])
+            if item.get("confidence") is not None:
+                item["confidence"] = float(item["confidence"])
+        if since:
+            items = [item for item in items if item["timestamp"] >= since]
+        if timeframe:
+            items = [item for item in items if item["timeframe"] == timeframe]
+        if symbol:
+            items = [item for item in items if item["symbol"].upper() == symbol.upper()]
+        return items[:max(1, min(limit, 500))]
 
-store=SignalStore()
 
-def publish_signal(symbol,timeframe,signal_type,price,confidence=None,scanner_conditions=None,risk_context=None):
-    return store.publish(Signal(symbol.upper(),timeframe,signal_type,float(price),
-        datetime.now(timezone.utc).isoformat(),confidence=confidence,
-        scanner_conditions=scanner_conditions,risk_context=risk_context))
+store = SignalStore()
+
+
+def publish_signal(symbol, timeframe, signal_type, price, confidence=None,
+                   scanner_conditions=None, risk_context=None):
+    return store.publish(Signal(
+        symbol=symbol.strip().upper(), timeframe=timeframe, signal_type=signal_type,
+        price=float(price), timestamp=datetime.now(timezone.utc).isoformat(),
+        confidence=confidence, scanner_conditions=scanner_conditions,
+        risk_context=risk_context,
+    ))
 
 
 def _as_float(value):

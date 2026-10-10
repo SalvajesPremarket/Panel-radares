@@ -8,7 +8,6 @@ Este directorio contiene el núcleo del scanner: motor de datos, construcción d
 - /TradeScanner/ → código propio del scanner. No contiene la estrategia ni la lógica de ejecución del robot.
 - /BotTradeScanner/ → robot de trading separado: estrategia LONG/SHORT, decisiones, riesgo, ejecución/paper y puente de integración.
 - /webapp/ → servicios web auxiliares (autenticación, API, billing, recomendaciones y soporte). Se mantiene fuera del motor del scanner para no mezclar responsabilidades.
-- Stage 3 → arquitectura de conexión/compartición entre estos componentes; no es otro scanner ni otro entry point.
 
 ## Regla de arquitectura
 
@@ -18,6 +17,6 @@ No se deben crear copias del scanner ni segundos app.py que puedan confundirse c
 
 ## Estado actual
 
-La duplicación histórica de TradeScanner/app.py fue eliminada. El app.py de la raíz es actualmente el único entry point de Streamlit.
+La documentación central de arquitectura y despliegue está en el README de la raíz. La duplicación histórica de TradeScanner/app.py fue eliminada. El app.py de la raíz es actualmente el único entry point de Streamlit.
 
 El objetivo es conservar esta separación y hacer cambios quirúrgicos, sin reescribir el motor estable del scanner.

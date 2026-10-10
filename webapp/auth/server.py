@@ -15,6 +15,12 @@ from webapp.storage import db
 SESSION_DAYS = int(os.getenv("TRADESCANNER_SESSION_DAYS", "30"))
 COOKIE_NAME = "tradescanner_session"
 
+
+def cookie_domain():
+    """Optional parent domain so the same secure session covers web and scanner subdomains."""
+    value = os.getenv("TRADESCANNER_COOKIE_DOMAIN", "").strip()
+    return value or None
+
 app = FastAPI(title="TradeScanner Auth API", version="0.1.0")
 
 
@@ -31,6 +37,20 @@ class LoginRequest(BaseModel):
 
 def utcnow():
     return datetime.now(timezone.utc)
+
+
+def trial_has_expired(user):
+    """Fail closed when a trial's end date is missing, invalid, or in the past."""
+    if user.get("role") == "admin" or user["account_status"] != "trial":
+        return False
+    try:
+        raw_end = str(user["trial_ends_at"]).strip()
+        trial_end = datetime.fromisoformat(raw_end.replace("Z", "+00:00"))
+        if trial_end.tzinfo is None:
+            trial_end = trial_end.replace(tzinfo=timezone.utc)
+    except (KeyError, TypeError, ValueError):
+        return True
+    return trial_end <= utcnow()
 
 
 def iso(dt):
@@ -152,7 +172,8 @@ def register(payload: RegisterRequest, response: Response):
             (user_id, email, password_hash(payload.password), payload.display_name, "user", "trial", iso(now), iso(trial_end), 1, iso(now)))
     token = create_session(user_id)
     response.set_cookie(COOKIE_NAME, token, max_age=SESSION_DAYS * 86400,
-                        httponly=True, secure=True, samesite="lax", path="/")
+                        httponly=True, secure=True, samesite="lax", path="/",
+                        domain=cookie_domain())
     return {"user_id": user_id, "account_status": "trial", "trial_ends_at": iso(trial_end)}
 
 
@@ -170,7 +191,8 @@ def login(payload: LoginRequest, response: Response):
         conn.execute("UPDATE users SET last_login_at = ? WHERE user_id = ?", (iso(now), row["user_id"]))
     token = create_session(row["user_id"])
     response.set_cookie(COOKIE_NAME, token, max_age=SESSION_DAYS * 86400,
-                        httponly=True, secure=True, samesite="lax", path="/")
+                        httponly=True, secure=True, samesite="lax", path="/",
+                        domain=cookie_domain())
     return {"user_id": row["user_id"], "account_status": row["account_status"]}
 
 
@@ -180,7 +202,7 @@ def logout(response: Response, tradescanner_session: str | None = Cookie(default
         with db() as conn:
             conn.execute("UPDATE sessions SET revoked_at = ? WHERE token_hash = ?",
                          (iso(utcnow()), token_hash(tradescanner_session)))
-    response.delete_cookie(COOKIE_NAME, path="/")
+    response.delete_cookie(COOKIE_NAME, path="/", domain=cookie_domain())
     return {"ok": True}
 
 

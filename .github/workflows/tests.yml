@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - prepare/self-host-platform
   pull_request:
     branches:
       - main
+      - prepare/self-host-platform
 
 jobs:
   tests:
@@ -31,7 +33,7 @@ jobs:
 
       - name: Run TradeScanner data and bridge tests
         run: |
-          PYTHONPATH=. pytest tests/test_data_engine.py tests/test_market_stream_symbols.py tests/test_bridge_history_before_stream.py tests/test_shared_stream_motor_bridge.py -vv --tb=long
+          PYTHONPATH=. pytest tests/test_data_engine.py tests/test_market_stream_symbols.py tests/test_bridge_history_before_stream.py tests/test_shared_stream_motor_bridge.py tests/test_signal_publisher.py -vv --tb=long
 
       - name: Test TradeBot Paper strategies
         run: |
@@ -41,6 +43,18 @@ jobs:
         run: |
           PYTHONPATH=. pytest tests/test_webapp_startup.py -vv --tb=long
 
+      - name: Run full repository test suite
+        run: |
+          PYTHONPATH=. pytest tests BotTradeScanner/pruebas -vv --tb=long
+
       - name: Smoke check active Streamlit entrypoint
         run: |
           python -m py_compile app.py
+
+      - name: Validate and build self-hosted containers
+        run: |
+          bash -n deploy/self-host/backup-postgres.sh
+          bash -n deploy/self-host/restore-postgres-test.sh
+          docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml config -q
+          docker run --rm -e WEB_DOMAIN=app.example.com -e SCANNER_DOMAIN=scanner.example.com -v "$PWD/deploy/self-host/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
+          docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml build web scanner
