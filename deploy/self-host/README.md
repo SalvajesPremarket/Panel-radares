@@ -17,15 +17,15 @@ The app and scanner run as separate containers on one VPS. Only Caddy publishes 
 2. Register or choose a domain, then create DNS A records for `WEB_DOMAIN` and `SCANNER_DOMAIN` pointing to the VPS public IP.
 3. Open only SSH (preferably restricted to your IP), HTTP 80, and HTTPS 443 in the server firewall.
 4. Install Docker Engine and the Docker Compose plugin.
-5. Copy `.env.example` to `.env`; set real domains, a unique PostgreSQL password and two different random secrets. Generate hex-only values to avoid URL-escaping issues, for example `openssl rand -hex 24` for the DB password and `openssl rand -hex 32` for each secret. Never commit `.env`.
+5. From the repository root, copy `deploy/self-host/.env.example` to `deploy/self-host/.env`; set real domains, a unique PostgreSQL password and two different random secrets. Generate hex-only values to avoid URL-escaping issues, for example `openssl rand -hex 24` for the DB password and `openssl rand -hex 32` for each secret. Never commit `.env`.
 6. Add the required Alpaca market-data credentials only when ready to test data access in Paper. The automatic Paper runtime remains disabled by default.
 7. From the repository root, run:
 
    ```bash
-   docker compose --env-file .env -f deploy/self-host/compose.yaml config
-   docker compose --env-file .env -f deploy/self-host/compose.yaml up -d --build
-   docker compose --env-file .env -f deploy/self-host/compose.yaml ps
-   docker compose --env-file .env -f deploy/self-host/compose.yaml logs --tail=100
+   docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml config
+   docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml up -d --build
+   docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml ps
+   docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml logs --tail=100
    ```
 
 Caddy can issue HTTPS certificates after both DNS records resolve publicly and ports 80/443 are reachable.
