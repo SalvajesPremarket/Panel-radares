@@ -87,3 +87,32 @@ def test_signal_ingest_rejects_wrong_secret_and_accepts_matching_secret(monkeypa
         require_ingest_key(x_tradescanner_signal_key="wrong-secret")
     assert exc.value.status_code == 401
     assert require_ingest_key(x_tradescanner_signal_key="test-secret-123") is None
+
+
+
+def test_scanner_forward_auth_endpoint_enforces_commercial_access(monkeypatch):
+    """Caddy forward_auth relies on this endpoint to gate the scanner subdomain."""
+    from fastapi.testclient import TestClient
+    from webapp.api.server import app
+    from webapp.auth.server import get_current_user
+
+    now = datetime.now(timezone.utc)
+    active_trial = user(trial_ends_at=(now + timedelta(days=2)).isoformat())
+    expired_trial = user(trial_ends_at=(now - timedelta(seconds=1)).isoformat())
+    suspended = user(account_status="suspended")
+
+    try:
+        app.dependency_overrides[get_current_user] = lambda: active_trial
+        with TestClient(app) as client:
+            assert client.get("/api/v1/scanner/status").status_code == 200
+
+            app.dependency_overrides[get_current_user] = lambda: expired_trial
+            assert client.get("/api/v1/scanner/status").status_code == 403
+
+            app.dependency_overrides[get_current_user] = lambda: suspended
+            assert client.get("/api/v1/scanner/status").status_code == 403
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    with TestClient(app) as client:
+        assert client.get("/api/v1/scanner/status").status_code == 401
