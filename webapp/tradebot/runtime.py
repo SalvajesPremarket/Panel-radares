@@ -128,6 +128,17 @@ class TradeBotPaperRuntime:
             from webapp.api.signal_service import store
 
             config = self.configuration()
+            with self._lock:
+                selected_strategy = self._operational_config["estrategia"]
+            saved_runtime_state = self._read_runtime_state()
+            if (
+                saved_runtime_state.get("short_position")
+                and saved_runtime_state.get("strategy") == "Pullback corto ema50 ó 200 día ó semana"
+                and selected_strategy != "Pullback corto ema50 ó 200 día ó semana"
+            ):
+                raise RuntimeError(
+                    "Hay una posición corta Paper guardada. Selecciona la estrategia Pullback corto para recuperar su seguimiento."
+                )
             bridge = MotorVelasBridge(
                 api_key=os.getenv("ALPACA_API_KEY", "").strip(),
                 secret_key=os.getenv("ALPACA_SECRET_KEY", "").strip(),
