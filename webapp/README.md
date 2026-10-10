@@ -17,9 +17,9 @@ Los endpoints heredados `BotTradeScanner/api/server.py` y el adaptador `webapp/a
 
 La estrategia, el riesgo y la ejecución PAPER del bot están en `BotTradeScanner/`, fuera de esta carpeta. No existe un paquete `webapp/bot/` ni un directorio `webapp/database/` en la estructura actual. Las señales normalizadas y el estado del simulador Paper manual se guardan en PostgreSQL cuando `DATABASE_URL` está configurada.
 
-## Base de datos persistente en Render
+## Base de datos persistente en Render y VPS propio
 
-La web usa PostgreSQL cuando la variable de entorno `DATABASE_URL` está configurada. SQLite queda reservado para desarrollo local. En Render, la aplicación falla de forma explícita si falta `DATABASE_URL`, en lugar de guardar cuentas y sesiones en el disco efímero del servicio.
+La web usa PostgreSQL cuando `DATABASE_URL` está configurada. SQLite queda reservado para desarrollo local. En Render, la aplicación falla de forma explícita si falta `DATABASE_URL`, en lugar de guardar cuentas y sesiones en el disco efímero. En el VPS propio, Docker Compose conecta la web a PostgreSQL en la red interna.
 
 En el servicio Render `tradescanner-webapp`:
 
@@ -28,7 +28,7 @@ En el servicio Render `tradescanner-webapp`:
 3. No pegues la URL de conexión ni contraseñas en GitHub, archivos de código o mensajes públicos.
 4. Comprueba el estado y la fecha de expiración de la base en el panel de Render. Las bases del plan gratuito pueden expirar; planifica una actualización o migración antes de la fecha indicada para no perder datos.
 
-La base PostgreSQL debe estar activa y accesible antes de desplegar esta versión. No configures `DATABASE_URL` con una URL de ejemplo. El estado interno del runtime automático (incluida la estrategia de pullback en ejecución) aún necesita una política específica de recuperación tras reinicio antes de confiar en continuidad automática.
+La base PostgreSQL debe estar activa y accesible antes de desplegar. No configures `DATABASE_URL` con una URL de ejemplo. Las señales y el simulador Paper manual son persistentes; el estado de la estrategia corta Paper se restaura al reiniciar. La recuperación del estado interno de la estrategia LONG sigue pendiente antes de depender de operación automática continua.
 
 ## Separación y seguridad
 
