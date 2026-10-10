@@ -219,7 +219,7 @@ def test_authenticated_signal_ingest_persists_signal_for_tradebot(tmp_path, monk
             signal_type="SCANNER_FINAL",
             price=12.34,
             confidence=87,
-            scanner_conditions={"gap_pct": 4.5, "ema50_dia": 11.2},
+            scanner_conditions={"gap_pct": 4.5, "ema20": 9.7, "ema50_dia": 10.5},
         )
     ])
     result = server.ingest_signals(payload, None)
@@ -231,4 +231,19 @@ def test_authenticated_signal_ingest_persists_signal_for_tradebot(tmp_path, monk
     assert stored[0]["signal_id"] == result["signal_ids"][0]
     assert stored[0]["price"] == 12.34
     assert stored[0]["confidence"] == 87
-    assert stored[0]["scanner_conditions"]["ema50_dia"] == 11.2
+    assert stored[0]["scanner_conditions"]["ema50_dia"] == 10.5
+
+    # Feed the persisted scanner context into the selected Paper strategy.
+    from webapp.tradebot.pullback_corto import PullbackCortoEMA
+
+    snapshot = {
+        "simbolo": "AAPL",
+        "tramo_actual": 1,
+        "market_data_trade_age_sec": 0.1,
+        "vela_actual": {"apertura": 9.8, "maximo": 11.0, "minimo": 9.75, "cierre": 9.79},
+        "vela_anterior": {"apertura": 10.0, "maximo": 12.0, "minimo": 9.9, "cierre": 9.95},
+    }
+    decision = PullbackCortoEMA().evaluate(snapshot, stored[0]["scanner_conditions"])
+    assert decision["accion"] == "SHORT"
+    assert decision["position_open"] is True
+    assert decision["stop_loss"] == 9.95
