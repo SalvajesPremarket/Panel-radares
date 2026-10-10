@@ -4354,7 +4354,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
             self._sincronizar_motor_velas(resultados_finales_hist)
             # Puente externo: publica SOLO el resultado final ya aceptado por el scanner.
             # No modifica filtros, resultados ni el motor LONG.
-            publish_final_signals(resultados_finales_hist, tf)
+            publish_final_signals(resultados_finales_hist, tf, motor_bridge=self.motor_velas)
         self.float_pendientes = sum(
             1 for c in enriquecidos
             if c.get("float_shares") is None and c.get("float_status") == "pending"
