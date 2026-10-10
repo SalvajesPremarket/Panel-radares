@@ -7,7 +7,8 @@ from fastapi import FastAPI
 
 from webapp.auth.server import app as auth_app, startup as auth_startup
 from webapp.account.server import app as account_app, init_account_schema
-from webapp.api.server import app as api_app
+from webapp.api.server import app as api_app, init_paper_schema
+from webapp.api.signal_service import init_schema as init_signal_schema
 from webapp.routes import app as page_app
 from webapp.tradebot.runtime import runtime as tradebot_runtime
 
@@ -19,6 +20,8 @@ def startup():
     # Create account/session tables before serving requests.
     auth_startup()
     init_account_schema()
+    init_signal_schema()
+    init_paper_schema()
     # Automatic runtime is strictly opt-in and remains Paper-only.
     tradebot_runtime.start_if_configured()
 
