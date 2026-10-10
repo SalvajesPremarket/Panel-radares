@@ -1727,16 +1727,16 @@ PUBLIC_PREVIEW = (
     and "usuario_auth" not in st.session_state
 )
 
-# Visitantes: solo lectura. No aceptamos configuración personal enviada por URL.
+# Visitantes: pueden cambiar filtros permitidos; se limpian controles reservados a usuarios autenticados.
 if PUBLIC_PREVIEW:
-    # Limpieza atómica de filtros de usuario en la primera carga pública.
-    # Evita una cascada de actualizaciones de URL durante un refresh completo.
+    # Limpieza atómica de opciones restringidas en la carga pública.
+    # Conserva los filtros públicos permitidos y evita cascadas de URL durante el refresh.
     _PUBLIC_QUERY_KEYS = {
         "c_active","c_start","c_end","c_broker","c_url","refresh_sec",
         "f_ema","ema_dist_max",
         "rsi_min","rsi_max","ema20_estado","ema50_estado","ema200_estado",
         "ema20_cond","ema50_cond","ema200_cond","ema20_dist","ema50_dist","ema200_dist",
-        "f_gap_on","f_float_on","f_vol_on","ema20_on","swing_activo","swing_origen",
+        "ema20_on","swing_activo","swing_origen",
         "swing_objetivo","swing_ventana","swing_tolerancia","swing_origen_tolerancia",
         "swing_multitimeframe","swing_tfs",
     }
@@ -6659,11 +6659,9 @@ def _sincronizar_nativos(accion_js):
 
 
 def _sincronizar_timeframe(tf_url, accion_js):
-    """La temporalidad la decide el selector nativo de Streamlit (key ts_tf_sel).
+    """Sincroniza la temporalidad y limita a 3m mínimo a los visitantes públicos.
 
-    Un widget nativo vive en st.session_state y NO depende de la URL ni del puente
-    del iframe, por eso ya no rebota a 1m. La URL solo se usa al cargar por primera
-    vez o cuando el usuario carga una configuración guardada.
+    Usuarios autenticados conservan todas las temporalidades disponibles.
     """
     widget = st.session_state.get("ts_tf_sel")
     previo = st.session_state.get("_ts_tf_elegido")
