@@ -1727,17 +1727,16 @@ PUBLIC_PREVIEW = (
     and "usuario_auth" not in st.session_state
 )
 
-# Visitantes: solo lectura. No aceptamos configuración personal enviada por URL.
+# Visitantes: pueden cambiar filtros permitidos; se limpian controles reservados a usuarios autenticados.
 if PUBLIC_PREVIEW:
-    # Limpieza atómica de filtros de usuario en la primera carga pública.
-    # Evita una cascada de actualizaciones de URL durante un refresh completo.
+    # Limpieza atómica de opciones restringidas en la carga pública.
+    # Conserva los filtros públicos permitidos y evita cascadas de URL durante el refresh.
     _PUBLIC_QUERY_KEYS = {
-        "c_active","c_start","c_end","c_lang","c_wnd","c_broker","c_url","refresh_sec",
-        "f_price_min","f_price_max","f_gap_min","f_gap_max","f_float_max","f_vol",
-        "f_ema","f_mac","f_order","timeframe","technical_timeframe","ema_dist_max",
+        "c_active","c_start","c_end","c_broker","c_url","refresh_sec",
+        "f_ema","ema_dist_max",
         "rsi_min","rsi_max","ema20_estado","ema50_estado","ema200_estado",
         "ema20_cond","ema50_cond","ema200_cond","ema20_dist","ema50_dist","ema200_dist",
-        "f_gap_on","f_float_on","f_vol_on","ema20_on","swing_activo","swing_origen",
+        "ema20_on","swing_activo","swing_origen",
         "swing_objetivo","swing_ventana","swing_tolerancia","swing_origen_tolerancia",
         "swing_multitimeframe","swing_tfs",
     }
@@ -5335,12 +5334,14 @@ def _render_scanner():
     swing_tfs_ui = [x for x in [v.strip().lower() for v in _swing_tfs_raw.split(",")] if x in ("1d","1w","1mo")]
     if not swing_tfs_ui: swing_tfs_ui = ["1d","1w","1mo"]
     sesion_ui = "TODO EL MERCADO"
-    timeframe_ui = _qtxt("timeframe", "1m")
+    timeframe_ui = _qtxt("timeframe", "3m" if PUBLIC_PREVIEW else "1m")
     ema_dist_max_ui = _qfloat("ema_dist_max", 0.0)
     rsi_min_ui = _qfloat("rsi_min", 0.0)
     rsi_max_ui = _qfloat("rsi_max", 100.0)
     if timeframe_ui not in ("1m", "3m", "5m", "10m", "13m", "15m", "30m", "1h", "1d", "1w", "1mo"):
-        timeframe_ui = "1m"
+        timeframe_ui = "3m" if PUBLIC_PREVIEW else "1m"
+    if PUBLIC_PREVIEW and timeframe_ui == "1m":
+        timeframe_ui = "3m"
     ema_dist_max_ui = max(0.0, min(25.0, ema_dist_max_ui))
     if not PUBLIC_PREVIEW:
         # Un solo dato de distancia: el del panel nativo de EMA20 (antes esto quedaba en 0).
@@ -5410,9 +5411,9 @@ def _render_scanner():
     # IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
     # Antes el motor podía conservar una configuración vieja de cargar_config(),
     # mientras la pantalla mostraba otra, dejando el scanner aparentemente vacío.
-    # Solo el administrador modifica el motor global. Un usuario normal registra
-    # las temporalidades que necesita sobre el pool amplio, sin escribir sus filtros
-    # en el singleton compartido.
+    # Solo el administrador modifica los filtros del motor global. Usuarios registrados
+    # y visitantes pueden pedir una temporalidad sobre el pool amplio, sin escribir
+    # sus filtros personales en el singleton compartido.
     try:
         if ES_ADMIN:
             servicio.filtros_dueno.update(params_ui)
@@ -5425,7 +5426,7 @@ def _render_scanner():
                     timeframe_ui=_tf_swing[0]; params_ui["timeframe"]=timeframe_ui
             else:
                 servicio.configurar_modo_operacion("TODO EL MERCADO", timeframe_ui, ema_dist_max_ui, principal=True, filtros=params_ui)
-        elif USUARIO_AUTENTICADO:
+        elif USUARIO_AUTENTICADO or PUBLIC_PREVIEW:
             _pool_cfg = cargar_config_motor_compartido()
             if swing_activo_ui and swing_multitimeframe_ui:
                 for _tf_s in swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]:
@@ -5947,7 +5948,7 @@ def _render_scanner():
     h += "</div></div>"
     h += "<style>.tf-badge{font-size:9px;font-weight:900;color:#d4af37;margin-left:3px}.col-row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid #444;padding:5px 0;min-height:30px}.col-label{display:flex;align-items:center;gap:4px;flex:1;min-width:0;font-size:11px;cursor:pointer}.col-actions{display:flex;align-items:center;gap:4px;flex:0 0 auto}.panel-card .col-row button{display:inline-flex!important;align-items:center;justify-content:center;width:34px!important;min-width:34px!important;height:26px!important;padding:0!important;background:#252a31!important;color:#fff!important;border:1px solid #69727d!important;border-radius:3px!important;margin:0!important;cursor:pointer!important;pointer-events:auto!important;font-size:13px!important;font-weight:900!important;line-height:1!important;opacity:1}.col-row button:hover{background:#3a424c!important}.col-row button:disabled{opacity:.28!important;cursor:default!important}#cols_list{margin:6px 0}</style>"
     if PUBLIC_PREVIEW:
-        h += "<style>.filtros-grid select,.filtros-grid input,.filtros-grid button,.panel-card select,.panel-card input,.panel-card button,.technical-subtab,.engranaje-select{pointer-events:none!important;opacity:.58!important;cursor:not-allowed!important}.tab{pointer-events:auto!important;opacity:1!important}</style><style>#panel-columnas .panel-card .col-row .col-actions button{display:inline-flex!important;visibility:visible!important;pointer-events:auto!important;opacity:1!important;position:relative!important;z-index:20!important}</style>"
+        h += "<style>.filtros-grid select:not(#f_float_on):not(#f_vol_on):not(#cfg_lang):not(#cfg_wnd):not(#f_gap_on):not(#timeframe):not(#sel_mac):not(#sel_order),.filtros-grid input:not(#price_min):not(#price_max):not(#gap_min):not(#gap_max):not(#float_max):not(#txt_vol),.filtros-grid button,.panel-card select,.panel-card input,.panel-card button,.technical-subtab,.engranaje-select{pointer-events:none!important;opacity:.58!important;cursor:not-allowed!important}.tab{pointer-events:auto!important;opacity:1!important}</style><style>#panel-columnas .panel-card .col-row .col-actions button{display:inline-flex!important;visibility:visible!important;pointer-events:auto!important;opacity:1!important;position:relative!important;z-index:20!important}</style>"
 
     if not PUBLIC_PREVIEW:
         h += f"<div id='panel-conexiones' class='tab-panel {'active' if _active_tab_ui == 'panel-conexiones' else ''}'><div class='panel-grid'>"
@@ -6063,9 +6064,12 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>HORARIO GLOBAL DEL SCANNER</label><span>{start_time}–{end_time} ET</span></div>"
     else:
         h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · solo lectura</span></div>"
-    h += f"<div class='filtro-item'><label>PRECIO MIN</label><input type='number' id='price_min' value='{precio_min_ui:g}' step='0.01' min='0' onchange='pushConfig()'><label>PRECIO MAX</label><input type='number' id='price_max' value='{precio_max_ui:g}' step='0.01' min='0' onchange='pushConfig()'></div>"
     if PUBLIC_PREVIEW:
-        h += "<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF'>OFF</option><option value='ON'>ON</option></select></div>"
+        h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}' onchange='pushConfig()'></div></div>"
+    else:
+        h += f"<div class='filtro-item'><label>PRECIO MIN</label><input type='number' id='price_min' value='{precio_min_ui:g}' step='0.01' min='0' onchange='pushConfig()'><label>PRECIO MAX</label><input type='number' id='price_max' value='{precio_max_ui:g}' step='0.01' min='0' onchange='pushConfig()'></div>"
+    if PUBLIC_PREVIEW:
+        h += f"<div class='filtro-item'><label>FLOAT · FILTRO</label><select id='f_float_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_float_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_float_on','OFF')=='ON' else ''}>ON</option></select></div>"
         h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
     else:
         h += _ctl_res("FLOAT · FILTRO", _qtxt('f_float_on','OFF'), [("f_float_on", _qtxt('f_float_on','OFF'))])
@@ -6074,10 +6078,7 @@ def _render_scanner():
         h += f"<div class='filtro-item'><label>DISTANCIA EMA20 ≤ %</label><input type='number' step='0.1' id='ema_dist_max' value='{ema_dist_max_ui:g}'></div>"
     else:
         h += f"<input type='hidden' id='ema_dist_max' value='{ema_dist_max_ui:g}'>"
-    if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}' onchange='pushConfig()'></div></div>"
-    else:
-        h += "<input type='hidden' id='price_min' value='" + _safe_text(precio_min_ui) + "'><input type='hidden' id='price_max' value='" + _safe_text(precio_max_ui) + "'>"
+
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>GAP · FILTRO</label><select id='f_gap_on' onchange='pushConfig()'><option value='OFF' {'selected' if _qtxt('f_gap_on','OFF')=='OFF' else ''}>OFF</option><option value='ON' {'selected' if _qtxt('f_gap_on','OFF')=='ON' else ''}>ON</option></select></div>"
         h += f"<div class='filtro-item'><label>GAP MIN</label><input type='number' id='gap_min' value='{gap_min_ui:g}' step='0.1' min='0' onchange='pushConfig()'><label>GAP MAX</label><input type='number' id='gap_max' value='{gap_max_ui:g}' step='0.1' min='0' onchange='pushConfig()'></div>"
@@ -6089,7 +6090,8 @@ def _render_scanner():
         h += "<select id='timeframe' disabled><option>NEUTRO · MULTITEMPORAL</option></select><span>SWING MULTITEMPORAL</span></div>"
     else:
         h += "<select id='timeframe' onchange='cambiarTimeframeTecnico(this.value)'>"
-        for _tf in (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")):
+        _opciones_tf_ui = (("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES")) if PUBLIC_PREVIEW else (("1m","1 MIN"),("3m","3 MIN"),("5m","5 MIN"),("10m","10 MIN"),("13m","13 MIN"),("15m","15 MIN"),("30m","30 MIN"),("1h","1 HORA"),("1d","1 DÍA"),("1w","1 SEMANA"),("1mo","1 MES"))
+        for _tf in _opciones_tf_ui:
             h += f"<option value='{_tf[0]}' {'selected' if timeframe_ui==_tf[0] else ''}>{_tf[1]}</option>"
         h += "</select>"
     h += "</div>"
@@ -6108,7 +6110,7 @@ def _render_scanner():
 
 
     if PUBLIC_PREVIEW:
-        h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
+        h += f"<div class='filtro-item'><label>ORDENAR</label><select id='sel_order' onchange='pushConfig()'><option value='Actualizado' {'selected' if orden_ui=='Actualizado' else ''}>Actualizado</option><option value='Cambio %' {'selected' if orden_ui=='Cambio %' else ''}>Cambio %</option><option value='Volumen' {'selected' if orden_ui=='Volumen' else ''}>Volumen</option></select></div>"
         h += "<div class='filtro-item' style='min-height:38px;'><input type='text' value='' disabled aria-label='Cuadro vacío' style='width:105px;'></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>PUENTE DE LAYOUT</label><input type='text' id='cfg_url' value='{_safe_text(bridge_val)}' style='width:100%;'></div>"
@@ -6657,11 +6659,9 @@ def _sincronizar_nativos(accion_js):
 
 
 def _sincronizar_timeframe(tf_url, accion_js):
-    """La temporalidad la decide el selector nativo de Streamlit (key ts_tf_sel).
+    """Sincroniza la temporalidad y limita a 3m mínimo a los visitantes públicos.
 
-    Un widget nativo vive en st.session_state y NO depende de la URL ni del puente
-    del iframe, por eso ya no rebota a 1m. La URL solo se usa al cargar por primera
-    vez o cuando el usuario carga una configuración guardada.
+    Usuarios autenticados conservan todas las temporalidades disponibles.
     """
     widget = st.session_state.get("ts_tf_sel")
     previo = st.session_state.get("_ts_tf_elegido")
@@ -6680,6 +6680,8 @@ def _sincronizar_timeframe(tf_url, accion_js):
         tf = widget
     else:
         tf = "1m"
+    if PUBLIC_PREVIEW and tf == "1m":
+        tf = "3m"
     st.session_state["_ts_tf_elegido"] = tf
     if st.session_state.get("ts_tf_sel") != tf:
         st.session_state["ts_tf_sel"] = tf
