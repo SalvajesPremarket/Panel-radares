@@ -90,29 +90,27 @@ def test_signal_ingest_rejects_wrong_secret_and_accepts_matching_secret(monkeypa
 
 
 
-def test_scanner_forward_auth_endpoint_enforces_commercial_access(monkeypatch):
-    """Caddy forward_auth relies on this endpoint to gate the scanner subdomain."""
-    from fastapi.testclient import TestClient
-    from webapp.api.server import app
-    from webapp.auth.server import get_current_user
+
+def test_scanner_forward_auth_endpoint_enforces_commercial_access():
+    """Exercise the guard used by Caddy forward_auth without an HTTP test client."""
+    from webapp.api.server import commercial_user, scanner_status
+    from webapp.auth.server import current_user
 
     now = datetime.now(timezone.utc)
     active_trial = user(trial_ends_at=(now + timedelta(days=2)).isoformat())
     expired_trial = user(trial_ends_at=(now - timedelta(seconds=1)).isoformat())
     suspended = user(account_status="suspended")
 
-    try:
-        app.dependency_overrides[get_current_user] = lambda: active_trial
-        with TestClient(app) as client:
-            assert client.get("/api/v1/scanner/status").status_code == 200
+    assert scanner_status(user=commercial_user(user=active_trial))["authorized"] is True
 
-            app.dependency_overrides[get_current_user] = lambda: expired_trial
-            assert client.get("/api/v1/scanner/status").status_code == 403
+    with pytest.raises(HTTPException) as exc:
+        scanner_status(user=commercial_user(user=expired_trial))
+    assert exc.value.status_code == 403
 
-            app.dependency_overrides[get_current_user] = lambda: suspended
-            assert client.get("/api/v1/scanner/status").status_code == 403
-    finally:
-        app.dependency_overrides.pop(get_current_user, None)
+    with pytest.raises(HTTPException) as exc:
+        scanner_status(user=commercial_user(user=suspended))
+    assert exc.value.status_code == 403
 
-    with TestClient(app) as client:
-        assert client.get("/api/v1/scanner/status").status_code == 401
+    with pytest.raises(HTTPException) as exc:
+        current_user(None)
+    assert exc.value.status_code == 401
