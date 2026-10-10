@@ -66,3 +66,17 @@ def test_failed_signal_publish_is_retryable(monkeypatch):
     assert publisher.publish_final_signals(signal, "1m") == 0
     assert publisher.publish_final_signals(signal, "1m") == 1
     assert len(calls) == 2
+
+def test_unchanged_candidate_is_refreshed_after_dedupe_window(monkeypatch):
+    publisher._last_sent.clear()
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_URL", "https://example.test/ingest")
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "test-secret")
+    clock = [100.0]
+    monkeypatch.setattr(publisher.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(publisher._session, "post", lambda *args, **kwargs: FakeResponse())
+    signal = [{"ticker": "NVDA", "precio": 50.0}]
+
+    assert publisher.publish_final_signals(signal, "1m") == 1
+    assert publisher.publish_final_signals(signal, "1m") == 0
+    clock[0] += 31.0
+    assert publisher.publish_final_signals(signal, "1m") == 1
