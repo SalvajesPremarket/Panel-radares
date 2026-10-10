@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 from fastapi import FastAPI, Depends, HTTPException
 from pydantic import BaseModel, Field
-from webapp.auth.server import get_current_user
+from webapp.auth.server import get_current_user, trial_has_expired
 from webapp.storage import db
 
 app = FastAPI(title="TradeScanner Account API", version="0.1.0")
@@ -44,6 +44,8 @@ class RecommendationIn(BaseModel):
 def account_user(user=Depends(get_current_user)):
     if user["account_status"] == "suspended":
         raise HTTPException(status_code=403, detail="Cuenta suspendida")
+    if trial_has_expired(user):
+        raise HTTPException(status_code=403, detail="El periodo de prueba ha vencido")
     return user
 
 @app.get("/health")
