@@ -121,3 +121,50 @@ def test_runtime_ignores_stale_scanner_candidates():
     ])
 
     assert [item["symbol"] for item in result] == ["AAPL"]
+
+def test_long_paper_position_and_strategy_state_survive_runtime_restart(tmp_path, monkeypatch):
+    from webapp import storage
+    from BotTradeScanner.integracion.bot_long_realtime import BotLongRealtime
+    from BotTradeScanner.estrategias.long.premarket_salvajes import EstadoLong
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "runtime.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+
+    config = {
+        "capital_asignado": 600,
+        "porcentaje_operacion": 20,
+        "stop_loss_pct": 2,
+        "take_profit_pct": 4,
+        "estrategia": "LongSalvajesPreMarket",
+    }
+    runtime = TradeBotPaperRuntime()
+    runtime.configure(config)
+    bot = BotLongRealtime(object())
+    bot.configurar_riesgo(**config)
+
+    strategy = bot.decisiones._estrategia("AAPL")
+    strategy.estado = EstadoLong.LONG_PRIMERA_VELA
+    strategy.simbolo = "AAPL"
+    strategy.precio_entrada = 10.0
+    strategy.stop_loss = 9.5
+    bot.paper.evaluar({
+        "signal_id": "paper-position-1",
+        "simbolo": "AAPL",
+        "accion": "BUY",
+        "precio": 10.0,
+        "stop_loss": 9.5,
+        "estrategia": "PreMarketSalvajes LONG",
+    })
+    runtime._persist_long_runtime_state(bot, force=True)
+
+    restarted_runtime = TradeBotPaperRuntime()
+    restarted_bot = BotLongRealtime(object())
+    assert restarted_runtime._restore_long_runtime_state(restarted_bot) is True
+
+    assert restarted_bot.paper.posiciones()[0]["simbolo"] == "AAPL"
+    assert restarted_bot.paper.posiciones()[0]["precio_entrada"] == 10.0
+    assert restarted_bot.decisiones.estado("AAPL")["estado"] == "long_primera_vela"
+    assert restarted_bot.decisiones.estado("AAPL")["stop_loss"] == 9.5
+    assert restarted_bot.paper.status()["modo"] == "paper"
+    assert restarted_runtime._operational_config["capital_asignado"] == 600
