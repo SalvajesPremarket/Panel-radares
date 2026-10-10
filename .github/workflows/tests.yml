@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - prepare/self-host-platform
   pull_request:
     branches:
       - main
+      - prepare/self-host-platform
 
 jobs:
   tests:
