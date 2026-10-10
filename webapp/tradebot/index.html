@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradeBot 🤖 · Paper Trading</title>
+<style>
+:root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#07111f;color:#eef4ff;font-family:Inter,system-ui,sans-serif}.wrap{width:min(1120px,92vw);margin:26px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}.links{display:flex;gap:10px;flex-wrap:wrap}.links a,a{color:#8bb5ff;text-decoration:none}.links a,button{padding:9px 12px;border:1px solid #30455f;border-radius:9px;background:#12243a;color:#eef4ff;cursor:pointer}.brand{font-size:clamp(28px,5vw,38px);font-weight:850;margin:18px 0 5px}.muted{color:#9fb0c6}.notice{margin:18px 0;padding:16px;border:1px solid #8b6930;border-radius:13px;background:#251e10;color:#ffdfa0;line-height:1.5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:13px;margin:16px 0}.card{background:#0d1b2d;border:1px solid #20344e;border-radius:15px;padding:17px;min-width:0}.value{font-size:21px;font-weight:750;margin-top:7px;overflow-wrap:anywhere}.good{color:#7ee2ae}.warn{color:#ffd27d}.bad{color:#ff9d9d}.section{margin-top:18px}.section h2{font-size:19px}.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.field label{display:block;font-size:13px;color:#9fb0c6;margin-bottom:6px}.field input,.field select{width:100%;padding:11px;border-radius:8px;border:1px solid #30455f;background:#07111f;color:#eef4ff}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.primary{background:#d8f3e5;color:#07111f;border-color:#d8f3e5;font-weight:750}.statusmsg{margin-top:12px;min-height:24px}.listitem{padding:12px 0;border-top:1px solid #20344e;overflow-wrap:anywhere}.listitem:first-child{border-top:0}.empty{color:#9fb0c6;padding:14px 0}.small{font-size:12px;color:#9fb0c6}footer{padding:24px 0;color:#8296ad;font-size:12px}
+</style></head><body><main class="wrap">
+<header class="top"><div class="links"><a href="/">← TradeScanner &amp; TradeBot</a><a href="/account">Mi cuenta</a><a href="https://jd6gih.streamlit.app" target="_blank" rel="noopener">Abrir TradeScanner ↗</a></div><button id="logout">Cerrar sesión</button></header>
+<h1 class="brand">🤖 TradeBot</h1><div class="muted">Panel propio del bot · simulación Paper Trading</div>
+<div class="notice"><strong>Modo seguro: PAPER.</strong> Esta pantalla no se conecta a un broker ni envía órdenes reales. La simulación manual está conectada; el motor automático de estrategia y su feed de mercado todavía no están configurados. Las operaciones simuladas se guardan en memoria y se reinician si el servicio se reinicia.</div>
+<div class="grid" id="status"><div class="card">Cargando estado…</div></div>
+<section class="card section"><h2>Probar operación simulada</h2><p class="muted">Registra una entrada o salida ficticia en el simulador. No afecta ninguna cuenta de corretaje.</p>
+<form id="paperForm"><div class="formgrid">
+<div class="field"><label for="symbol">Símbolo</label><input id="symbol" name="symbol" maxlength="20" value="AAPL" required></div>
+<div class="field"><label for="action">Acción simulada</label><select id="action" name="action"><option value="BUY">BUY · Abrir posición</option><option value="EXIT">EXIT · Cerrar posición</option><option value="HOLD">HOLD · Mantener</option><option value="WATCH">WATCH · Vigilar</option><option value="WAIT">WAIT · Esperar</option></select></div>
+<div class="field"><label for="price">Precio de referencia ($)</label><input id="price" name="price" type="number" min="0.01" step="0.01" value="10" required></div>
+<div class="field"><label for="stop">Stop Loss ($, obligatorio en BUY)</label><input id="stop" name="stop_loss" type="number" min="0.01" step="0.01" value="9"></div>
+</div><div class="actions"><button class="primary" type="submit">Evaluar en Paper</button><button type="button" id="refresh">Actualizar panel</button></div><div id="result" class="statusmsg" role="status"></div></form></section>
+<div class="grid section"><section class="card"><h2>Posiciones simuladas</h2><div id="positions" class="empty">Cargando…</div></section><section class="card"><h2>Historial reciente</h2><div id="decisions" class="empty">Cargando…</div></section></div>
+<footer>TradeBot 🤖 · Sin órdenes reales · Facturación desactivada</footer></main>
+<script>
+async function get(url,opts={}){return fetch(url,{credentials:'include',...opts});}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function money(v){return v==null?'—':'$'+Number(v).toFixed(2);}
+async function load(){
+ const me=await get('/auth/me'); if(me.status===401||me.status===403){location.href='/login';return;}
+ const res=await get('/api/v1/tradebot/status');
+ if(res.status===401){location.href='/login';return;}
+ if(!res.ok){document.querySelector('#status').innerHTML='<div class="card bad">Acceso no activo o no fue posible consultar TradeBot. Revisa tu sesión y el acceso de la cuenta.</div>';return;}
+ const d=await res.json(),s=d.status;
+ document.querySelector('#status').innerHTML=[
+ ['Modo','PAPER · simulación','good'],
+ ['Simulador',d.paper_simulator_connected?'Conectado':'No disponible',d.paper_simulator_connected?'good':'bad'],
+ ['Motor automático',d.strategy_engine_connected?'Conectado':'Pendiente de feed',d.strategy_engine_connected?'good':'warn'],
+ ['Órdenes reales',d.real_trading_enabled?'HABILITADAS':'DESACTIVADAS',d.real_trading_enabled?'bad':'good'],
+ ['Capital simulado',money(s.capital_inicial),''],
+ ['Posiciones abiertas',s.posiciones_abiertas,'']
+ ].map(x=>'<article class="card"><div class="muted">'+esc(x[0])+'</div><div class="value '+x[2]+'">'+esc(x[1])+'</div></article>').join('');
+ await Promise.all([loadPositions(),loadDecisions()]);
+}
+async function loadPositions(){const r=await get('/api/v1/tradebot/positions');if(!r.ok)return;const d=await r.json();const el=document.querySelector('#positions');if(!d.items.length){el.innerHTML='<div class="empty">No hay posiciones simuladas abiertas.</div>';return;}el.innerHTML=d.items.map(p=>'<div class="listitem"><strong>'+esc(p.simbolo)+'</strong> · '+esc(p.cantidad)+' acciones<br>Entrada: '+money(p.precio_entrada)+' · Stop: '+money(p.stop_loss)+'<div class="small">Exposición: '+money(p.capital_expuesto)+' · '+esc(p.estrategia)+'</div></div>').join('');}
+async function loadDecisions(){const r=await get('/api/v1/tradebot/decisions?limit=30');if(!r.ok)return;const d=await r.json();const el=document.querySelector('#decisions');if(!d.items.length){el.innerHTML='<div class="empty">Aún no hay evaluaciones en Paper.</div>';return;}el.innerHTML=d.items.map(x=>'<div class="listitem"><strong>'+esc(x.simbolo||'—')+' · '+esc(x.action.toUpperCase())+'</strong> · '+esc(x.mode)+'<div class="small">'+esc(x.reason)+' · '+esc(x.created_at)+'</div><div class="small">Precio: '+money(x.precio)+' · P/L: '+money(x.pnl_realizado)+'</div></div>').join('');}
+document.querySelector('#paperForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;const action=form.elements.action.value;const payload={symbol:form.symbol.value,action,price:Number(form.price.value),stop_loss:form.stop_loss.value?Number(form.stop_loss.value):null};const out=document.querySelector('#result');out.textContent='Procesando simulación…';const r=await get('/api/v1/tradebot/evaluate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json().catch(()=>({detail:'Respuesta no válida'}));if(!r.ok){out.textContent=d.detail||'No fue posible evaluar la simulación.';return;}out.textContent='Resultado Paper: '+d.result.action.toUpperCase()+' · '+d.result.reason;await load();});
+document.querySelector('#refresh').onclick=load;
+document.querySelector('#logout').onclick=async()=>{await get('/auth/logout',{method:'POST'});location.href='/';};
+load();
+</script></body></html>

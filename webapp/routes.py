@@ -24,3 +24,7 @@ def account_page():
 @app.get("/scanner", include_in_schema=False)
 def scanner_page():
     return FileResponse(ROOT / "scanner" / "index.html")
+
+@app.get("/tradebot", include_in_schema=False)
+def tradebot_page():
+    return FileResponse(ROOT / "tradebot" / "index.html")
