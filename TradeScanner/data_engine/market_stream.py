@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 import threading
 import time
 from typing import Callable, Iterable
@@ -60,6 +61,7 @@ class AlpacaMarketStream:
         self._last_subscription_request_ts: float | None = None
         self._server_subscription_state: dict[str, list[str]] = {}
         self._last_subscription_ack_ts: float | None = None
+        self._invalid_symbols: set[str] = set()
 
     def _feed(self):
         if self.feed_name == "sip":
@@ -214,7 +216,10 @@ class AlpacaMarketStream:
             if isinstance(message, dict) and message.get("T") == "error":
                 code = message.get("code", "unknown")
                 detail = str(message.get("msg") or "sin detalle")
-                self.health.mark_error(f"Alpaca websocket error {code}: {detail}"[:500])
+                with self._symbols_lock:
+                    requested = sorted(self._symbols)
+                suffix = f"; símbolos solicitados={requested}" if str(code) == "400" else ""
+                self.health.mark_error(f"Alpaca websocket error {code}: {detail}{suffix}"[:500])
             elif isinstance(message, dict) and message.get("T") == "subscription":
                 with self._symbols_lock:
                     self._server_subscription_state = {
@@ -302,14 +307,27 @@ class AlpacaMarketStream:
                 continue
 
     def _normalizar_simbolos(self, symbols: Iterable[str]) -> list[str]:
-        """Normaliza y limita sin perder el orden de prioridad del llamador."""
+        """Normaliza símbolos de acciones y descarta formatos no admitidos por Alpaca."""
         ordered = []
         seen = set()
+        invalid = set()
         for symbol in symbols or []:
             ticker = str(symbol or "").strip().upper()
-            if ticker and ticker not in seen:
+            if not ticker:
+                continue
+            # Acciones USA: letras/dígitos y separadores de clase '.' o '-'.
+            # Evita enviar valores vacíos, URLs, pares crypto u otros textos que
+            # pueden provocar "400 invalid syntax" para toda la tanda.
+            if len(ticker) > 15 or re.fullmatch(r"[A-Z0-9]+(?:[.-][A-Z0-9]+)*", ticker) is None:
+                invalid.add(ticker[:80])
+                continue
+            if ticker not in seen:
                 seen.add(ticker)
                 ordered.append(ticker)
+        with self._symbols_lock:
+            self._invalid_symbols = invalid
+        if invalid:
+            self.health.mark_error(f"Símbolos descartados por formato no válido para acciones: {sorted(invalid)[:10]}")
         return ordered[:self.max_symbols]
 
     def start(self, symbols: Iterable[str]) -> None:
@@ -410,5 +428,7 @@ class AlpacaMarketStream:
                     key: list(value) for key, value in self._server_subscription_state.items()
                 },
                 "last_subscription_ack_ts": self._last_subscription_ack_ts,
+                "invalid_symbols": sorted(self._invalid_symbols),
+                "requested_symbols": sorted(self._symbols),
             })
         return snapshot
