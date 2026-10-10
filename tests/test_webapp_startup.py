@@ -87,3 +87,36 @@ def test_paper_buy_requires_stop_loss(monkeypatch):
         assert exc.status_code == 422
     else:
         raise AssertionError("BUY sin Stop Loss debe rechazarse")
+
+
+from webapp.tradebot.runtime import TradeBotPaperRuntime
+
+
+def test_automatic_runtime_stays_disabled_without_explicit_opt_in(monkeypatch):
+    monkeypatch.delenv("TRADESCANNER_TRADEBOT_AUTO_PAPER", raising=False)
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    runtime = TradeBotPaperRuntime()
+
+    runtime.start_if_configured()
+    status = runtime.status()
+
+    assert status["state"] == "disabled"
+    assert status["real_trading_enabled"] is False
+    assert status["broker_order_executor_created"] is False
+    assert status["thread_alive"] is False
+
+
+def test_automatic_runtime_requires_both_market_data_credentials(monkeypatch):
+    monkeypatch.setenv("TRADESCANNER_TRADEBOT_AUTO_PAPER", "true")
+    monkeypatch.setenv("ALPACA_API_KEY", "example-key")
+    monkeypatch.delenv("ALPACA_SECRET_KEY", raising=False)
+    runtime = TradeBotPaperRuntime()
+
+    runtime.start_if_configured()
+    status = runtime.status()
+
+    assert status["state"] == "needs_credentials"
+    assert status["credentials_configured"] is False
+    assert status["real_trading_enabled"] is False
+    assert status["thread_alive"] is False
