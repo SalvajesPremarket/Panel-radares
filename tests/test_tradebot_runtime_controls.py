@@ -168,3 +168,21 @@ def test_long_paper_position_and_strategy_state_survive_runtime_restart(tmp_path
     assert restarted_bot.decisiones.estado("AAPL")["stop_loss"] == 9.5
     assert restarted_bot.paper.status()["modo"] == "paper"
     assert restarted_runtime._operational_config["capital_asignado"] == 600
+
+def test_corrupt_paper_runtime_state_fails_closed(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from webapp import storage
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "corrupt-runtime.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+    runtime = TradeBotPaperRuntime()
+    runtime._init_runtime_state_schema()
+    with storage.db() as conn:
+        conn.execute(
+            "INSERT INTO tradebot_runtime_state(runtime_id,state_json,updated_at) VALUES(?,?,?)",
+            ("singleton", "{not-json", datetime.now(timezone.utc).isoformat()),
+        )
+
+    with pytest.raises(RuntimeError, match="no se puede leer"):
+        runtime._read_runtime_state()
