@@ -22,7 +22,7 @@ set +a
 : "${BACKUP_DIR:?Set BACKUP_DIR to a backup directory outside the Git repository (preferably off-host or a mounted remote location)}"
 
 mkdir -p "$BACKUP_DIR"
-BACKUP_DIR="$(cd "$BACKUP_DIR" && pwd)"
+BACKUP_DIR="$(cd "$BACKUP_DIR" && pwd -P)"
 case "$BACKUP_DIR/" in
   "$ROOT/"*)
     echo "Refusing to place database backups inside the Git repository." >&2
