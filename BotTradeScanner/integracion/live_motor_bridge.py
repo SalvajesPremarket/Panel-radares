@@ -231,6 +231,7 @@ class MotorVelasBridge:
                         self._simbolos_solicitados.discard(symbol)
                         self._simbolos_cargados.add(symbol)
 
+                desired_order = []
                 if getattr(self, "market_stream", None) is not None:
                     with self._lock:
                         desired_order = list(self._simbolos_deseados_ordenados)
