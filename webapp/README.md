@@ -15,7 +15,7 @@ Esta carpeta contiene la capa web auxiliar, separada del motor principal de Stre
 
 Los endpoints heredados `BotTradeScanner/api/server.py` y el adaptador `webapp/api/scanner_adapter.py` fueron retirados por no formar parte del flujo activo. La publicación existente está en `webapp/api/publisher.py`; no asumir que está operativa en producción sin verificar la configuración del endpoint y el secreto.
 
-La estrategia, el riesgo y la ejecución PAPER del bot están en `BotTradeScanner/`, fuera de esta carpeta. No existe un paquete `webapp/bot/` ni un directorio `webapp/database/` en la estructura actual.
+La estrategia, el riesgo y la ejecución PAPER del bot están en `BotTradeScanner/`, fuera de esta carpeta. No existe un paquete `webapp/bot/` ni un directorio `webapp/database/` en la estructura actual. Las señales normalizadas y el estado del simulador Paper manual se guardan en PostgreSQL cuando `DATABASE_URL` está configurada.
 
 ## Base de datos persistente en Render
 
@@ -28,7 +28,7 @@ En el servicio Render `tradescanner-webapp`:
 3. No pegues la URL de conexión ni contraseñas en GitHub, archivos de código o mensajes públicos.
 4. Comprueba el estado y la fecha de expiración de la base en el panel de Render. Las bases del plan gratuito pueden expirar; planifica una actualización o migración antes de la fecha indicada para no perder datos.
 
-La base PostgreSQL debe estar activa y accesible antes de desplegar esta versión. No configures `DATABASE_URL` con una URL de ejemplo.
+La base PostgreSQL debe estar activa y accesible antes de desplegar esta versión. No configures `DATABASE_URL` con una URL de ejemplo. El estado interno del runtime automático (incluida la estrategia de pullback en ejecución) aún necesita una política específica de recuperación tras reinicio antes de confiar en continuidad automática.
 
 ## Separación y seguridad
 
