@@ -13,3 +13,12 @@ def test_self_host_scanner_ingest_uses_private_web_service():
     assert '"5432:5432"' not in compose
     assert '"8000:8000"' not in compose
     assert '"8501:8501"' not in compose
+
+    assert "TRADESCANNER_COOKIE_DOMAIN: ${TRADESCANNER_COOKIE_DOMAIN:?Set TRADESCANNER_COOKIE_DOMAIN in .env}" in compose
+
+    caddy = (ROOT / "deploy" / "self-host" / "Caddyfile").read_text(encoding="utf-8")
+    assert "forward_auth web:8000" in caddy
+    assert "uri /api/v1/scanner/status" in caddy
+
+    env_example = (ROOT / "deploy" / "self-host" / ".env.example").read_text(encoding="utf-8")
+    assert "TRADESCANNER_COOKIE_DOMAIN=.example.com" in env_example
