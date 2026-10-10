@@ -49,7 +49,7 @@ services:
       dockerfile: deploy/self-host/Dockerfile.scanner
     restart: unless-stopped
     environment:
-      TRADESCANNER_SIGNAL_INGEST_URL: https://${WEB_DOMAIN:?Set WEB_DOMAIN in .env}/api/v1/signals/ingest
+      TRADESCANNER_SIGNAL_INGEST_URL: http://web:8000/api/v1/signals/ingest
       TRADESCANNER_SIGNAL_INGEST_SECRET: ${TRADESCANNER_SIGNAL_INGEST_SECRET:?Set TRADESCANNER_SIGNAL_INGEST_SECRET in .env}
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
