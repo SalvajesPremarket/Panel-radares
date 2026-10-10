@@ -187,3 +187,48 @@ def test_corrupt_manual_paper_state_fails_closed(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="se bloqueó la recuperación"):
         server.paper_bot_for(user)
+
+
+def test_signal_ingest_rejects_missing_or_invalid_shared_secret(monkeypatch):
+    from fastapi import HTTPException
+
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "expected-secret")
+    for supplied in (None, "wrong-secret"):
+        try:
+            server.require_ingest_key(x_tradescanner_signal_key=supplied)
+        except HTTPException as exc:
+            assert exc.status_code == 401
+        else:
+            raise AssertionError("La API debe rechazar una clave de ingestión incorrecta")
+
+
+def test_authenticated_signal_ingest_persists_signal_for_tradebot(tmp_path, monkeypatch):
+    from webapp.api.signal_service import store
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "ingest.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "expected-secret")
+
+    # Exercise the same key guard used by the FastAPI dependency before ingest.
+    server.require_ingest_key(x_tradescanner_signal_key="expected-secret")
+    payload = server.SignalBatchIn(items=[
+        server.SignalIn(
+            symbol="aapl",
+            timeframe="1m",
+            signal_type="SCANNER_FINAL",
+            price=12.34,
+            confidence=87,
+            scanner_conditions={"gap_pct": 4.5, "ema50_dia": 11.2},
+        )
+    ])
+    result = server.ingest_signals(payload, None)
+    stored = store.list(symbol="AAPL", limit=10)
+
+    assert result["accepted"] == 1
+    assert len(result["signal_ids"]) == 1
+    assert len(stored) == 1
+    assert stored[0]["signal_id"] == result["signal_ids"][0]
+    assert stored[0]["price"] == 12.34
+    assert stored[0]["confidence"] == 87
+    assert stored[0]["scanner_conditions"]["ema50_dia"] == 11.2
