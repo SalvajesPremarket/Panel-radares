@@ -36,6 +36,7 @@ class TradeBotPaperRuntime:
         self._last_strategy_decision = None
         self._strategy_decisions = []
         self._last_state_persist_at = 0.0
+        self._last_long_state_persist_at = 0.0
         self._operational_config = {
             "capital_asignado": 600.0,
             "porcentaje_operacion": 20.0,
@@ -181,6 +182,8 @@ class TradeBotPaperRuntime:
             with self._lock:
                 operational_config = dict(self._operational_config)
             bot.configurar_riesgo(**operational_config)
+            self._restore_long_runtime_state(bot)
+            bot.set_state_callback(self._persist_long_runtime_state)
             bot.iniciar()
             with self._lock:
                 self._bridge = bridge
@@ -248,12 +251,12 @@ class TradeBotPaperRuntime:
                 )
             """)
 
-    def _read_runtime_state(self) -> dict:
+    def _read_runtime_state(self, runtime_id: str = "singleton") -> dict:
         self._init_runtime_state_schema()
         with db() as conn:
             row = conn.execute(
                 "SELECT state_json FROM tradebot_runtime_state WHERE runtime_id = ?",
-                ("singleton",),
+                (runtime_id,),
             ).fetchone()
         if not row:
             return {}
@@ -263,6 +266,32 @@ class TradeBotPaperRuntime:
             return value if isinstance(value, dict) else {}
         except (TypeError, ValueError):
             return {}
+
+    def _persist_long_runtime_state(self, bot, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - self._last_long_state_persist_at < 2.0:
+            return
+        state = bot.export_paper_state()
+        encoded = json.dumps(state, separators=(",", ":"))
+        self._init_runtime_state_schema()
+        with db() as conn:
+            conn.execute("""
+                INSERT INTO tradebot_runtime_state(runtime_id,state_json,updated_at)
+                VALUES(?,?,?)
+                ON CONFLICT(runtime_id) DO UPDATE SET
+                    state_json=excluded.state_json,
+                    updated_at=excluded.updated_at
+            """, ("long", encoded, datetime.now(timezone.utc).isoformat()))
+        self._last_long_state_persist_at = now
+
+    def _restore_long_runtime_state(self, bot) -> bool:
+        state = self._read_runtime_state("long")
+        if not state or state.get("strategy") != "LongSalvajesPreMarket":
+            return False
+        bot.restore_paper_state(state)
+        with self._lock:
+            self._operational_config = dict(state.get("operational_config") or self._operational_config)
+        return True
 
     def _persist_short_runtime_state(self, strategy, force: bool = False) -> None:
         now = time.monotonic()
@@ -495,8 +524,11 @@ class TradeBotPaperRuntime:
         if bot is not None and hasattr(bot, "detener"):
             try:
                 bot.detener()
-            except Exception:
-                pass
+                if hasattr(bot, "export_paper_state"):
+                    self._persist_long_runtime_state(bot, force=True)
+            except Exception as exc:
+                with self._lock:
+                    self._last_error = f"No se pudo guardar el estado LONG Paper al apagar: {type(exc).__name__}: {exc}"[:500]
 
 
 runtime = TradeBotPaperRuntime()
