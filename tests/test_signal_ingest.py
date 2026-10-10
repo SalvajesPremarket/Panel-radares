@@ -50,3 +50,42 @@ def test_authenticated_signal_ingest_persists_scanner_context(tmp_path, monkeypa
         "gap_pct": 4.2,
         "ema50_dia": 11.8,
     }
+
+def test_scanner_publisher_to_authenticated_api_persists_final_signal(tmp_path, monkeypatch):
+    from webapp.api import publisher
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "scanner-to-api.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.setattr(signal_service, "_schema_identity", None)
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_URL", "https://self-host.test/api/v1/signals/ingest")
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "pipeline-test-secret")
+    publisher._last_sent.clear()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, *, json, headers, timeout):
+        assert url == "https://self-host.test/api/v1/signals/ingest"
+        assert timeout == 3
+        server.require_ingest_key(headers.get("X-TradeScanner-Signal-Key"))
+        payload = server.SignalBatchIn(**json)
+        result = server.ingest_signals(payload, None)
+        assert result["accepted"] == 1
+        return FakeResponse()
+
+    monkeypatch.setattr(publisher._session, "post", fake_post)
+
+    sent = publisher.publish_final_signals(
+        [{"ticker": "AAPL", "precio": 12.5, "gap_pct": 4.2}],
+        "1m",
+    )
+    saved = signal_service.store.list(symbol="AAPL", limit=10)
+
+    assert sent == 1
+    assert len(saved) == 1
+    assert saved[0]["signal_type"] == "SCANNER_FINAL"
+    assert saved[0]["price"] == 12.5
+    assert saved[0]["scanner_conditions"]["gap_pct"] == 4.2
+
