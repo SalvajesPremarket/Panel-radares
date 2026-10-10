@@ -26,11 +26,16 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -r webapp/requirements.txt
           pip install pytest
 
       - name: Run TradeScanner data and bridge tests
         run: |
           PYTHONPATH=. pytest tests/test_data_engine.py tests/test_market_stream_symbols.py tests/test_bridge_history_before_stream.py tests/test_shared_stream_motor_bridge.py -vv --tb=long
+
+      - name: Test web app database initialization
+        run: |
+          PYTHONPATH=. pytest tests/test_webapp_startup.py -vv --tb=long
 
       - name: Smoke check Streamlit entrypoints
         run: |
