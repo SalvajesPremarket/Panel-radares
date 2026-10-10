@@ -9,9 +9,12 @@ from webapp.auth.server import get_current_user, trial_has_expired
 from webapp.storage import db
 
 app = FastAPI(title="TradeScanner Account API", version="0.1.0")
+ALLOWED_ACCOUNT_STATUSES = {"trial", "active_monthly", "active_annual", "admin"}
+
 
 def utc_now():
     return datetime.now(timezone.utc).isoformat()
+
 
 def init_account_schema():
     with db() as conn:
@@ -41,37 +44,43 @@ class RecommendationIn(BaseModel):
     symbol: str | None = Field(default=None, max_length=20)
     context: str | None = Field(default=None, max_length=4000)
 
+
 def account_user(user=Depends(get_current_user)):
-    if user["account_status"] == "suspended":
-        raise HTTPException(status_code=403, detail="Cuenta suspendida")
+    if user["account_status"] not in ALLOWED_ACCOUNT_STATUSES:
+        raise HTTPException(status_code=403, detail="Acceso de cuenta no activo")
     if trial_has_expired(user):
         raise HTTPException(status_code=403, detail="El periodo de prueba ha vencido")
     return user
+
 
 @app.get("/health")
 def health():
     return {"ok": True, "service": "account"}
 
+
 @app.get("/account/me")
 def me(user=Depends(account_user)):
     return {k: user[k] for k in (
-        "user_id","email","display_name","role","account_status","trial_started_at",
-        "trial_ends_at","subscription_plan","subscription_status","created_at","last_login_at")}
+        "user_id", "email", "display_name", "role", "account_status", "trial_started_at",
+        "trial_ends_at", "subscription_plan", "subscription_status", "created_at", "last_login_at")}
+
 
 @app.get("/account/access")
 def access(user=Depends(account_user)):
-    allowed = user["account_status"] in {"trial","active_monthly","active_annual","admin"}
+    allowed = user["account_status"] in ALLOWED_ACCOUNT_STATUSES
     return {"allowed": allowed, "account_status": user["account_status"],
             "scanner": allowed, "signals_api": allowed, "bot": allowed,
             "admin": user["role"] == "admin"}
+
 
 @app.get("/account/recommendations")
 def recommendations(user=Depends(account_user)):
     with db() as conn:
         rows = conn.execute("""SELECT recommendation_id,category,title,description,symbol,
             context,status,priority,admin_notes,created_at,updated_at
-            FROM recommendations WHERE user_id=? ORDER BY created_at DESC""",(user["user_id"],)).fetchall()
-    return {"items":[dict(r) for r in rows]}
+            FROM recommendations WHERE user_id=? ORDER BY created_at DESC""", (user["user_id"],)).fetchall()
+    return {"items": [dict(r) for r in rows]}
+
 
 @app.post("/account/recommendations", status_code=201)
 def create_recommendation(payload: RecommendationIn, user=Depends(account_user)):
@@ -81,5 +90,5 @@ def create_recommendation(payload: RecommendationIn, user=Depends(account_user))
         conn.execute("""INSERT INTO recommendations
             (recommendation_id,user_id,category,title,description,symbol,context,status,priority,created_at,updated_at)
             VALUES (?,?,?,?,?,?,?, 'new','P2',?,?)""",
-            (rid,user["user_id"],payload.category,payload.title,payload.description,payload.symbol,payload.context,now,now))
-    return {"recommendation_id":rid,"status":"new","priority":"P2","created_at":now}
+            (rid, user["user_id"], payload.category, payload.title, payload.description, payload.symbol, payload.context, now, now))
+    return {"recommendation_id": rid, "status": "new", "priority": "P2", "created_at": now}
