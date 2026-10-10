@@ -39,6 +39,20 @@ def utcnow():
     return datetime.now(timezone.utc)
 
 
+def trial_has_expired(user):
+    """Fail closed when a trial's end date is missing, invalid, or in the past."""
+    if user.get("role") == "admin" or user["account_status"] != "trial":
+        return False
+    try:
+        raw_end = str(user["trial_ends_at"]).strip()
+        trial_end = datetime.fromisoformat(raw_end.replace("Z", "+00:00"))
+        if trial_end.tzinfo is None:
+            trial_end = trial_end.replace(tzinfo=timezone.utc)
+    except (KeyError, TypeError, ValueError):
+        return True
+    return trial_end <= utcnow()
+
+
 def iso(dt):
     return dt.astimezone(timezone.utc).isoformat()
 
