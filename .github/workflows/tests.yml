@@ -31,7 +31,7 @@ jobs:
 
       - name: Run TradeScanner data and bridge tests
         run: |
-          PYTHONPATH=. pytest tests/test_data_engine.py tests/test_market_stream_symbols.py tests/test_bridge_history_before_stream.py tests/test_shared_stream_motor_bridge.py -vv --tb=long
+          PYTHONPATH=. pytest tests/test_data_engine.py tests/test_market_stream_symbols.py tests/test_bridge_history_before_stream.py tests/test_shared_stream_motor_bridge.py tests/test_signal_publisher.py -vv --tb=long
 
       - name: Test TradeBot Paper strategies
         run: |
@@ -44,3 +44,8 @@ jobs:
       - name: Smoke check active Streamlit entrypoint
         run: |
           python -m py_compile app.py
+
+      - name: Validate and build self-hosted containers
+        run: |
+          docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml config -q
+          docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml build web scanner
