@@ -14,10 +14,10 @@ The app and scanner run as separate containers on one VPS. Only Caddy publishes 
 ## Before first paid deployment
 
 1. Choose a VPS provider and a plan with about 4 GB RAM, 2 vCPU, and 80 GB SSD, after checking current prices.
-2. Register or choose a domain, then create DNS A records for `WEB_DOMAIN` and `SCANNER_DOMAIN` pointing to the VPS public IP.
+2. Register or choose one domain, then create DNS A records for `WEB_DOMAIN` and `SCANNER_DOMAIN` pointing to the VPS public IP. Use two subdomains under the same parent domain so the secure login cookie can be shared.
 3. Open only SSH (preferably restricted to your IP), HTTP 80, and HTTPS 443 in the server firewall.
 4. Install Docker Engine and the Docker Compose plugin.
-5. From the repository root, copy `deploy/self-host/.env.example` to `deploy/self-host/.env`; set real domains, a unique PostgreSQL password and two different random secrets. Generate hex-only values to avoid URL-escaping issues, for example `openssl rand -hex 24` for the DB password and `openssl rand -hex 32` for each secret. Never commit `.env`.
+5. From the repository root, copy `deploy/self-host/.env.example` to `deploy/self-host/.env`; set the real domains, `TRADESCANNER_COOKIE_DOMAIN` to their shared parent (for example `.yourdomain.com`), a unique PostgreSQL password and two different random secrets. Generate hex-only values to avoid URL-escaping issues, for example `openssl rand -hex 24` for the DB password and `openssl rand -hex 32` for each secret. Never commit `.env`.
 6. Add the required Alpaca market-data credentials only when ready to test data access in Paper. The automatic Paper runtime remains disabled by default.
 7. From the repository root, run:
 
@@ -28,7 +28,7 @@ The app and scanner run as separate containers on one VPS. Only Caddy publishes 
    docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml logs --tail=100
    ```
 
-Caddy can issue HTTPS certificates after both DNS records resolve publicly and ports 80/443 are reachable.
+Caddy can issue HTTPS certificates after both DNS records resolve publicly and ports 80/443 are reachable. The scanner subdomain is protected by Caddy `forward_auth` against the web API; the session cookie must use the shared parent domain, and expired/suspended accounts must not be able to reach the scanner.
 
 ## Important pre-production checks
 
@@ -36,7 +36,7 @@ This setup is not yet a declaration that the platform is production-ready:
 
 - Scanner signals and the manual Paper simulator's positions/decisions are persisted in PostgreSQL. The automatic LONG and SHORT Paper strategy states, including open simulated positions and decision history, are persisted and restored after restart. These recovery paths still require the full integration test with live market data before relying on unattended operation.
 - The scanner publisher forwards EMA20 plus daily/weekly EMA50/EMA200 context when the motor has those values; delivery failures remain retryable. Verify the real end-to-end route: scanner final result → authenticated signal ingest → selected TradeBot strategy → Paper decision/exit.
-- Verify account access, trial status, session cookies over HTTPS, restart behavior, database backup and restore, and memory usage with the chosen asset universe.
+- Verify that the scanner subdomain rejects requests without a valid session, allows an authorized trial/active/admin account, and rejects expired or suspended accounts. Also verify cookie sharing over HTTPS, restart behavior, database backup and restore, and memory use with the chosen asset universe.
 - Keep `TRADESCANNER_TRADEBOT_AUTO_PAPER=false` unless automatic Paper startup is deliberately being tested. No live order executor should be enabled as part of this migration.
 - This Compose setup uses one VPS for cost efficiency; it is a single point of failure. Keep tested backups off the VPS before onboarding users.
 
