@@ -18,11 +18,16 @@ The app and scanner run as separate containers on one VPS. Only Caddy publishes 
 3. Open only SSH (preferably restricted to your IP), HTTP 80, and HTTPS 443 in the server firewall.
 4. Install Docker Engine and the Docker Compose plugin.
 5. From the repository root, copy `deploy/self-host/.env.example` to `deploy/self-host/.env`; set the real domains, `TRADESCANNER_COOKIE_DOMAIN` to their shared parent (for example `.yourdomain.com`), a unique PostgreSQL password and two different random secrets. Generate hex-only values to avoid URL-escaping issues, for example `openssl rand -hex 24` for the DB password and `openssl rand -hex 32` for each secret. Never commit `.env`.
-6. Add the required Alpaca market-data credentials only when ready to test data access in Paper. The automatic Paper runtime remains disabled by default.
-7. From the repository root, run:
-
+6. Restrict the secrets file: `chmod 600 deploy/self-host/.env`.
+7. Add the required Alpaca market-data credentials only when ready to test data access in Paper. The automatic Paper runtime remains disabled by default.
+8. Run the configuration preflight before building containers:
    ```bash
+   bash deploy/self-host/preflight.sh
    docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml config
+   ```
+   The preflight checks required settings, placeholder values, independent hex secrets, shared cookie-domain alignment, and `.env` permissions. It does not test DNS, TLS issuance, credentials with providers, market data, or strategy behavior.
+9. Only after reviewing the output and authorizing deployment, start the services:
+   ```bash
    docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml up -d --build
    docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml ps
    docker compose --env-file deploy/self-host/.env -f deploy/self-host/compose.yaml logs --tail=100
