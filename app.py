@@ -2892,13 +2892,24 @@ class ServicioScanner:
         La lógica del bot real queda desacoplada y podrá consumir estos snapshots.
         """
         try:
-            # BotLongRealtime sincroniza a su vez el puente de market-data.
-            # Asi evitamos suscribir/procesar los mismos candidatos dos veces.
+            # Ruta normal: el bot sincroniza candidatos y los entrega al bridge.
             if self.bot_long is not None:
                 self.bot_long.sync_candidates(resultados)
+                return
+            # Recuperación: si el componente LONG no pudo inicializarse, el
+            # motor de velas sigue siendo útil y debe recibir los candidatos
+            # publicados por el scanner sin depender del hilo del bot.
+            if self.motor_velas is not None:
+                self.motor_velas.sync_results(resultados)
         except Exception as exc:
             self.bot_long_error = str(exc)
             print(f"⚠️ Puente motor/bot LONG: {exc}")
+            # Un error del bot no debe dejar el motor de velas sin candidatos.
+            try:
+                if self.motor_velas is not None:
+                    self.motor_velas.sync_results(resultados)
+            except Exception as exc_bridge:
+                print(f"⚠️ Sincronización directa del motor de velas: {exc_bridge}")
 
     def configurar_bot_long(self, **config):
         """Aplica la configuración de capital y riesgo al bot LONG compartido."""
@@ -4409,6 +4420,11 @@ if ES_ADMIN:
         if _admin_motor_evento in ("True", "False"):
             servicio.encendido = (_admin_motor_evento == "True")
             guardar_estado_motor_en_disco(servicio.encendido)
+            # Despertar el ciclo inmediatamente al encender. Sin esto, el
+            # panel podía mostrar diagnóstico vacío hasta el siguiente ciclo
+            # periódico y dar la impresión de necesitar OFF/ON para arrancar.
+            if servicio.encendido:
+                servicio._despertar.set()
     except Exception:
         pass
 # El motor se guarda en cache y conserva el codigo VIEJO aunque subas un app.py nuevo.
@@ -4485,6 +4501,18 @@ except Exception:
 # Ventana operativa global: se conserva la configurada por el administrador.
 # Los usuarios normales tienen su propia ventana de visualización.
 servicio.sesion = "TODO EL MERCADO"
+
+# Arranque de recuperación: si el motor está ON pero aún no hay diagnóstico
+# de ningún ciclo (por ejemplo, tras conservar st.cache_resource en un deploy),
+# despertar el worker desde el servidor sin exigir que el usuario alterne OFF/ON.
+try:
+    _diag_inicio = dict(getattr(servicio, "diagnostico_filtros", {}) or {})
+    if getattr(servicio, "encendido", False) and not _diag_inicio.get("snapshots_recibidos"):
+        _despertar = getattr(servicio, "_despertar", None)
+        if _despertar is not None:
+            _despertar.set()
+except Exception as _inicio_diagnostico_error:
+    print(f"⚠️ No se pudo despertar el primer ciclo del scanner: {_inicio_diagnostico_error}")
 
 # Vigilancia del hilo: solo reiniciar si el hilo realmente murió.
 # No reiniciamos por "stale" durante un F5/rerun: una demora temporal de Alpaca/FMP
@@ -6392,6 +6420,8 @@ def _render_scanner():
                     st.warning(f"Motor velas: {_mv.get('last_consumer_error')}")
                 elif _mv.get("error"):
                     st.warning(f"Motor velas: {_mv.get('error')}")
+                if getattr(servicio, "bot_long_error", None):
+                    st.warning(f"Inicialización del bot/puente: {servicio.bot_long_error}")
             except Exception:
                 pass
             _err = str(getattr(servicio, "ultimo_error", "") or "").strip()
