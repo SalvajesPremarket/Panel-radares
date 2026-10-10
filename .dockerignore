@@ -1,0 +1,22 @@
+# Keep Docker build contexts small; source files required by the app remain included.
+.git
+.github
+.devcontainer
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.venv
+venv
+env
+ENV
+.env
+.env.*
+!.env.example
+*.log
+*.pid
+.DS_Store
+Thumbs.db
+htmlcov
+.coverage*
