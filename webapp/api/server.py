@@ -57,7 +57,7 @@ class TradeBotStartIn(BaseModel):
     porcentaje_operacion: float = Field(default=20.0, ge=1, le=100)
     stop_loss_pct: float = Field(default=2.0, ge=0.1, le=50)
     take_profit_pct: float = Field(default=4.0, ge=0.1, le=100)
-    estrategia: Literal["LongSalvajesPreMarket"] = "LongSalvajesPreMarket"
+    estrategia: Literal["LongSalvajesPreMarket", "Pullback corto ema50 ó 200 día ó semana"] = "LongSalvajesPreMarket"
 
 def commercial_user(user=Depends(get_current_user)):
     if user["account_status"] not in {"trial","active_monthly","active_annual","admin"}:
@@ -114,6 +114,25 @@ def tradebot_status(user=Depends(commercial_user)):
         "runtime": runtime_status,
         "status": bot.status(),
         "notice": runtime_status["notice"],
+    }
+
+
+@app.post("/api/v1/tradebot/start")
+def tradebot_start(payload: TradeBotStartIn, user=Depends(commercial_user)):
+    """Start the selected automatic strategy in Paper mode only."""
+    return {
+        "mode": "paper",
+        "real_trading_enabled": False,
+        "runtime": tradebot_runtime.start_manual(payload.dict()),
+    }
+
+@app.post("/api/v1/tradebot/stop")
+def tradebot_stop(user=Depends(commercial_user)):
+    """Stop the automatic Paper runtime; never sends broker orders."""
+    return {
+        "mode": "paper",
+        "real_trading_enabled": False,
+        "runtime": tradebot_runtime.stop_manual(),
     }
 
 @app.get("/api/v1/tradebot/positions")
