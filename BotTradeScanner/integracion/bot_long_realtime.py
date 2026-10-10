@@ -22,7 +22,7 @@ from typing import Iterable
 
 from BotTradeScanner.decision.maquina_decisiones import MaquinaDecisionesLong
 from BotTradeScanner.estrategias.long.premarket_salvajes import EstadoLong, PreMarketSalvajesLong
-from BotTradeScanner.riesgo.paper import Decision, PaperBot, PaperPosition, RiskConfig
+from BotTradeScanner.riesgo.paper import PaperBot, PaperPosition, RiskConfig
 from BotTradeScanner.ejecucion.configuracion import ExecutionConfig
 from BotTradeScanner.ejecucion.alpaca import AlpacaExecutor, preparar_buy, ESTADOS_TERMINALES
 
