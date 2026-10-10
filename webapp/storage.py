@@ -1,8 +1,8 @@
 """Database storage for TradeScanner.
 
 Uses SQLite locally and Render Postgres when DATABASE_URL is configured.
-This keeps development simple while making account/session data persistent
-on Render.
+On Render, PostgreSQL is mandatory: the local filesystem is not a safe place
+for account/session data because it can be replaced during deploys.
 """
 import os
 import sqlite3
@@ -54,6 +54,12 @@ def db():
         return Connection(
             psycopg.connect(DATABASE_URL, row_factory=dict_row),
             postgres=True,
+        )
+
+    if os.getenv("RENDER", "").strip().lower() == "true":
+        raise RuntimeError(
+            "DATABASE_URL is required on Render; refusing to store account data "
+            "in the ephemeral local filesystem."
         )
 
     SQLITE_PATH.parent.mkdir(parents=True, exist_ok=True)
