@@ -50,7 +50,17 @@ Run a manual backup from the repository root after configuring the real `.env`:
 BACKUP_DIR=/mnt/offsite/tradescanner bash deploy/self-host/backup-postgres.sh
 ```
 
-Replace `/mnt/offsite/tradescanner` with a mounted, protected backup destination. For daily automation, add a host cron entry only after the destination is mounted and writable; monitor failures and periodically restore a backup into a separate empty database to verify it. Backups contain user/account and trading-simulation history, so restrict access to the directory.
+Replace `/mnt/offsite/tradescanner` with a mounted, protected backup destination. For daily automation, add a host cron entry only after the destination is mounted and writable; monitor failures.
+
+To verify a backup, set `BACKUP_FILE` to the dump and `RESTORE_DATABASE` to a new database name (not the production database). The script refuses to overwrite an existing database and removes its newly created test database if the restore fails:
+
+```bash
+BACKUP_FILE=/mnt/offsite/tradescanner/tradescanner-postgres-YYYYMMDDTHHMMSSZ.sql.gz \
+RESTORE_DATABASE=tradescanner_restore_test \
+bash deploy/self-host/restore-postgres-test.sh
+```
+
+Inspect the restored tables/data, then remove the test database manually when finished. Backups contain user/account and trading-simulation history, so restrict access to the directory.
 
 For updates, pull a reviewed Git commit and rebuild; do not edit application files directly on the server.
 
