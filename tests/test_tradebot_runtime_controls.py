@@ -300,3 +300,101 @@ def test_short_runtime_loop_selects_scanner_candidate_and_persists_paper_entry(t
     assert restored_state["short_position"]["symbol"] == "AAPL"
     assert restored_state["short_position"]["quantity"] == 12
     assert restored_state["last_strategy_decision"]["accion"] == "SHORT"
+
+
+def test_authenticated_scanner_signal_reaches_paper_runtime_and_survives_restart(tmp_path, monkeypatch):
+    from webapp import storage
+    from webapp.api import server
+    from webapp.api.signal_service import store
+    from webapp.tradebot.pullback_corto import PullbackCortoEMA
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "scanner-runtime-e2e.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "e2e-paper-secret")
+
+    payload = server.SignalBatchIn(items=[
+        server.SignalIn(
+            symbol="aapl",
+            timeframe="1m",
+            signal_type="SCANNER_FINAL",
+            price=9.79,
+            confidence=93,
+            scanner_conditions={
+                "ema20": 9.7,
+                "ema50_dia": 10.5,
+                "ema200_dia": 10.8,
+            },
+        )
+    ])
+    server.require_ingest_key(x_tradescanner_signal_key="e2e-paper-secret")
+    accepted = server.ingest_signals(payload, None)
+    assert accepted["accepted"] == 1
+
+    class OneCycleStop:
+        def __init__(self):
+            self.calls = 0
+
+        def wait(self, _seconds):
+            self.calls += 1
+            return self.calls > 1
+
+    class SyntheticBridge:
+        def __init__(self):
+            self.synced = []
+
+        def sync_results(self, items):
+            self.synced.append(items)
+
+        def snapshot(self, symbol):
+            assert symbol == "AAPL"
+            return {
+                "simbolo": symbol,
+                "tramo_actual": 1,
+                "market_data_trade_age_sec": 0.1,
+                "vela_actual": {
+                    "apertura": 9.8,
+                    "maximo": 11.0,
+                    "minimo": 9.75,
+                    "cierre": 9.79,
+                },
+                "vela_anterior": {
+                    "apertura": 10.0,
+                    "maximo": 12.0,
+                    "minimo": 9.9,
+                    "cierre": 9.95,
+                },
+            }
+
+    config = {
+        "capital_asignado": 600,
+        "porcentaje_operacion": 20,
+        "stop_loss_pct": 2,
+        "take_profit_pct": 4,
+        "estrategia": "Pullback corto ema50 ó 200 día ó semana",
+    }
+    runtime = TradeBotPaperRuntime()
+    runtime.configure(config)
+    runtime._stop = OneCycleStop()
+    bridge = SyntheticBridge()
+
+    runtime._run_pullback_corto(bridge, store, PullbackCortoEMA())
+
+    assert bridge.synced == [[{"ticker": "AAPL"}]]
+    assert runtime._selected_symbol == "AAPL"
+    assert runtime._last_strategy_decision["accion"] == "SHORT"
+    assert runtime._short_position["symbol"] == "AAPL"
+    assert runtime._short_position["entry_price"] == 9.79
+    assert runtime._short_position["stop_loss"] == 9.95
+    assert runtime._short_position["quantity"] == 12
+    assert runtime._strategy_decisions[-1]["mode"] == "paper"
+    assert runtime.status()["real_trading_enabled"] is False
+
+    restarted = TradeBotPaperRuntime()
+    restarted.configure(config)
+    restored_strategy = PullbackCortoEMA()
+    restored = restarted._restore_short_runtime_state(restored_strategy)
+    assert restored["short_position"]["symbol"] == "AAPL"
+    assert restarted._short_position["quantity"] == 12
+    assert restored_strategy.position_open is True
+    assert restored_strategy.entry_price == 9.79
