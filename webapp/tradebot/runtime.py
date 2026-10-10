@@ -24,6 +24,14 @@ class TradeBotPaperRuntime:
         self._started_at: float | None = None
         self._last_sync_at: float | None = None
         self._candidate_count = 0
+        self._manual_requested = False
+        self._operational_config = {
+            "capital_asignado": 600.0,
+            "porcentaje_operacion": 20.0,
+            "stop_loss_pct": 2.0,
+            "take_profit_pct": 4.0,
+            "estrategia": "LongSalvajesPreMarket",
+        }
 
     @staticmethod
     def configuration() -> dict:
@@ -37,12 +45,53 @@ class TradeBotPaperRuntime:
             "real_trading_enabled": False,
         }
 
+    def configure(self, values: dict) -> dict:
+        config = {
+            "capital_asignado": float(values.get("capital_asignado", 600.0)),
+            "porcentaje_operacion": float(values.get("porcentaje_operacion", 20.0)),
+            "stop_loss_pct": float(values.get("stop_loss_pct", 2.0)),
+            "take_profit_pct": float(values.get("take_profit_pct", 4.0)),
+            "estrategia": str(values.get("estrategia", "LongSalvajesPreMarket")),
+        }
+        if config["capital_asignado"] <= 0 or config["capital_asignado"] > 1000000:
+            raise ValueError("El capital debe ser mayor que cero y no superar $1,000,000.")
+        if not 1 <= config["porcentaje_operacion"] <= 100:
+            raise ValueError("El porcentaje por operación debe estar entre 1 y 100.")
+        if not 0.1 <= config["stop_loss_pct"] <= 50:
+            raise ValueError("El Stop Loss debe estar entre 0.1% y 50%.")
+        if not 0.1 <= config["take_profit_pct"] <= 100:
+            raise ValueError("El Take Profit debe estar entre 0.1% y 100%.")
+        if config["estrategia"] != "LongSalvajesPreMarket":
+            raise ValueError("Estrategia no disponible.")
+        with self._lock:
+            self._operational_config = config
+            bot = self._bot
+        if bot is not None:
+            bot.configurar_riesgo(**config)
+        return dict(config)
+
     def start_if_configured(self) -> None:
+        config = self.configuration()
+        if not config["enabled"]:
+            with self._lock:
+                if not self._manual_requested:
+                    self._state = "disabled"
+            return
+        self._start(force=False)
+
+    def start_manual(self, values: dict) -> dict:
+        config = self.configure(values)
+        with self._lock:
+            self._manual_requested = True
+        self._start(force=True)
+        return self.status()
+
+    def _start(self, force: bool) -> None:
         config = self.configuration()
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return
-            if not config["enabled"]:
+            if not force and not config["enabled"]:
                 self._state = "disabled"
                 return
             if not config["credentials_configured"]:
@@ -76,6 +125,9 @@ class TradeBotPaperRuntime:
                 execution_config=execution_config,
                 executor=None,
             )
+            with self._lock:
+                operational_config = dict(self._operational_config)
+            bot.configurar_riesgo(**operational_config)
             bot.iniciar()
             with self._lock:
                 self._bridge = bridge
@@ -105,15 +157,19 @@ class TradeBotPaperRuntime:
             started_at = self._started_at
             last_sync_at = self._last_sync_at
             candidate_count = self._candidate_count
+            manual_requested = self._manual_requested
+            operational_config = dict(self._operational_config)
         bridge_status = {}
         if bridge is not None:
             try:
                 bridge_status = bridge.status()
             except Exception as exc:
                 bridge_status = {"error": f"{type(exc).__name__}: {exc}"[:300]}
-        enabled = bool(config["enabled"] and config["credentials_configured"])
+        enabled = bool((config["enabled"] or manual_requested) and config["credentials_configured"])
         return {
-            "enabled": config["enabled"],
+            "enabled": bool(config["enabled"] or manual_requested),
+            "manual_requested": manual_requested,
+            "config_operativa": operational_config,
             "credentials_configured": config["credentials_configured"],
             "feed": config["feed"],
             "state": state,
@@ -133,6 +189,15 @@ class TradeBotPaperRuntime:
                 else "Runtime automático desactivado. Para activarlo, configura credenciales de datos y TRADESCANNER_TRADEBOT_AUTO_PAPER=true."
             ),
         }
+
+    def stop_manual(self) -> dict:
+        with self._lock:
+            self._manual_requested = False
+        self.stop()
+        with self._lock:
+            if self._state != "error":
+                self._state = "stopped"
+        return self.status()
 
     def stop(self) -> None:
         self._stop.set()
