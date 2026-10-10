@@ -4235,7 +4235,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Guardamos una fotografía del resultado REAL de este ciclo antes de publicar
         # la lista nueva. Esto evita perder candidatos cuando desaparecen en el siguiente ciclo.
         p_hist = dict(filtros_tf)
-        p_hist.update({"cruce_ema": "Hacia arriba", "macd": "Positivo", "top_n": 10, "orden": "Actualizado"})
+        p_hist.update({"cruce_ema": "Hacia arriba", "top_n": 10, "orden": "Actualizado"})
         resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
 
         # PRUEBA 6: iniciar/actualizar observaciones posteriores a la señal.
