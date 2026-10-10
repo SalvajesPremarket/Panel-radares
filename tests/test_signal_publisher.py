@@ -80,3 +80,26 @@ def test_unchanged_candidate_is_refreshed_after_dedupe_window(monkeypatch):
     assert publisher.publish_final_signals(signal, "1m") == 0
     clock[0] += 31.0
     assert publisher.publish_final_signals(signal, "1m") == 1
+
+
+def test_publisher_skips_nonpositive_and_nonfinite_prices(monkeypatch):
+    publisher._last_sent.clear()
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_URL", "https://example.test/ingest")
+    monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "test-secret")
+    calls = []
+    monkeypatch.setattr(publisher._session, "post", lambda *args, **kwargs: calls.append(kwargs) or FakeResponse())
+
+    count = publisher.publish_final_signals(
+        [
+            {"ticker": "ZERO", "precio": 0},
+            {"ticker": "NEG", "precio": -1},
+            {"ticker": "NAN", "precio": float("nan")},
+            {"ticker": "INF", "precio": float("inf")},
+            {"ticker": "GOOD", "precio": 12.5},
+        ],
+        "1m",
+    )
+
+    assert count == 1
+    assert len(calls) == 1
+    assert [item["symbol"] for item in calls[0]["json"]["items"]] == ["GOOD"]
