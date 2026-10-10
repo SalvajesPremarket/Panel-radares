@@ -12,8 +12,9 @@ from pydantic import BaseModel, Field
 from BotTradeScanner.riesgo.paper import PaperBot
 from webapp.auth.server import get_current_user
 from webapp.api.signal_service import store, publish_signal
+from webapp.tradebot.runtime import runtime as tradebot_runtime
 
-app=FastAPI(title="TradeScanner Private API",version="0.2.0")
+app=FastAPI(title="TradeScanner Private API",version="0.3.0")
 
 # One process-local simulator per authenticated user; never creates a broker client.
 _paper_bots: dict[str, PaperBot] = {}
@@ -27,6 +28,7 @@ def paper_bot_for(user: dict) -> PaperBot:
         if user_key not in _paper_bots:
             _paper_bots[user_key] = PaperBot()
         return _paper_bots[user_key]
+
 # Deployed Streamlit scanner. Can still be overridden by the server environment.
 DEFAULT_SCANNER_URL = "https://jd6gih.streamlit.app"
 
@@ -67,7 +69,7 @@ def require_ingest_key(x_tradescanner_signal_key: str | None = Header(default=No
     expected = os.getenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "").strip()
     if not expected:
         raise HTTPException(status_code=503, detail="Signal ingest is not configured")
-    if not x_tradescanner_signal_key or not hmac.compare_digest(x_tradescanner_signal_key, expected):
+    if not x_tradescanner_signal_key or not hmac.compare_digest(expected, x_tradescanner_signal_key):
         raise HTTPException(status_code=401, detail="Invalid signal ingest key")
 
 @app.get("/api/v1/health")
@@ -89,17 +91,21 @@ def scanner_status(user=Depends(commercial_user)):
 
 @app.get("/api/v1/tradebot/status")
 def tradebot_status(user=Depends(commercial_user)):
-    """Expose honest runtime state; the strategy/feed loop is not auto-started."""
+    """Report manual simulator and opt-in automatic Paper runtime separately."""
     bot = paper_bot_for(user)
+    runtime_status = tradebot_runtime.status()
+    runtime_active = runtime_status["state"] == "running"
     return {
         "mode": "paper",
         "paper_simulator_connected": True,
-        "strategy_engine_connected": False,
-        "strategy_engine_status": "market_data_feed_not_configured",
+        "strategy_engine_connected": runtime_active and runtime_status["strategy_engine_connected"],
+        "strategy_engine_status": runtime_status["state"],
+        "market_data_connected": runtime_status["market_data_connected"],
         "real_trading_enabled": False,
         "broker_connected": False,
+        "runtime": runtime_status,
         "status": bot.status(),
-        "notice": "Simulador manual Paper activo; motor de mercado en tiempo real pendiente de configurar.",
+        "notice": runtime_status["notice"],
     }
 
 @app.get("/api/v1/tradebot/positions")
