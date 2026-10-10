@@ -120,6 +120,26 @@ class TradeBotPaperRuntime:
             self._thread = Thread(target=self._run, name="tradebot-paper-runtime", daemon=True)
             self._thread.start()
 
+    @staticmethod
+    def _fresh_signals(signals, max_age_seconds: float = 300.0) -> list[dict]:
+        """Ignore old scanner candidates so a removed symbol is not selected indefinitely."""
+        now = datetime.now(timezone.utc)
+        fresh = []
+        for signal in signals:
+            raw_timestamp = str(signal.get("timestamp") or signal.get("actualizado") or "").strip()
+            if not raw_timestamp:
+                continue
+            try:
+                timestamp = datetime.fromisoformat(raw_timestamp.replace("Z", "+00:00"))
+                if timestamp.tzinfo is None:
+                    timestamp = timestamp.replace(tzinfo=timezone.utc)
+                age = (now - timestamp.astimezone(timezone.utc)).total_seconds()
+            except (TypeError, ValueError):
+                continue
+            if -30.0 <= age <= max_age_seconds:
+                fresh.append(signal)
+        return fresh
+
     def _run(self) -> None:
         try:
             from BotTradeScanner.integracion.live_motor_bridge import MotorVelasBridge
@@ -169,7 +189,7 @@ class TradeBotPaperRuntime:
                 self._started_at = time.time()
 
             while not self._stop.wait(5.0):
-                signals = store.list(limit=100)
+                signals = self._fresh_signals(store.list(limit=100))
                 # Select the highest-confidence scanner symbol for new entries.
                 # Existing LONG states remain managed by BotLongRealtime for exits.
                 candidates_by_symbol: dict[str, dict] = {}
