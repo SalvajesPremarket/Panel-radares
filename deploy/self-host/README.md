@@ -34,7 +34,7 @@ Caddy can issue HTTPS certificates after both DNS records resolve publicly and p
 
 This setup is not yet a declaration that the platform is production-ready:
 
-- Scanner signals and the manual Paper simulator's positions/decisions are persisted in PostgreSQL. The automatic SHORT strategy state is persisted and restored when that strategy is selected after a restart; a saved open SHORT Paper position blocks switching to LONG. The LONG strategy's internal state still needs durable recovery before relying on unattended operation.
+- Scanner signals and the manual Paper simulator's positions/decisions are persisted in PostgreSQL. The automatic LONG and SHORT Paper strategy states, including open simulated positions and decision history, are persisted and restored after restart. These recovery paths still require the full integration test with live market data before relying on unattended operation.
 - The scanner publisher forwards EMA20 plus daily/weekly EMA50/EMA200 context when the motor has those values; delivery failures remain retryable. Verify the real end-to-end route: scanner final result → authenticated signal ingest → selected TradeBot strategy → Paper decision/exit.
 - Verify account access, trial status, session cookies over HTTPS, restart behavior, database backup and restore, and memory usage with the chosen asset universe.
 - Keep `TRADESCANNER_TRADEBOT_AUTO_PAPER=false` unless automatic Paper startup is deliberately being tested. No live order executor should be enabled as part of this migration.
