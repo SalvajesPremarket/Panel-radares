@@ -5475,7 +5475,9 @@ def _render_scanner():
         _usuario_hora_fin = int(getattr(servicio, "hora_fin_auto_min", 20*60))
     else:
         _usuario_motor_activo = True
-        _usuario_hora_ini, _usuario_hora_fin = 4*60, 20*60
+        # Los visitantes también obedecen el horario global definido por ADMIN.
+        _usuario_hora_ini = int(getattr(servicio, "hora_inicio_auto_min", 4*60))
+        _usuario_hora_fin = int(getattr(servicio, "hora_fin_auto_min", 20*60))
     _ahora_et_ui = datetime.now(ET)
     _min_actual_ui = _ahora_et_ui.hour*60 + _ahora_et_ui.minute
     if _usuario_hora_ini == _usuario_hora_fin:
@@ -5874,7 +5876,7 @@ def _render_scanner():
     h += "</script></head><body>"
     _head_html = h  # encabezado común (CSS + JS) para los dos marcos
     h += "<div class='main-container'>"
-    h += "<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>04:00–20:00 ET · REAL TIME</small></div>"
+    h += f"<div class='topbar'><div class='brand'>TRADE<span style='color:#8f98a3'>SCANNER</span> <small>{start_time}–{end_time} ET · REAL TIME</small></div>"
     h += "<div class='top-actions'>"
     h += "<a href='#' onclick='abrirRobotLong();return false;' style='display:inline-flex;align-items:center;justify-content:center;height:25px;padding:0 9px;margin-right:5px;border:1px solid #555;background:#252a31;color:#fff;border-radius:4px;text-decoration:none;font-size:10px;font-weight:700;'>🤖 ROBOT LONG</a>"
     # REFRESH / CUENTA / SALIR: los pinta la barra nativa (ts_ctrl_bar) superpuesta aquí.
@@ -6087,7 +6089,7 @@ def _render_scanner():
     elif USUARIO_AUTENTICADO:
         h += f"<div class='filtro-item'><label>HORARIO GLOBAL DEL SCANNER</label><span>{start_time}–{end_time} ET</span></div>"
     else:
-        h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · solo lectura</span></div>"
+        h += f"<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>{start_time}–{end_time} ET · solo lectura</span></div>"
     if PUBLIC_PREVIEW:
         h += f"<div class='filtro-item'><label>PRECIO ($)</label><div class='range'><input type='number' step='0.01' id='price_min' value='{precio_min_ui:g}' onchange='pushConfig()'><span>–</span><input type='number' step='0.01' id='price_max' value='{precio_max_ui:g}' onchange='pushConfig()'></div></div>"
     else:
