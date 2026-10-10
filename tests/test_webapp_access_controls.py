@@ -25,11 +25,12 @@ def test_active_trial_can_access_commercial_features():
     assert account_user(user=current) is current
 
 
-@pytest.mark.parametrize("status", ["suspended", "cancelled", "inactive"])
-def test_non_active_account_status_is_denied_commercial_access(status):
-    with pytest.raises(HTTPException) as exc:
-        commercial_user(user=user(account_status=status))
-    assert exc.value.status_code == 403
+@pytest.mark.parametrize("status", ["suspended", "cancelled", "inactive", "expired", "pending"])
+def test_non_active_account_status_is_denied_by_account_and_commercial_guards(status):
+    for guard in (commercial_user, account_user):
+        with pytest.raises(HTTPException) as exc:
+            guard(user=user(account_status=status))
+        assert exc.value.status_code == 403
 
 
 def test_expired_trial_is_denied_by_both_account_and_commercial_guards():
@@ -47,18 +48,21 @@ def test_expired_trial_is_denied_by_both_account_and_commercial_guards():
 def test_invalid_or_missing_trial_end_fails_closed(trial_end):
     current = user(trial_ends_at=trial_end)
     assert trial_has_expired(current) is True
-    with pytest.raises(HTTPException) as exc:
-        commercial_user(user=current)
-    assert exc.value.status_code == 403
+    for guard in (commercial_user, account_user):
+        with pytest.raises(HTTPException) as exc:
+            guard(user=current)
+        assert exc.value.status_code == 403
 
 
 def test_admin_bypass_is_limited_to_expiration_not_suspended_status():
     admin = user(role="admin", account_status="admin", trial_ends_at="invalid")
     assert trial_has_expired(admin) is False
     assert commercial_user(user=admin) is admin
-    with pytest.raises(HTTPException) as exc:
-        commercial_user(user=user(role="admin", account_status="suspended"))
-    assert exc.value.status_code == 403
+    assert account_user(user=admin) is admin
+    for guard in (commercial_user, account_user):
+        with pytest.raises(HTTPException) as exc:
+            guard(user=user(role="admin", account_status="suspended"))
+        assert exc.value.status_code == 403
 
 
 def test_only_admin_can_control_global_paper_runtime():
