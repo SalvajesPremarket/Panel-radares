@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from BotTradeScanner.riesgo.paper import PaperBot, PaperPosition, RiskConfig
 from webapp.storage import db
-from webapp.auth.server import get_current_user
+from webapp.auth.server import get_current_user, trial_has_expired
 from webapp.api.signal_service import store, publish_signal
 from webapp.tradebot.runtime import runtime as tradebot_runtime
 
@@ -124,7 +124,7 @@ class TradeBotStartIn(BaseModel):
     estrategia: Literal["LongSalvajesPreMarket", "Pullback corto ema50 ó 200 día ó semana"] = "LongSalvajesPreMarket"
 
 def commercial_user(user=Depends(get_current_user)):
-    if user["account_status"] not in {"trial","active_monthly","active_annual","admin"}:
+    if user["account_status"] not in {"trial","active_monthly","active_annual","admin"} or trial_has_expired(user):
         raise HTTPException(status_code=403,detail="Acceso comercial no activo")
     return user
 
