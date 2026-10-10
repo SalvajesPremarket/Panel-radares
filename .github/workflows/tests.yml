@@ -37,6 +37,6 @@ jobs:
         run: |
           PYTHONPATH=. pytest tests/test_webapp_startup.py -vv --tb=long
 
-      - name: Smoke check Streamlit entrypoints
+      - name: Smoke check active Streamlit entrypoint
         run: |
-          python -m py_compile app.py BotTradeScanner/pruebas/pagina_prueba_motor.py
+          python -m py_compile app.py
