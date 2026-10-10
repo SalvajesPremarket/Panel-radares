@@ -85,7 +85,8 @@ def publish_final_signals(items: Iterable[dict], timeframe: str, motor_bridge=No
             signal_type = "SCANNER_FINAL"
             confidence, confidence_detail = confidence_score(item)
             fingerprint = (symbol, str(timeframe), signal_type, round(price_value, 4))
-            if now - _last_sent.get(fingerprint, 0.0) < 30.0:
+            sent_at = _last_sent.get(fingerprint)
+            if sent_at is not None and now - sent_at < 30.0:
                 continue
             fingerprints.append(fingerprint)
             context = {
