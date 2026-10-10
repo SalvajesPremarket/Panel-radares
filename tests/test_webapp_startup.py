@@ -166,3 +166,24 @@ def test_manual_paper_positions_survive_bot_cache_reset(tmp_path, monkeypatch):
     assert len(restored.posiciones()) == 1
     assert restored.posiciones()[0]["simbolo"] == "AAPL"
     assert restored.decisions[-1]["action"] == "buy"
+
+
+def test_corrupt_manual_paper_state_fails_closed(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "corrupt-paper.sqlite3")
+    monkeypatch.setattr(storage, "DATABASE_URL", "")
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.setattr(server, "_paper_bots", {})
+    user = {"account_status": "admin", "user_id": "corrupt-paper-user"}
+
+    server.init_paper_schema()
+    with storage.db() as conn:
+        conn.execute(
+            "INSERT INTO paper_bot_states(user_id, state_json, updated_at) VALUES(?,?,?)",
+            ("corrupt-paper-user", "{not-json", datetime.now(timezone.utc).isoformat()),
+        )
+
+    with pytest.raises(RuntimeError, match="se bloqueó la recuperación"):
+        server.paper_bot_for(user)
