@@ -30,13 +30,10 @@ class TradeBotPaperRuntime:
         key = os.getenv("ALPACA_API_KEY", "").strip()
         secret = os.getenv("ALPACA_SECRET_KEY", "").strip()
         enabled = os.getenv("TRADESCANNER_TRADEBOT_AUTO_PAPER", "").strip().lower() in {"1", "true", "yes", "on"}
-        feed = os.getenv("ALPACA_DATA_FEED", "iex").strip().lower() or "iex"
-        if feed not in {"iex", "sip", "delayed_sip"}:
-            feed = "iex"
         return {
             "enabled": enabled,
             "credentials_configured": bool(key and secret),
-            "feed": feed,
+            "feed": "iex",
             "real_trading_enabled": False,
         }
 
