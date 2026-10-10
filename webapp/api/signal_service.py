@@ -2,9 +2,14 @@
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 import json
+from threading import Lock
+
+from webapp import storage as _storage
 from webapp.storage import db
 
 SIGNAL_RETENTION = 1000
+_schema_lock = Lock()
+_schema_identity = None
 
 
 @dataclass
@@ -28,30 +33,36 @@ class Signal:
 
 
 def init_schema():
-    """Create the durable signal table for SQLite development and PostgreSQL."""
-    with db() as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS scanner_signals (
-                signal_id TEXT PRIMARY KEY,
-                symbol TEXT NOT NULL,
-                timeframe TEXT NOT NULL,
-                signal_type TEXT NOT NULL,
-                price REAL NOT NULL,
-                timestamp TEXT NOT NULL,
-                source TEXT NOT NULL,
-                confidence REAL,
-                scanner_conditions TEXT,
-                risk_context TEXT
+    """Create the durable signal table once per configured database."""
+    global _schema_identity
+    identity = (_storage.DATABASE_URL, str(_storage.SQLITE_PATH))
+    with _schema_lock:
+        if _schema_identity == identity:
+            return
+        with db() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS scanner_signals (
+                    signal_id TEXT PRIMARY KEY,
+                    symbol TEXT NOT NULL,
+                    timeframe TEXT NOT NULL,
+                    signal_type TEXT NOT NULL,
+                    price DOUBLE PRECISION NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    confidence DOUBLE PRECISION,
+                    scanner_conditions TEXT,
+                    risk_context TEXT
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS scanner_signals_time_idx "
+                "ON scanner_signals(timestamp)"
             )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS scanner_signals_time_idx "
-            "ON scanner_signals(timestamp)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS scanner_signals_symbol_idx "
-            "ON scanner_signals(symbol, timeframe)"
-        )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS scanner_signals_symbol_idx "
+                "ON scanner_signals(symbol, timeframe)"
+            )
+        _schema_identity = identity
 
 
 class SignalStore:
