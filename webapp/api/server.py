@@ -56,10 +56,13 @@ def _restore_paper_bot(user_key: str) -> PaperBot:
         bot.decisions = state.get("decisions", [])[-1000:]
         bot.closed_trades = state.get("closed_trades", [])[-1000:]
         return bot
-    except (TypeError, ValueError, KeyError):
-        # Never prevent the web app from starting because of an invalid old snapshot.
-        # The next saved decision replaces it with a valid state.
-        return PaperBot()
+    except (TypeError, ValueError, KeyError) as exc:
+        # Fail closed: never turn a corrupt snapshot into an apparently empty account.
+        raise RuntimeError(
+            f"El estado Paper guardado para el usuario {user_key!r} no se puede leer; "
+            "se bloqueó la recuperación para proteger las posiciones. "
+            "Revisa el backup o recupera el estado antes de continuar."
+        ) from exc
 
 
 def _persist_paper_bot(user_key: str, bot: PaperBot):
