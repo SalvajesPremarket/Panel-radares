@@ -327,7 +327,7 @@ class TradeBotPaperRuntime:
             self._started_at = time.time()
         while not self._stop.wait(0.25):
             try:
-                signals = store.list(limit=100)
+                signals = self._fresh_signals(store.list(limit=100))
                 by_symbol = {}
                 for signal in signals:
                     symbol = str(signal.get("symbol") or signal.get("simbolo") or signal.get("ticker") or "").strip().upper()
