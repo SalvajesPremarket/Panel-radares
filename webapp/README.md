@@ -15,6 +15,19 @@ Esta carpeta contiene la capa web auxiliar, separada del motor principal de Stre
 
 La estrategia, el riesgo y la ejecución/paper del bot están en `BotTradeScanner/`, fuera de esta carpeta. No existe un paquete `webapp/bot/` ni un directorio `webapp/database/` en la estructura actual.
 
+## Base de datos persistente en Render
+
+La web usa PostgreSQL cuando la variable de entorno `DATABASE_URL` está configurada. SQLite queda reservado para desarrollo local. En Render, la aplicación ahora falla de forma explícita si falta `DATABASE_URL`, en lugar de guardar cuentas y sesiones en el disco efímero del servicio.
+
+En el servicio Render `tradescanner-webapp`:
+
+1. Abre **Environment** y comprueba que exista `DATABASE_URL`.
+2. Debe apuntar a la base PostgreSQL de Render, preferiblemente mediante su **Internal Database URL** si ambos recursos están en la misma región.
+3. No pegues la URL de conexión ni contraseñas en GitHub, archivos de código o mensajes públicos.
+4. Comprueba el estado y la fecha de expiración de la base en el panel de Render. Las bases del plan gratuito pueden expirar; planifica una actualización o migración antes de la fecha indicada para no perder datos.
+
+La base PostgreSQL debe estar activa y accesible antes de desplegar esta versión. No configures `DATABASE_URL` con una URL de ejemplo.
+
 ## Separación y seguridad
 
 No mover ni reescribir `app.py` para agregar cuentas, pagos o el bot. El scanner y el bot deben comunicarse mediante contratos explícitos; el adaptador no debe cambiar fórmulas ni filtros por sí solo.
