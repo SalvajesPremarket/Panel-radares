@@ -5411,9 +5411,9 @@ def _render_scanner():
     # IMPORTANTE: el hilo compartido debe usar exactamente los filtros actuales de la UI.
     # Antes el motor podía conservar una configuración vieja de cargar_config(),
     # mientras la pantalla mostraba otra, dejando el scanner aparentemente vacío.
-    # Solo el administrador modifica el motor global. Un usuario normal registra
-    # las temporalidades que necesita sobre el pool amplio, sin escribir sus filtros
-    # en el singleton compartido.
+    # Solo el administrador modifica los filtros del motor global. Usuarios registrados
+    # y visitantes pueden pedir una temporalidad sobre el pool amplio, sin escribir
+    # sus filtros personales en el singleton compartido.
     try:
         if ES_ADMIN:
             servicio.filtros_dueno.update(params_ui)
@@ -5426,7 +5426,7 @@ def _render_scanner():
                     timeframe_ui=_tf_swing[0]; params_ui["timeframe"]=timeframe_ui
             else:
                 servicio.configurar_modo_operacion("TODO EL MERCADO", timeframe_ui, ema_dist_max_ui, principal=True, filtros=params_ui)
-        elif USUARIO_AUTENTICADO:
+        elif USUARIO_AUTENTICADO or PUBLIC_PREVIEW:
             _pool_cfg = cargar_config_motor_compartido()
             if swing_activo_ui and swing_multitimeframe_ui:
                 for _tf_s in swing_tfs_ui[:MAX_TIMEFRAMES_ACTIVOS]:
