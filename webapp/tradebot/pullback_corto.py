@@ -177,16 +177,18 @@ class PullbackCortoEMA:
                                 "Mantener corto: reglas intraminuto no activaron salida.", price, self.stop_loss, True)
 
         ema20, levels = _ema_context(scanner)
+        if ema20 is None:
+            ema20 = _number(snapshot, "ema20")
         if ema20 is None or not levels:
             return self._result(symbol, "WAIT", "falta_contexto_ema",
                                 "Entrada bloqueada: TradeScanner debe aportar EMA20 y EMA50/EMA200 diaria o semanal.", price)
         if price <= ema20:
             return self._result(symbol, "WAIT", "pullback_no_sobre_ema20",
                                 "El pullback debe iniciar por encima de EMA20.", price)
-        touched = [(label, level) for label, level in levels if low <= level <= high]
+        touched = [(label, level) for label, level in levels if prev_low is not None and prev_high is not None and prev_low <= level <= prev_high]
         if not touched:
             return self._result(symbol, "WAIT", "sin_toque_ema_mayor",
-                                "La vela actual no toca EMA50/EMA200 diaria o semanal.", price)
+                                "La primera vela no toca EMA50/EMA200 diaria o semanal.", price)
         if prev_close is None or prev_open is None or prev_high is None or prev_low is None:
             return self._result(symbol, "WAIT", "falta_primera_vela",
                                 "Esperando la primera vela cerrada que toque EMA y forme lápida negativa.", price)
