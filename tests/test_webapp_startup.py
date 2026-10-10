@@ -258,3 +258,30 @@ def test_authenticated_signal_ingest_persists_signal_for_tradebot(tmp_path, monk
     assert decision["accion"] == "SHORT"
     assert decision["position_open"] is True
     assert decision["stop_loss"] == 9.95
+
+
+def test_signal_ingest_rejects_nonpositive_or_nonfinite_prices():
+    from pydantic import ValidationError
+
+    for price in (0, -1, float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValidationError):
+            server.SignalIn(
+                symbol="AAPL",
+                timeframe="1m",
+                signal_type="SCANNER_FINAL",
+                price=price,
+            )
+
+
+def test_signal_ingest_rejects_nonfinite_confidence():
+    from pydantic import ValidationError
+
+    for confidence in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValidationError):
+            server.SignalIn(
+                symbol="AAPL",
+                timeframe="1m",
+                signal_type="SCANNER_FINAL",
+                price=10.0,
+                confidence=confidence,
+            )

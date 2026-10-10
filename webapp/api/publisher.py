@@ -3,6 +3,7 @@
 Only forwards results already accepted by the scanner's existing filters.
 A failed HTTP delivery is not remembered as sent, so a later cycle can retry.
 """
+import math
 import os
 import threading
 import time
@@ -80,6 +81,8 @@ def publish_final_signals(items: Iterable[dict], timeframe: str, motor_bridge=No
             try:
                 price_value = float(price)
             except (TypeError, ValueError):
+                continue
+            if not math.isfinite(price_value) or price_value <= 0:
                 continue
 
             signal_type = "SCANNER_FINAL"
