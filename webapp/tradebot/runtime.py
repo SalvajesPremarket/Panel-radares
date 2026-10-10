@@ -263,9 +263,11 @@ class TradeBotPaperRuntime:
         encoded = row["state_json"] if hasattr(row, "keys") else row[0]
         try:
             value = json.loads(encoded)
-            return value if isinstance(value, dict) else {}
-        except (TypeError, ValueError):
-            return {}
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("El estado Paper guardado no se puede leer; runtime bloqueado para no olvidar posiciones.") from exc
+        if not isinstance(value, dict):
+            raise RuntimeError("El estado Paper guardado tiene un formato inválido; runtime bloqueado por seguridad.")
+        return value
 
     def _persist_long_runtime_state(self, bot, force: bool = False) -> None:
         now = time.monotonic()
