@@ -5,6 +5,7 @@ A failed HTTP delivery is not remembered as sent, so a later cycle can retry.
 """
 import os
 import threading
+import time
 from typing import Iterable
 
 import requests
@@ -13,7 +14,8 @@ from webapp.api.signal_service import confidence_score
 
 
 _lock = threading.Lock()
-_last_sent = set()
+_last_sent = {}  # fingerprint -> monotonic time of successful delivery
+
 _session = requests.Session()
 
 
@@ -68,6 +70,7 @@ def publish_final_signals(items: Iterable[dict], timeframe: str, motor_bridge=No
 
     batch = []
     fingerprints = []
+    now = time.monotonic()
     with _lock:
         for item in items:
             symbol = str(item.get("ticker") or "").strip().upper()
@@ -82,7 +85,7 @@ def publish_final_signals(items: Iterable[dict], timeframe: str, motor_bridge=No
             signal_type = "SCANNER_FINAL"
             confidence, confidence_detail = confidence_score(item)
             fingerprint = (symbol, str(timeframe), signal_type, round(price_value, 4))
-            if fingerprint in _last_sent:
+            if now - _last_sent.get(fingerprint, 0.0) < 30.0:
                 continue
             fingerprints.append(fingerprint)
             context = {
@@ -116,10 +119,13 @@ def publish_final_signals(items: Iterable[dict], timeframe: str, motor_bridge=No
         )
         response.raise_for_status()
         with _lock:
-            _last_sent.update(fingerprints)
+            for fingerprint in fingerprints:
+                _last_sent[fingerprint] = time.monotonic()
             if len(_last_sent) > 5000:
+                # Drop oldest successful fingerprints while retaining the recent cache.
+                recent = sorted(_last_sent.items(), key=lambda item: item[1], reverse=True)[:2500]
                 _last_sent.clear()
-                _last_sent.update(fingerprints)
+                _last_sent.update(recent)
         return len(batch)
     except Exception as exc:
         # Failed delivery must be retryable and must never stop the scanner cycle.
