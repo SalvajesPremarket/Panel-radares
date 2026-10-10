@@ -2,6 +2,7 @@
 import hmac
 import os
 from typing import Literal
+from threading import Lock
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -14,8 +15,18 @@ from webapp.api.signal_service import store, publish_signal
 
 app=FastAPI(title="TradeScanner Private API",version="0.2.0")
 
-# Process-local simulator. It never creates a broker client or submits orders.
-paper_bot = PaperBot()
+# One process-local simulator per authenticated user; never creates a broker client.
+_paper_bots: dict[str, PaperBot] = {}
+_paper_bots_lock = Lock()
+
+def paper_bot_for(user: dict) -> PaperBot:
+    user_key = str(user.get("user_id") or user.get("email") or "").strip()
+    if not user_key:
+        raise HTTPException(status_code=401, detail="Identidad de usuario requerida")
+    with _paper_bots_lock:
+        if user_key not in _paper_bots:
+            _paper_bots[user_key] = PaperBot()
+        return _paper_bots[user_key]
 # Deployed Streamlit scanner. Can still be overridden by the server environment.
 DEFAULT_SCANNER_URL = "https://jd6gih.streamlit.app"
 
@@ -79,6 +90,7 @@ def scanner_status(user=Depends(commercial_user)):
 @app.get("/api/v1/tradebot/status")
 def tradebot_status(user=Depends(commercial_user)):
     """Expose honest runtime state; the strategy/feed loop is not auto-started."""
+    bot = paper_bot_for(user)
     return {
         "mode": "paper",
         "paper_simulator_connected": True,
@@ -86,17 +98,18 @@ def tradebot_status(user=Depends(commercial_user)):
         "strategy_engine_status": "market_data_feed_not_configured",
         "real_trading_enabled": False,
         "broker_connected": False,
-        "status": paper_bot.status(),
+        "status": bot.status(),
         "notice": "Simulador manual Paper activo; motor de mercado en tiempo real pendiente de configurar.",
     }
 
 @app.get("/api/v1/tradebot/positions")
 def tradebot_positions(user=Depends(commercial_user)):
-    return {"items": paper_bot.posiciones()}
+    return {"items": paper_bot_for(user).posiciones()}
 
 @app.get("/api/v1/tradebot/decisions")
 def tradebot_decisions(limit: int = Query(default=50, ge=1, le=200), user=Depends(commercial_user)):
-    return {"items": list(reversed(paper_bot.decisions[-limit:]))}
+    bot = paper_bot_for(user)
+    return {"items": list(reversed(bot.decisions[-limit:]))}
 
 @app.post("/api/v1/tradebot/evaluate")
 def tradebot_evaluate(payload: PaperTradeIn, user=Depends(commercial_user)):
@@ -106,7 +119,8 @@ def tradebot_evaluate(payload: PaperTradeIn, user=Depends(commercial_user)):
         raise HTTPException(status_code=422, detail="Símbolo requerido")
     if payload.action == "BUY" and payload.stop_loss is None:
         raise HTTPException(status_code=422, detail="Para una entrada simulada BUY debes indicar Stop Loss.")
-    result = paper_bot.evaluar({
+    bot = paper_bot_for(user)
+    result = bot.evaluar({
         "signal_id": uuid4().hex,
         "simbolo": symbol,
         "accion": payload.action,
@@ -115,7 +129,7 @@ def tradebot_evaluate(payload: PaperTradeIn, user=Depends(commercial_user)):
         "motivo": payload.reason or "paper_manual",
         "estrategia": "TradeBot Paper (manual)",
     })
-    return {"mode": "paper", "real_trading_enabled": False, "result": result, "status": paper_bot.status()}
+    return {"mode": "paper", "real_trading_enabled": False, "result": result, "status": bot.status()}
 
 @app.post("/api/v1/signals/ingest", status_code=202)
 def ingest_signals(payload: SignalBatchIn, _: None = Depends(require_ingest_key)):
