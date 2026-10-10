@@ -13,6 +13,7 @@ from BotTradeScanner.riesgo.paper import PaperBot
 from webapp.auth.server import get_current_user
 from webapp.api.signal_service import store, publish_signal
 from webapp.tradebot.runtime import runtime as tradebot_runtime
+from webapp.tradebot.runtime import runtime as tradebot_runtime
 
 app=FastAPI(title="TradeScanner Private API",version="0.3.0")
 
@@ -50,6 +51,13 @@ class PaperTradeIn(BaseModel):
     price: float = Field(gt=0)
     stop_loss: float | None = Field(default=None, gt=0)
     reason: str | None = Field(default=None, max_length=240)
+
+class TradeBotStartIn(BaseModel):
+    capital_asignado: float = Field(default=600.0, gt=0, le=1000000)
+    porcentaje_operacion: float = Field(default=20.0, ge=1, le=100)
+    stop_loss_pct: float = Field(default=2.0, ge=0.1, le=50)
+    take_profit_pct: float = Field(default=4.0, ge=0.1, le=100)
+    estrategia: Literal["LongSalvajesPreMarket"] = "LongSalvajesPreMarket"
 
 def commercial_user(user=Depends(get_current_user)):
     if user["account_status"] not in {"trial","active_monthly","active_annual","admin"}:
