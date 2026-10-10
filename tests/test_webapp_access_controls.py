@@ -87,3 +87,30 @@ def test_signal_ingest_rejects_wrong_secret_and_accepts_matching_secret(monkeypa
         require_ingest_key(x_tradescanner_signal_key="wrong-secret")
     assert exc.value.status_code == 401
     assert require_ingest_key(x_tradescanner_signal_key="test-secret-123") is None
+
+
+
+
+def test_scanner_forward_auth_endpoint_enforces_commercial_access():
+    """Exercise the guard used by Caddy forward_auth without an HTTP test client."""
+    from webapp.api.server import commercial_user, scanner_status
+    from webapp.auth.server import current_user
+
+    now = datetime.now(timezone.utc)
+    active_trial = user(trial_ends_at=(now + timedelta(days=2)).isoformat())
+    expired_trial = user(trial_ends_at=(now - timedelta(seconds=1)).isoformat())
+    suspended = user(account_status="suspended")
+
+    assert scanner_status(user=commercial_user(user=active_trial))["authorized"] is True
+
+    with pytest.raises(HTTPException) as exc:
+        scanner_status(user=commercial_user(user=expired_trial))
+    assert exc.value.status_code == 403
+
+    with pytest.raises(HTTPException) as exc:
+        scanner_status(user=commercial_user(user=suspended))
+    assert exc.value.status_code == 403
+
+    with pytest.raises(HTTPException) as exc:
+        current_user(None)
+    assert exc.value.status_code == 401
