@@ -42,7 +42,17 @@ This setup is not yet a declaration that the platform is production-ready:
 
 ## Backups and updates
 
-Back up PostgreSQL regularly and copy backups to storage outside this VPS. Test restoring one backup before onboarding users. For updates, pull the reviewed Git commit and rebuild; do not edit application files directly on the server.
+The repository includes `backup-postgres.sh`. It writes a compressed PostgreSQL dump outside the Git repository, checks the gzip file, and refuses to store backups under the project directory. Prefer a mounted remote/off-host destination so a VPS disk failure does not destroy both the database and its backup.
+
+Run a manual backup from the repository root after configuring the real `.env`:
+
+```bash
+BACKUP_DIR=/mnt/offsite/tradescanner bash deploy/self-host/backup-postgres.sh
+```
+
+Replace `/mnt/offsite/tradescanner` with a mounted, protected backup destination. For daily automation, add a host cron entry only after the destination is mounted and writable; monitor failures and periodically restore a backup into a separate empty database to verify it. Backups contain user/account and trading-simulation history, so restrict access to the directory.
+
+For updates, pull a reviewed Git commit and rebuild; do not edit application files directly on the server.
 
 ## Expected budget
 
