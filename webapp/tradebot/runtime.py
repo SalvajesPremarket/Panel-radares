@@ -27,6 +27,10 @@ class TradeBotPaperRuntime:
         self._selected_symbol = ""
         self._selected_confidence: float | None = None
         self._manual_requested = False
+        self._short_strategy = None
+        self._short_position = None
+        self._last_strategy_decision = None
+        self._strategy_decisions = []
         self._operational_config = {
             "capital_asignado": 600.0,
             "porcentaje_operacion": 20.0,
@@ -63,12 +67,17 @@ class TradeBotPaperRuntime:
             raise ValueError("El Stop Loss debe estar entre 0.1% y 50%.")
         if not 0.1 <= config["take_profit_pct"] <= 100:
             raise ValueError("El Take Profit debe estar entre 0.1% y 100%.")
-        if config["estrategia"] != "LongSalvajesPreMarket":
+        if config["estrategia"] not in {"LongSalvajesPreMarket", "Pullback corto ema50 ó 200 día ó semana"}:
             raise ValueError("Estrategia no disponible.")
         with self._lock:
+            thread = self._thread
+            running = bool(thread and thread.is_alive() and not self._stop.is_set())
+            previous_strategy = self._operational_config["estrategia"]
+            if running and config["estrategia"] != previous_strategy:
+                raise ValueError("Apaga TradeBot antes de cambiar de estrategia.")
             self._operational_config = config
             bot = self._bot
-        if bot is not None:
+        if config["estrategia"] == "LongSalvajesPreMarket" and bot is not None and hasattr(bot, "configurar_riesgo"):
             bot.configurar_riesgo(**config)
         return dict(config)
 
@@ -118,6 +127,12 @@ class TradeBotPaperRuntime:
                 api_key=os.getenv("ALPACA_API_KEY", "").strip(),
                 secret_key=os.getenv("ALPACA_SECRET_KEY", "").strip(),
             )
+            with self._lock:
+                operational_config = dict(self._operational_config)
+            if operational_config["estrategia"] == "Pullback corto ema50 ó 200 día ó semana":
+                from webapp.tradebot.pullback_corto import PullbackCortoEMA
+                self._run_pullback_corto(bridge, store, PullbackCortoEMA())
+                return
             execution_config = ExecutionConfig.por_defecto()
             execution_config.enabled = False
             execution_config.paper = True
@@ -185,6 +200,99 @@ class TradeBotPaperRuntime:
                 self._state = "error"
                 self._last_error = f"{type(exc).__name__}: {exc}"[:500]
 
+
+    def _run_pullback_corto(self, bridge, store, strategy) -> None:
+        """Run the short strategy against live one-minute snapshots in Paper only."""
+        with self._lock:
+            self._bridge = bridge
+            self._bot = strategy
+            self._short_strategy = strategy
+            self._state = "running"
+            self._started_at = time.time()
+        while not self._stop.wait(0.25):
+            try:
+                signals = store.list(limit=100)
+                by_symbol = {}
+                for signal in signals:
+                    symbol = str(signal.get("symbol") or signal.get("simbolo") or signal.get("ticker") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    try:
+                        score = float(signal.get("confidence") or 0)
+                    except (TypeError, ValueError):
+                        score = 0.0
+                    old = by_symbol.get(symbol)
+                    try:
+                        old_score = float((old or {}).get("confidence") or 0)
+                    except (TypeError, ValueError):
+                        old_score = 0.0
+                    if old is None or score > old_score:
+                        by_symbol[symbol] = signal
+                ranked = sorted(by_symbol.items(), key=lambda item: float(item[1].get("confidence") or 0), reverse=True)
+                with self._lock:
+                    active = dict(self._short_position) if self._short_position else None
+                symbol = str(active.get("symbol")) if active else (ranked[0][0] if ranked else "")
+                selected = by_symbol.get(symbol) if symbol else None
+                bridge.sync_results([{"ticker": symbol}] if symbol else [])
+                if not symbol:
+                    with self._lock:
+                        self._candidate_count = 0
+                        self._selected_symbol = ""
+                        self._selected_confidence = None
+                        self._last_error = "Esperando candidatos publicados por TradeScanner."
+                    continue
+                snapshot = bridge.snapshot(symbol)
+                age = snapshot.get("market_data_trade_age_sec")
+                if age is None or float(age) > 5.0:
+                    with self._lock:
+                        self._last_error = "Esperando trades recientes del feed para evaluar la estrategia corta."
+                    continue
+                conditions = (selected or {}).get("scanner_conditions") or {}
+                decision = strategy.evaluate(snapshot, conditions)
+                action = decision.get("accion")
+                price = decision.get("precio")
+                if action == "SHORT" and not active and price:
+                    with self._lock:
+                        cfg = dict(self._operational_config)
+                    budget = float(cfg["capital_asignado"]) * float(cfg["porcentaje_operacion"]) / 100.0
+                    quantity = int(budget / float(price))
+                    if quantity > 0:
+                        active = {"symbol": symbol, "entry_price": float(price), "stop_loss": decision.get("stop_loss"), "quantity": quantity, "strategy": "Pullback corto ema50 ó 200 día ó semana"}
+                        with self._lock:
+                            self._short_position = active
+                    else:
+                        strategy.position_open = False
+                        strategy.entry_price = None
+                        strategy.stop_loss = None
+                        decision = {**decision, "accion": "WAIT", "estado": "capital_insuficiente", "motivo": "Capital Paper insuficiente para simular al menos una acción corta."}
+                elif action == "HOLD" and active:
+                    new_stop = decision.get("stop_loss")
+                    if new_stop is not None:
+                        active["stop_loss"] = min(float(active["stop_loss"]), float(new_stop)) if active.get("stop_loss") is not None else float(new_stop)
+                        with self._lock:
+                            self._short_position = active
+                elif action == "EXIT" and active:
+                    pnl = (float(active["entry_price"]) - float(price)) * int(active["quantity"]) if price else 0.0
+                    with self._lock:
+                        self._strategy_decisions.append({"symbol": symbol, "action": "EXIT", "reason": decision.get("motivo", "Salida de estrategia"), "price": price, "entry_price": active["entry_price"], "quantity": active["quantity"], "pnl_realizado": pnl, "mode": "paper", "created_at": time.time()})
+                        self._strategy_decisions = self._strategy_decisions[-100:]
+                        self._short_position = None
+                    active = None
+                with self._lock:
+                    self._last_strategy_decision = decision
+                    self._strategy_decisions.append({**decision, "created_at": time.time(), "mode": "paper"})
+                    self._strategy_decisions = self._strategy_decisions[-100:]
+                    self._candidate_count = len(by_symbol)
+                    self._selected_symbol = symbol
+                    try:
+                        self._selected_confidence = float((selected or {}).get("confidence")) if (selected or {}).get("confidence") is not None else None
+                    except (TypeError, ValueError):
+                        self._selected_confidence = None
+                    self._last_sync_at = time.time()
+            except Exception as exc:
+                with self._lock:
+                    self._last_error = f"{type(exc).__name__}: {exc}"[:500]
+
     def status(self) -> dict:
         config = self.configuration()
         with self._lock:
@@ -199,6 +307,9 @@ class TradeBotPaperRuntime:
             selected_confidence = self._selected_confidence
             manual_requested = self._manual_requested
             operational_config = dict(self._operational_config)
+            short_position = dict(self._short_position) if self._short_position else None
+            last_strategy_decision = dict(self._last_strategy_decision) if self._last_strategy_decision else None
+            strategy_decisions = list(self._strategy_decisions)
         bridge_status = {}
         if bridge is not None:
             try:
@@ -221,6 +332,9 @@ class TradeBotPaperRuntime:
             "candidate_count": candidate_count,
             "selected_symbol": selected_symbol,
             "selected_confidence": selected_confidence,
+            "short_position_paper": short_position,
+            "last_strategy_decision": last_strategy_decision,
+            "strategy_decisions": strategy_decisions,
             "started_at": started_at,
             "last_signal_sync_at": last_sync_at,
             "last_error": last_error or bridge_status.get("error", ""),
@@ -245,8 +359,18 @@ class TradeBotPaperRuntime:
         self._stop.set()
         with self._lock:
             bot = self._bot
+            strategy = self._short_strategy
+            position = dict(self._short_position) if self._short_position else None
             self._state = "stopping"
-        if bot is not None:
+        if position and strategy is not None:
+            price = getattr(strategy, "last_price", None)
+            if price is not None:
+                pnl = (float(position["entry_price"]) - float(price)) * int(position["quantity"])
+                with self._lock:
+                    self._strategy_decisions.append({"symbol": position["symbol"], "action": "EXIT", "reason": "TradeBot apagado; cierre Paper al último precio observado.", "price": float(price), "entry_price": position["entry_price"], "quantity": position["quantity"], "pnl_realizado": pnl, "mode": "paper", "created_at": time.time()})
+                    self._strategy_decisions = self._strategy_decisions[-100:]
+                    self._short_position = None
+        if bot is not None and hasattr(bot, "detener"):
             try:
                 bot.detener()
             except Exception:

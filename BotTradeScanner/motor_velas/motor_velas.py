@@ -166,6 +166,18 @@ class MotorVelasSimbolo:
         self.historial_maximo = historial_maximo
         self._lock = Lock()
         self._tramo_actual = None
+        self.ema50_diaria = None
+        self.ema200_diaria = None
+        self.ema50_semanal = None
+        self.ema200_semanal = None
+
+    def establecer_emas_mayores(self, ema50_diaria=None, ema200_diaria=None, ema50_semanal=None, ema200_semanal=None):
+        """Store independently calculated daily/weekly EMAs for strategy verification."""
+        with self._lock:
+            self.ema50_diaria = ema50_diaria
+            self.ema200_diaria = ema200_diaria
+            self.ema50_semanal = ema50_semanal
+            self.ema200_semanal = ema200_semanal
 
     def cargar_historial(self, barras):
         """
@@ -299,6 +311,10 @@ class MotorVelasSimbolo:
                 "ema20_anterior": ema20_anterior,
                 "ema50_anterior": ema50_anterior,
                 "ema200_anterior": ema200_anterior,
+                "ema50_diaria": self.ema50_diaria,
+                "ema200_diaria": self.ema200_diaria,
+                "ema50_semanal": self.ema50_semanal,
+                "ema200_semanal": self.ema200_semanal,
                 "macd": macd,
                 "macd_señal": señal,
                 "macd_histograma": histograma,
@@ -388,6 +404,45 @@ class MotorVelas:
             motor = self._obtener_motor(simbolo)
             motor.cargar_historial(barras)
 
+            # Fetch only completed higher-timeframe bars so today's/this week's
+            # partial candle cannot distort the EMA touch verification.
+            daily_end = fin.replace(hour=0, minute=0, second=0, microsecond=0)
+            weekly_end = daily_end - timedelta(days=daily_end.weekday())
+            # Fail closed on any missing higher-timeframe context.
+            ema_values = {"ema50_diaria": None, "ema200_diaria": None, "ema50_semanal": None, "ema200_semanal": None}
+            try:
+                daily_request = StockBarsRequest(
+                    symbol_or_symbols=simbolo,
+                    timeframe=TimeFrame.Day,
+                    start=daily_end - timedelta(days=500),
+                    end=daily_end,
+                    limit=300,
+                    feed=DataFeed.IEX,
+                )
+                daily_response = cliente.get_stock_bars(daily_request)
+                daily_bars = sorted(daily_response.data.get(simbolo, []), key=lambda bar: bar.timestamp)
+                daily_closes = [float(bar.close) for bar in daily_bars]
+                ema_values["ema50_diaria"] = calcular_ema(daily_closes, 50)
+                ema_values["ema200_diaria"] = calcular_ema(daily_closes, 200)
+            except Exception:
+                pass
+            try:
+                weekly_request = StockBarsRequest(
+                    symbol_or_symbols=simbolo,
+                    timeframe=TimeFrame.Week,
+                    start=weekly_end - timedelta(days=365 * 7),
+                    end=weekly_end,
+                    limit=300,
+                    feed=DataFeed.IEX,
+                )
+                weekly_response = cliente.get_stock_bars(weekly_request)
+                weekly_bars = sorted(weekly_response.data.get(simbolo, []), key=lambda bar: bar.timestamp)
+                weekly_closes = [float(bar.close) for bar in weekly_bars]
+                ema_values["ema50_semanal"] = calcular_ema(weekly_closes, 50)
+                ema_values["ema200_semanal"] = calcular_ema(weekly_closes, 200)
+            except Exception:
+                pass
+            motor.establecer_emas_mayores(**ema_values)
             self._historial_precargado.add(simbolo)
 
     def conectar_stream_compartido(self, market_stream):

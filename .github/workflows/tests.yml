@@ -33,6 +33,10 @@ jobs:
         run: |
           PYTHONPATH=. pytest tests/test_data_engine.py tests/test_market_stream_symbols.py tests/test_bridge_history_before_stream.py tests/test_shared_stream_motor_bridge.py -vv --tb=long
 
+      - name: Test TradeBot Paper strategies
+        run: |
+          PYTHONPATH=. pytest tests/test_tradebot_paper.py tests/test_tradebot_runtime_controls.py tests/test_tradebot_pullback_corto.py -vv --tb=long
+
       - name: Test web app database initialization
         run: |
           PYTHONPATH=. pytest tests/test_webapp_startup.py -vv --tb=long
