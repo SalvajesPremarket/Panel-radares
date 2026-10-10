@@ -377,6 +377,9 @@ VALORES_POR_DEFECTO = {
     # Antes faltaban aquí y filtrar_resultados() podía lanzar KeyError
     # con self.filtros_dueno, abortando el ciclo antes de publicar el diagnóstico.
     "cruce_ema": "Hacia arriba",
+    "cruce_ema39": "Neutro",
+    "cruce_ema50_200": "Neutro",
+    "cruce_ema200_50": "Neutro",
     "macd": "Positivo",
     "orden": "Actualizado",
     "top_n": 10,
@@ -1555,6 +1558,7 @@ _CONFIG_USUARIO_KEYS = (
     "f_price_min", "f_price_max", "f_gap_min", "f_gap_max",
     "f_float_max", "f_vol", "f_ema", "f_mac", "f_order",
     "market_session", "timeframe", "ema_dist_max",
+    "cruce_ema39", "cruce_ema50_200", "cruce_ema200_50",
     "rsi_min", "rsi_max", "ema20_estado", "ema50_estado",
     "ema200_estado", "c_active", "c_start", "c_end",
     "c_lang", "c_wnd", "c_broker", "c_url", "refresh_sec",
@@ -2385,7 +2389,7 @@ def evaluar_ema_condiciones(velas):
         high_prev = float(vela_prev["high"])
         low_prev = float(vela_prev["low"])
         precio = float(vela_act["close"])
-        # Cruce EMA3/EMA9 confirmado en la vela más reciente.
+        # Cruces EMA3/EMA9 confirmados en la vela más reciente.
         if len(cierres) >= 10:
             _ema3 = cierres.ewm(span=3, adjust=False).mean()
             _ema9 = cierres.ewm(span=9, adjust=False).mean()
@@ -2399,6 +2403,29 @@ def evaluar_ema_condiciones(velas):
                 salida["cruce_ema39"] = "Neutro"
         else:
             salida["cruce_ema39"] = "Neutro"
+
+        # EMA50/EMA200: cruce confirmado en la última vela; requiere historial suficiente.
+        if len(cierres) >= 201:
+            _ema50_cross = cierres.ewm(span=50, adjust=False).mean()
+            _ema200_cross = cierres.ewm(span=200, adjust=False).mean()
+            _e50_prev, _e50_act = float(_ema50_cross.iloc[-2]), float(_ema50_cross.iloc[-1])
+            _e200_prev, _e200_act = float(_ema200_cross.iloc[-2]), float(_ema200_cross.iloc[-1])
+            if _e50_prev <= _e200_prev and _e50_act > _e200_act:
+                salida["cruce_ema50_200"] = "Positivo"
+            elif _e50_prev >= _e200_prev and _e50_act < _e200_act:
+                salida["cruce_ema50_200"] = "Negativo"
+            else:
+                salida["cruce_ema50_200"] = "Neutro"
+            if _e200_prev <= _e50_prev and _e200_act > _e50_act:
+                salida["cruce_ema200_50"] = "Positivo"
+            elif _e200_prev >= _e50_prev and _e200_act < _e50_act:
+                salida["cruce_ema200_50"] = "Negativo"
+            else:
+                salida["cruce_ema200_50"] = "Neutro"
+        else:
+            salida["cruce_ema50_200"] = "Neutro"
+            salida["cruce_ema200_50"] = "Neutro"
+
         for n in (20, 50, 200):
             if len(cierres) < n:
                 continue
@@ -2702,9 +2729,15 @@ def filtrar_resultados(filas, p):
         # MACD según el selector (Positivo por defecto).
         if not cumple_macd(c, p):
             continue
-        # Cruce EMA3/9: Neutro no agrega restricción adicional.
+        # Los selectores Neutro no restringen; las direcciones exigen cruce en la última vela.
         _cruce_ema39_pedido = str(p.get("cruce_ema39", "Neutro"))
         if _cruce_ema39_pedido in ("Hacia arriba", "Hacia abajo") and c.get("cruce_ema39", "Neutro") != _cruce_ema39_pedido:
+            continue
+        _cruce_ema50_200_pedido = str(p.get("cruce_ema50_200", "Neutro"))
+        if _cruce_ema50_200_pedido in ("Positivo", "Negativo") and c.get("cruce_ema50_200", "Neutro") != _cruce_ema50_200_pedido:
+            continue
+        _cruce_ema200_50_pedido = str(p.get("cruce_ema200_50", "Neutro"))
+        if _cruce_ema200_50_pedido in ("Positivo", "Negativo") and c.get("cruce_ema200_50", "Neutro") != _cruce_ema200_50_pedido:
             continue
         # RSI (14): solo se exige cuando el rango se aparta de 0-100.
         try:
@@ -5333,6 +5366,12 @@ def _render_scanner():
     cruce_ema39_ui = _qtxt("cruce_ema39", "Neutro")
     if cruce_ema39_ui not in ("Hacia arriba", "Hacia abajo", "Neutro"):
         cruce_ema39_ui = "Neutro"
+    cruce_ema50_200_ui = _qtxt("cruce_ema50_200", "Neutro")
+    if cruce_ema50_200_ui not in ("Positivo", "Negativo", "Neutro"):
+        cruce_ema50_200_ui = "Neutro"
+    cruce_ema200_50_ui = _qtxt("cruce_ema200_50", "Neutro")
+    if cruce_ema200_50_ui not in ("Positivo", "Negativo", "Neutro"):
+        cruce_ema200_50_ui = "Neutro"
     ema20_estado_ui = _qtxt("ema20_estado", "Neutro")
     ema50_estado_ui = _qtxt("ema50_estado", "Neutro")
     ema200_estado_ui = _qtxt("ema200_estado", "Neutro")
@@ -5399,6 +5438,8 @@ def _render_scanner():
         "volumen_min": volumen_min_ui,
         "cruce_ema": ema_ui,
         "cruce_ema39": cruce_ema39_ui,
+        "cruce_ema50_200": cruce_ema50_200_ui,
+        "cruce_ema200_50": cruce_ema200_50_ui,
         "macd": macd_ui,
         "orden": orden_ui,
         "top_n": 10,
@@ -5826,7 +5867,7 @@ def _render_scanner():
     h += "function _qtop(){try{if(TS_COMP)return new URLSearchParams(TS_LATEST_QUERY.toString());return new URLSearchParams(window.top.location.search||'')}catch(e){try{return new URLSearchParams(TS_LATEST_QUERY.toString())}catch(_e){return new URLSearchParams()}}}"
     h += "function abrirRobotLong(){var url='https://jd6gih.streamlit.app/?robot=1';try{var q=_qtop();q.set('robot','1');var sid=q.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH&&sid)q.set('auth_session',sid);url='https://jd6gih.streamlit.app/?'+q.toString();}catch(e){}try{window.open(url,'_blank');}catch(e){try{window.location.href=url;}catch(_e){}}}"
     h += "function _authSid(){try{var sid=TS_AUTH_SESSION||'';if(sid){try{window.localStorage.setItem('tradeScannerAuthSession',sid)}catch(e){}return sid}try{return window.localStorage.getItem('tradeScannerAuthSession')||''}catch(e){return ''}}catch(e){return ''}}"
-    h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','cruce_ema39','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];var TS_ACTIVE_TAB_KEY='tradeScannerActiveTab_'+TS_USER_KEY;var TS_ACTIVE_SUBTAB_KEY='tradeScannerActiveSubTab_'+TS_USER_KEY;function _guardarPestanas(tabId,subId){try{if(tabId){window.top.localStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId));try{sessionStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId))}catch(e){}}if(subId){window.top.localStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId));try{sessionStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId))}catch(e){}}}catch(e){}}function _leerPestana(clave){var v='';try{v=window.top.localStorage.getItem(clave)||''}catch(e1){}if(!v){try{v=sessionStorage.getItem(clave)||''}catch(e2){}}return v;}function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');var sub=document.querySelector('.technical-subtab.active');o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
+    h += "var TS_PERSIST_KEYS=['f_price_min','f_price_max','f_gap_min','f_gap_max','f_float_max','f_vol','f_ema','f_mac','f_order','market_session','timeframe','technical_timeframe','cruce_ema39','cruce_ema50_200','cruce_ema200_50','ema_dist_max','rsi_min','rsi_max','ema20_estado','ema50_estado','ema200_estado','c_active','c_start','c_end','c_lang','c_wnd','c_broker','c_url','refresh_sec','f_gap_on','f_float_on','f_vol_on','ema20_on','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist'];var TS_ACTIVE_TAB_KEY='tradeScannerActiveTab_'+TS_USER_KEY;var TS_ACTIVE_SUBTAB_KEY='tradeScannerActiveSubTab_'+TS_USER_KEY;function _guardarPestanas(tabId,subId){try{if(tabId){window.top.localStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId));try{sessionStorage.setItem(TS_ACTIVE_TAB_KEY,String(tabId))}catch(e){}}if(subId){window.top.localStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId));try{sessionStorage.setItem(TS_ACTIVE_SUBTAB_KEY,String(subId))}catch(e){}}}catch(e){}}function _leerPestana(clave){var v='';try{v=window.top.localStorage.getItem(clave)||''}catch(e1){}if(!v){try{v=sessionStorage.getItem(clave)||''}catch(e2){}}return v;}function _guardarUltimaConfiguracion(q){try{var o={};TS_PERSIST_KEYS.forEach(function(k){var v=q.get(k);if(v!==null&&v!=='')o[k]=String(v)});o._savedAt=Date.now();var tab=document.querySelector('.tab.active');var sub=document.querySelector('.technical-subtab.active');o._scrollY=window.parent.scrollY||window.scrollY||0;try{window.top.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e1){}try{window.parent.localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e2){}try{localStorage.setItem(TS_USER_KEY,JSON.stringify(o))}catch(e3){}try{if(o.c_lang)window.top.localStorage.setItem('tradeScannerLanguage',String(o.c_lang))}catch(e4){}}catch(e){}}"
     h += "function _restaurarUltimaConfiguracion(){try{if(!TS_AUTH)return;var q=_qtop();var hayConfig=false;TS_PERSIST_KEYS.forEach(function(k){if(q.get(k)!==null&&String(q.get(k))!=='')hayConfig=true});if(hayConfig)return;var raw='';try{raw=window.top.localStorage.getItem(TS_USER_KEY)||''}catch(e1){}if(!raw){try{raw=window.parent.localStorage.getItem(TS_USER_KEY)||''}catch(e2){}}if(!raw){try{raw=localStorage.getItem(TS_USER_KEY)||''}catch(e3){}}var o={};try{o=JSON.parse(raw||'{}')||{}}catch(e4){o={}}var changed=false;TS_PERSIST_KEYS.forEach(function(k){if(o[k]!==undefined&&o[k]!==null&&String(o[k])!==''){q.set(k,String(o[k]));changed=true}});if(!o.c_lang){var lg='';try{lg=window.top.localStorage.getItem('tradeScannerLanguage')||''}catch(e5){}if(lg&&TS_LANGS[lg]&&q.get('c_lang')!==lg){q.set('c_lang',lg);changed=true}}if(changed){q.set('_u',String(Date.now()));_navegarMismaApp(q)}}catch(e){}}"
     h += "function _navegarMismaApp(q){try{q.delete('_ts');q.set('_u',String(Date.now()));try{if(TS_AUTH&&!q.get('auth_session')){var _sx=TS_AUTH_SESSION||_authSid();if(_sx)q.set('auth_session',_sx);}}catch(_es){}try{TS_LATEST_QUERY=new URLSearchParams(q.toString())}catch(_lq){}if(TS_COMP){try{window.parent.postMessage({tsNav:1,q:q.toString()},'*');return;}catch(_ce){try{window.top.postMessage({tsNav:1,q:q.toString()},'*');return;}catch(_cte){}}}var u='/?'+q.toString();try{window.top.location.replace(u);return;}catch(e1){}try{window.parent.location.replace(u);return;}catch(e2){}try{window.location.replace(u);return;}catch(e3){try{console.warn('TS: navegacion bloqueada',e3);}catch(_e){}}}catch(e){try{console.warn('TS: navegacion bloqueada',e);}catch(_e){}}}"
     h += "function _goto(q){var cur=_qtop();var sid=cur.get('auth_session')||TS_AUTH_SESSION||_authSid();if(TS_AUTH && sid)q.set('auth_session',sid);_guardarUltimaConfiguracion(q);q.set('_ts',String(Date.now()));_navegarMismaApp(q)}"
@@ -5843,7 +5884,7 @@ def _render_scanner():
     h += "function aplicarIdioma(lang){var d=TS_LANGS[lang]||TS_LANGS.ESP;document.querySelectorAll('label,.tab,.result-title,.panel-card b,th').forEach(function(el){var o=el.getAttribute('data-orig');var t=(el.textContent||'').trim();if(!o){if(TS_LANGS.ESP[t]!==undefined){o=t;el.setAttribute('data-orig',t)}else return}var tr=(lang&&lang!=='ESP'&&d[o])?d[o]:o;if(el.textContent!==tr)el.textContent=tr});document.documentElement.lang=(lang||'ESP').toLowerCase();try{localStorage.setItem('tradeScannerLanguage',lang)}catch(e){}}"
     h += "function _sq(q,k,id){var e=document.getElementById(id);if(e&&e.value!==undefined&&e.value!==null)q.set(k,e.value)}"
     h += "function cambiarHorarioGlobal(){var q=_qtop();var s=document.getElementById('cfg_start');var e=document.getElementById('cfg_end');if(s)q.set('c_start',s.value);if(e)q.set('c_end',e.value);q.set('_horario_global_update','1');q.set('_u',String(Date.now()));_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
-    h += "function pushConfig(){var q=_qtop();_sq(q,'cruce_ema39','cruce_ema39');"
+    h += "function pushConfig(){var q=_qtop();_sq(q,'cruce_ema39','cruce_ema39');_sq(q,'cruce_ema50_200','cruce_ema50_200');_sq(q,'cruce_ema200_50','cruce_ema200_50');"
     h += "_sq(q,'f_price_min','price_min');_sq(q,'f_price_max','price_max');"
     h += "_sq(q,'f_gap_min','gap_min');_sq(q,'f_gap_max','gap_max');"
     h += "_sq(q,'f_float_max','float_max');_sq(q,'f_vol','txt_vol');"
@@ -5911,6 +5952,8 @@ def _render_scanner():
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-tecnicos' else '') + "' data-tab-target='panel-tecnicos' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-tecnicos')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-tecnicos')});return false;\">TÉCNICOS</button>"
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-technical' else '') + "' data-tab-target='panel-technical' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-technical')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-technical')});return false;\">TECHNICAL</button>"
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-ema39' else '') + "' data-tab-target='panel-ema39' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-ema39')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-ema39')});return false;\">CRUCE EMA 3/9</button>"
+    h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-ema50200' else '') + "' data-tab-target='panel-ema50200' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-ema50200')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-ema50200')});return false;\">CRUCE EMA 50/200</button>"
+    h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-ema20050' else '') + "' data-tab-target='panel-ema20050' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-ema20050')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-ema20050')});return false;\">CRUCE EMA 200/50</button>"
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-config' else '') + "' data-tab-target='panel-config' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-config')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-config')});return false;\">CONFIGURACIÓN</button>"
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-conexiones' else '') + "' data-tab-target='panel-conexiones' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-conexiones')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-conexiones')});return false;\">🔌 CONEXIONES</button>"
     h += "<button type='button' class='tab " + ("active" if _active_tab_ui == 'panel-columnas' else '') + "' data-tab-target='panel-columnas' onclick=\"document.querySelectorAll('.tab-panel').forEach(function(p){p.classList.toggle('active',p.id==='panel-columnas')});document.querySelectorAll('.tab[data-tab-target]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-tab-target')==='panel-columnas')});return false;\">COLUMNAS</button>"
@@ -5926,6 +5969,8 @@ def _render_scanner():
     h += f"<div class='panel-card'><b>GAP</b><span>Rango configurado: {gap_min_ui:.1f}%–{gap_max_ui:.1f}%.</span></div>"
     h += "</div></div>"
     h += f"<div id='panel-ema39' class='tab-panel {'active' if _active_tab_ui == 'panel-ema39' else ''}'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>CRUCE EMA 3/9</b><span>Selecciona la dirección del cruce más reciente; Neutro no añade este filtro.</span><select id='cruce_ema39' onchange='pushConfig()'><option value='Hacia arriba' {'selected' if cruce_ema39_ui=='Hacia arriba' else ''}>Hacia arriba</option><option value='Hacia abajo' {'selected' if cruce_ema39_ui=='Hacia abajo' else ''}>Hacia abajo</option><option value='Neutro' {'selected' if cruce_ema39_ui=='Neutro' else ''}>Neutro</option></select></div></div></div>"
+    h += f"<div id='panel-ema50200' class='tab-panel {'active' if _active_tab_ui == 'panel-ema50200' else ''}'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>CRUCE EMA 50/200</b><span>Positivo: EMA50 cruza por encima de EMA200; Negativo: EMA50 cruza por debajo de EMA200; Neutro no añade este filtro.</span><select id='cruce_ema50_200' onchange='pushConfig()'><option value='Positivo' {'selected' if cruce_ema50_200_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if cruce_ema50_200_ui=='Negativo' else ''}>Negativo</option><option value='Neutro' {'selected' if cruce_ema50_200_ui=='Neutro' else ''}>Neutro</option></select></div></div></div>"
+    h += f"<div id='panel-ema20050' class='tab-panel {'active' if _active_tab_ui == 'panel-ema20050' else ''}'><div class='panel-grid'><div class='panel-card' style='grid-column:1/-1;'><b>CRUCE EMA 200/50</b><span>Positivo: EMA200 cruza por encima de EMA50; Negativo: EMA200 cruza por debajo de EMA50; Neutro no añade este filtro.</span><select id='cruce_ema200_50' onchange='pushConfig()'><option value='Positivo' {'selected' if cruce_ema200_50_ui=='Positivo' else ''}>Positivo</option><option value='Negativo' {'selected' if cruce_ema200_50_ui=='Negativo' else ''}>Negativo</option><option value='Neutro' {'selected' if cruce_ema200_50_ui=='Neutro' else ''}>Neutro</option></select></div></div></div>"
     h += f"<div id='panel-technical' class='tab-panel {'active' if _active_tab_ui == 'panel-technical' else ''}'><div class='panel-grid'>"
     h += "<div class='panel-card technical-control' style='grid-column:1/-1;'><b>SWING EMA20 → EMA50 / EMA200</b>"
     h += f"<select id='swing_activo' onchange='aplicarTecnicas()'><option value='OFF' {'selected' if not swing_activo_ui else ''}>OFF · detector apagado</option><option value='ON' {'selected' if swing_activo_ui else ''}>ON · detectar swing</option></select>"
