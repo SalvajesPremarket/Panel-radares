@@ -56,5 +56,5 @@ jobs:
           bash -n deploy/self-host/backup-postgres.sh
           bash -n deploy/self-host/restore-postgres-test.sh
           docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml config -q
-          docker run --rm -e WEB_DOMAIN=app.example.com -e SCANNER_DOMAIN=scanner.example.com -v "$PWD/deploy/self-host/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine validate --config /etc/caddy/Caddyfile
+          docker run --rm -e WEB_DOMAIN=app.example.com -e SCANNER_DOMAIN=scanner.example.com -v "$PWD/deploy/self-host/Caddyfile:/etc/caddy/Caddyfile:ro" caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile
           docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml build web scanner
