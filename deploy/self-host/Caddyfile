@@ -5,5 +5,8 @@
 
 {$SCANNER_DOMAIN} {
     encode zstd gzip
+    forward_auth web:8000 {
+        uri /api/v1/scanner/status
+    }
     reverse_proxy scanner:8501
 }
