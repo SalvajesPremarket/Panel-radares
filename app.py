@@ -1639,6 +1639,16 @@ def _ts_aplicar_evento_ui():
             # Solo se consume como orden de motor después de verificar ES_ADMIN.
             st.session_state["_admin_motor_evento"] = str(pares.get("c_active", ""))
 
+        # El horario global solo se cambia por una acción explícita de un usuario autenticado.
+        # Los visitantes públicos no pueden modificarlo enviando parámetros.
+        if pares.get("_horario_global_update") == "1" and (
+            "usuario_auth" in st.session_state or "token_verificado" in st.session_state
+        ):
+            st.session_state["_horario_global_evento"] = {
+                "c_start": str(pares.get("c_start", "")),
+                "c_end": str(pares.get("c_end", "")),
+            }
+
         # Marcar el _u recibido como ya visto: este evento ya fue consumido.
         try:
             _u_evento = int(float(str(pares.get("_u", "0") or "0")))
@@ -4427,6 +4437,29 @@ if ES_ADMIN:
                 servicio._despertar.set()
     except Exception:
         pass
+# Aplicar cambios explícitos del horario global enviados por un usuario autenticado.
+# No se ejecuta en refresh ni por cambios de otros filtros; el visitante no puede activar este evento.
+if USUARIO_AUTENTICADO:
+    try:
+        _horario_evento = st.session_state.pop("_horario_global_evento", None)
+        if isinstance(_horario_evento, dict):
+            _ini_actual = int(getattr(servicio, "hora_inicio_auto_min", 4 * 60))
+            _fin_actual = int(getattr(servicio, "hora_fin_auto_min", 20 * 60))
+            def _parse_hora_global(_valor, _actual):
+                try:
+                    _hh, _mm = str(_valor).strip().split(":")
+                    _hh, _mm = int(_hh), int(_mm)
+                    if 0 <= _hh <= 23 and 0 <= _mm <= 59:
+                        return _hh * 60 + _mm
+                except Exception:
+                    pass
+                return _actual
+            _ini_nuevo = _parse_hora_global(_horario_evento.get("c_start"), _ini_actual)
+            _fin_nuevo = _parse_hora_global(_horario_evento.get("c_end"), _fin_actual)
+            servicio.configurar_horario(_ini_nuevo, _fin_nuevo)
+    except Exception as _e_horario_global:
+        print(f"⚠️ No se pudo aplicar el horario global: {_e_horario_global}")
+
 # El motor se guarda en cache y conserva el codigo VIEJO aunque subas un app.py nuevo.
 # Aqui se le reasignan los metodos de la version actual para que los cambios apliquen sin reiniciar.
 # Fase 1: si Streamlit conserva una instancia antigua en st.cache_resource,
@@ -5410,14 +5443,9 @@ def _render_scanner():
         _usuario_hora_fin = int(getattr(servicio, "hora_fin_auto_min", 20*60))
     elif USUARIO_AUTENTICADO:
         _usuario_motor_activo = _qtxt("c_active", "True") == "True"
-        def _hora_min_ui(_v, _d):
-            try:
-                _hh, _mm = str(_v).strip().split(":")
-                return max(0, min(1439, int(_hh)*60 + int(_mm)))
-            except Exception:
-                return _d
-        _usuario_hora_ini = _hora_min_ui(_qtxt("c_start", "04:00"), 4*60)
-        _usuario_hora_fin = _hora_min_ui(_qtxt("c_end", "20:00"), 20*60)
+        # Para registrados, mostrar siempre el horario global efectivo del motor.
+        _usuario_hora_ini = int(getattr(servicio, "hora_inicio_auto_min", 4*60))
+        _usuario_hora_fin = int(getattr(servicio, "hora_fin_auto_min", 20*60))
     else:
         _usuario_motor_activo = True
         _usuario_hora_ini, _usuario_hora_fin = 4*60, 20*60
@@ -5451,7 +5479,16 @@ def _render_scanner():
                 if not _lista_tf and ES_ADMIN:
                     _lista_tf=list(getattr(servicio, "resultados", []) or [])
                 filas_reales=filtrar_resultados(_lista_tf, params_ui)
-            filas_reales=sorted(list(filas_reales),key=lambda x:x.get("actualizado") or datetime.min.replace(tzinfo=ET),reverse=True)[:10]
+            _orden_keys_ui = {
+                "Actualizado": lambda x: x.get("actualizado") or datetime.min.replace(tzinfo=ET),
+                "Cambio %": lambda x: float(x.get("cambio_pct") or 0),
+                "Volumen": lambda x: float(x.get("volumen_dia") or 0),
+            }
+            filas_reales = sorted(
+                list(filas_reales),
+                key=_orden_keys_ui.get(orden_ui, _orden_keys_ui["Actualizado"]),
+                reverse=True,
+            )[:10]
         except Exception as _ex_ui:
             filas_reales=[]
             print(f"⚠️ Filtro de pantalla: {_ex_ui}")
@@ -5782,6 +5819,8 @@ def _render_scanner():
     h += "_sq(q,'f_float_max','float_max');_sq(q,'f_vol','txt_vol');"
     h += "_sq(q,'f_ema','sel_ema');_sq(q,'f_mac','sel_mac');"
     h += "_sq(q,'f_order','sel_order');_sq(q,'c_active','cfg_active');"
+    h += "var _startEl=document.getElementById('cfg_start');if(_startEl)q.set('c_start',_startEl.value);var _endEl=document.getElementById('cfg_end');if(_endEl)q.set('c_end',_endEl.value);"
+    h += "function cambiarHorarioGlobal(){var q=_qtop();var s=document.getElementById('cfg_start');var e=document.getElementById('cfg_end');if(s)q.set('c_start',s.value);if(e)q.set('c_end',e.value);q.set('_horario_global_update','1');q.set('_u',String(Date.now()));_guardarUltimaConfiguracion(q);_navegarMismaApp(q);}"
     h += "['f_gap_on','f_float_on','f_vol_on','ema20_on'].forEach(function(id){var e=document.getElementById(id);if(e)q.set(id,e.value)});"
     h += "if(!q.get('c_start'))q.set('c_start','04:00');if(!q.get('c_end'))q.set('c_end','20:00');"
     h += "_sq(q,'c_lang','cfg_lang');_sq(q,'c_wnd','cfg_wnd');q.set('market_session','TODO EL MERCADO');var _tfEl=document.getElementById('timeframe');var _ttfEl=document.getElementById('technical_timeframe');var _tfVal=(_tfEl&&_tfEl.value)?_tfEl.value:((_ttfEl&&_ttfEl.value)?_ttfEl.value:'1m');q.set('timeframe',_tfVal);q.set('technical_timeframe',_tfVal);_sq(q,'ema_dist_max','ema_dist_max');_sq(q,'rsi_min','rsi_min');_sq(q,'rsi_max','rsi_max');['ema20_estado','ema50_estado','ema200_estado','ema20_cond','ema50_cond','ema200_cond','ema20_dist','ema50_dist','ema200_dist','swing_activo','swing_origen','swing_objetivo','swing_ventana','swing_tolerancia','swing_origen_tolerancia','swing_multitimeframe'].forEach(function(k){var e=document.getElementById(k);if(e)q.set(k,e.value)});var _stfs=[];document.querySelectorAll('.swing-tf-check:checked').forEach(function(e){_stfs.push(e.value)});q.set('swing_tfs',_stfs.join(','));"
@@ -5998,10 +6037,8 @@ def _render_scanner():
         h += _ctl_res("MOTOR CENTRAL", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
     else:
         h += _ctl_res("MOTOR PERSONAL", "🟢 ON" if active_val == "True" else "🔴 OFF", [("cfg_active", active_val)])
-    if ES_ADMIN:
-        h += f"<div class='filtro-item'><label>HORARIO GLOBAL</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
-    elif USUARIO_AUTENTICADO:
-        h += f"<div class='filtro-item'><label>MI HORARIO</label><div class='range'><input type='time' id='cfg_start' value='{start_time}'><span>–</span><input type='time' id='cfg_end' value='{end_time}'></div></div>"
+    if ES_ADMIN or USUARIO_AUTENTICADO:
+        h += f"<div class='filtro-item'><label>HORARIO GLOBAL</label><div class='range'><input type='time' id='cfg_start' value='{start_time}' onchange='cambiarHorarioGlobal()'><span>–</span><input type='time' id='cfg_end' value='{end_time}' onchange='cambiarHorarioGlobal()'></div></div>"
     else:
         h += "<div class='filtro-item'><label>HORARIO (ET)</label><span>04:00 – 20:00 · solo lectura</span></div>"
     if PUBLIC_PREVIEW:
@@ -6019,7 +6056,7 @@ def _render_scanner():
     if ES_ADMIN:
         h += f"<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>GLOBAL · {start_time}–{end_time} ET</span></div>"
     elif USUARIO_AUTENTICADO:
-        h += f"<div class='filtro-item'><label>MI HORARIO</label><span>{start_time}–{end_time} ET</span></div>"
+        h += f"<div class='filtro-item'><label>HORARIO GLOBAL DEL SCANNER</label><span>{start_time}–{end_time} ET</span></div>"
     else:
         h += "<div class='filtro-item'><label>HORARIO DEL SCANNER</label><span>04:00–20:00 ET · solo lectura</span></div>"
     h += f"<div class='filtro-item'><label>PRECIO MIN</label><input type='number' id='price_min' value='{precio_min_ui:g}' step='0.01' min='0' onchange='pushConfig()'><label>PRECIO MAX</label><input type='number' id='price_max' value='{precio_max_ui:g}' step='0.01' min='0' onchange='pushConfig()'></div>"
