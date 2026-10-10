@@ -17,18 +17,15 @@ Los endpoints heredados `BotTradeScanner/api/server.py` y el adaptador `webapp/a
 
 La estrategia, el riesgo y la ejecución PAPER del bot están en `BotTradeScanner/`, fuera de esta carpeta. No existe un paquete `webapp/bot/` ni un directorio `webapp/database/` en la estructura actual. Las señales normalizadas y el estado del simulador Paper manual se guardan en PostgreSQL cuando `DATABASE_URL` está configurada.
 
-## Base de datos persistente en Render y VPS propio
+## Hosting objetivo: plataforma propia
 
-La web usa PostgreSQL cuando `DATABASE_URL` está configurada. SQLite queda reservado para desarrollo local. En Render, la aplicación falla de forma explícita si falta `DATABASE_URL`, en lugar de guardar cuentas y sesiones en el disco efímero. En el VPS propio, Docker Compose conecta la web a PostgreSQL en la red interna.
+El destino de este proyecto es el VPS propio descrito en `deploy/self-host/README.md`. Render es solo el alojamiento heredado que se mantiene durante la transición; no hacer nuevas mejoras de interfaz ni contratar recursos adicionales allí como parte de esta preparación.
 
-En el servicio Render `tradescanner-webapp`:
+No apagar la instancia heredada hasta que el VPS propio esté instalado y se haya validado el recorrido completo: TradeScanner → ingestión autenticada → TradeBot → decisión/salida Paper, además de persistencia, reinicios, copias de seguridad y HTTPS.
 
-1. Abre **Environment** y comprueba que exista `DATABASE_URL`.
-2. Debe apuntar a la base PostgreSQL de Render, preferiblemente mediante su **Internal Database URL** si ambos recursos están en la misma región.
-3. No pegues la URL de conexión ni contraseñas en GitHub, archivos de código o mensajes públicos.
-4. Comprueba el estado y la fecha de expiración de la base en el panel de Render. Las bases del plan gratuito pueden expirar; planifica una actualización o migración antes de la fecha indicada para no perder datos.
+En la plataforma propia, Docker Compose conecta la web FastAPI y el scanner Streamlit con PostgreSQL por la red privada. Caddy es el único servicio que publica los puertos 80 y 443; el puerto de PostgreSQL y los puertos internos de las aplicaciones no deben exponerse públicamente. Las claves y dominios reales se configuran en `deploy/self-host/.env`, nunca en GitHub. El runtime automático Paper permanece desactivado por defecto.
 
-La base PostgreSQL debe estar activa y accesible antes de desplegar. No configures `DATABASE_URL` con una URL de ejemplo. Las señales, el simulador Paper manual y los estados de las estrategias automáticas LONG/SHORT Paper se guardan para recuperarse tras reinicios. Esta recuperación debe validarse de extremo a extremo con datos de mercado antes de depender de operación automática continua.
+Para la configuración, comprobaciones y procedimiento de respaldo/restauración, sigue la guía central `deploy/self-host/README.md`. La preparación en GitHub no significa que ya exista un VPS desplegado ni que la conexión de señales esté probada en producción.
 
 ## Separación y seguridad
 
