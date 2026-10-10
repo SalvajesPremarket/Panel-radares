@@ -53,6 +53,7 @@ jobs:
 
       - name: Validate and build self-hosted containers
         run: |
+          bash -n deploy/self-host/preflight.sh
           bash -n deploy/self-host/backup-postgres.sh
           bash -n deploy/self-host/restore-postgres-test.sh
           sh -n deploy/self-host/start-scanner.sh
