@@ -349,7 +349,17 @@ class TradeBotPaperRuntime:
         self._stop.set()
         with self._lock:
             bot = self._bot
+            strategy = self._short_strategy
+            position = dict(self._short_position) if self._short_position else None
             self._state = "stopping"
+        if position and strategy is not None:
+            price = getattr(strategy, "last_price", None)
+            if price is not None:
+                pnl = (float(position["entry_price"]) - float(price)) * int(position["quantity"])
+                with self._lock:
+                    self._strategy_decisions.append({"symbol": position["symbol"], "action": "EXIT", "reason": "TradeBot apagado; cierre Paper al último precio observado.", "price": float(price), "entry_price": position["entry_price"], "quantity": position["quantity"], "pnl_realizado": pnl, "mode": "paper", "created_at": time.time()})
+                    self._strategy_decisions = self._strategy_decisions[-100:]
+                    self._short_position = None
         if bot is not None and hasattr(bot, "detener"):
             try:
                 bot.detener()
