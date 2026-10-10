@@ -2,6 +2,30 @@
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradeBot 🤖 · Paper Trading</title>
 <style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#07111f;color:#eef4ff;font-family:Inter,system-ui,sans-serif}.wrap{width:min(1120px,92vw);margin:26px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}.links{display:flex;gap:10px;flex-wrap:wrap}.links a,a{color:#8bb5ff;text-decoration:none}.links a,button{padding:9px 12px;border:1px solid #30455f;border-radius:9px;background:#12243a;color:#eef4ff;cursor:pointer}.brand{font-size:clamp(28px,5vw,38px);font-weight:850;margin:18px 0 5px}.muted{color:#9fb0c6}.notice{margin:18px 0;padding:16px;border:1px solid #8b6930;border-radius:13px;background:#251e10;color:#ffdfa0;line-height:1.5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:13px;margin:16px 0}.card{background:#0d1b2d;border:1px solid #20344e;border-radius:15px;padding:17px;min-width:0}.value{font-size:21px;font-weight:750;margin-top:7px;overflow-wrap:anywhere}.good{color:#7ee2ae}.warn{color:#ffd27d}.bad{color:#ff9d9d}.section{margin-top:18px}.section h2{font-size:19px}.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.field label{display:block;font-size:13px;color:#9fb0c6;margin-bottom:6px}.field input,.field select{width:100%;padding:11px;border-radius:8px;border:1px solid #30455f;background:#07111f;color:#eef4ff}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.primary{background:#d8f3e5;color:#07111f;border-color:#d8f3e5;font-weight:750}.statusmsg{margin-top:12px;min-height:24px}.listitem{padding:12px 0;border-top:1px solid #20344e;overflow-wrap:anywhere}.listitem:first-child{border-top:0}.empty{color:#9fb0c6;padding:14px 0}.small{font-size:12px;color:#9fb0c6}footer{padding:24px 0;color:#8296ad;font-size:12px}
+
+/* High-contrast professional light theme: dark text on light surfaces. */
+:root{color-scheme:light}
+body{background:#eef2f7;color:#172033}
+.links a,a{color:#1d4ed8}
+.links a,button{border-color:#cbd5e1;background:#e2e8f0;color:#172033}
+.links a:hover,button:hover{background:#cbd5e1}
+.brand{color:#0f172a}
+.muted{color:#475569}
+.notice{background:#fff7ed;border-color:#fdba74;color:#9a3412}
+.card{background:#fff;border-color:#cbd5e1;color:#172033;box-shadow:0 3px 12px rgba(15,23,42,.045)}
+.value{color:#0f172a}
+.good{color:#166534}
+.warn{color:#92400e}
+.bad{color:#b91c1c}
+.field label{color:#334155}
+.field input,.field select{background:#fff;color:#0f172a;border-color:#94a3b8}
+.field input:focus,.field select:focus{outline:2px solid #2563eb;outline-offset:1px;border-color:#2563eb}
+.primary{background:#123b68;color:#fff;border-color:#123b68}
+.primary:hover{background:#174f89}
+.statusmsg{color:#172033}
+.listitem{border-color:#e2e8f0;color:#172033}
+.empty,.small,footer{color:#475569}
+
 </style></head><body><main class="wrap">
 <header class="top"><div class="links"><a href="/">← TradeScanner &amp; TradeBot</a><a href="/account">Mi cuenta</a><a href="https://jd6gih.streamlit.app" target="_blank" rel="noopener">Abrir TradeScanner ↗</a></div><button id="logout">Cerrar sesión</button></header>
 <h1 class="brand">🤖 TradeBot</h1><div class="muted">Panel propio del bot · simulación Paper Trading</div>
