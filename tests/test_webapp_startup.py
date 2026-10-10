@@ -43,6 +43,18 @@ def test_render_requires_persistent_database_url(monkeypatch):
 from BotTradeScanner.riesgo.paper import PaperBot
 from webapp.api import server
 
+def test_only_admin_can_control_global_paper_runtime():
+    from fastapi import HTTPException
+
+    assert server.runtime_operator(user={"role": "admin", "account_status": "admin"})["role"] == "admin"
+    for role in ("user", "support", ""):
+        try:
+            server.runtime_operator(user={"role": role, "account_status": "active_monthly"})
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError(f"El rol {role!r} no debe controlar el runtime global")
+
 
 def test_tradebot_status_explicitly_disables_real_trading(monkeypatch):
     monkeypatch.setattr(server, "_paper_bots", {})
@@ -189,9 +201,9 @@ def test_corrupt_manual_paper_state_fails_closed(tmp_path, monkeypatch):
         server.paper_bot_for(user)
 
 
+
 def test_signal_ingest_rejects_missing_or_invalid_shared_secret(monkeypatch):
     from fastapi import HTTPException
-
     monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "expected-secret")
     for supplied in (None, "wrong-secret"):
         try:
@@ -204,13 +216,11 @@ def test_signal_ingest_rejects_missing_or_invalid_shared_secret(monkeypatch):
 
 def test_authenticated_signal_ingest_persists_signal_for_tradebot(tmp_path, monkeypatch):
     from webapp.api.signal_service import store
-
     monkeypatch.setattr(storage, "SQLITE_PATH", tmp_path / "ingest.sqlite3")
     monkeypatch.setattr(storage, "DATABASE_URL", "")
     monkeypatch.delenv("RENDER", raising=False)
     monkeypatch.setenv("TRADESCANNER_SIGNAL_INGEST_SECRET", "expected-secret")
 
-    # Exercise the same key guard used by the FastAPI dependency before ingest.
     server.require_ingest_key(x_tradescanner_signal_key="expected-secret")
     payload = server.SignalBatchIn(items=[
         server.SignalIn(
@@ -233,9 +243,7 @@ def test_authenticated_signal_ingest_persists_signal_for_tradebot(tmp_path, monk
     assert stored[0]["confidence"] == 87
     assert stored[0]["scanner_conditions"]["ema50_dia"] == 10.5
 
-    # Feed the persisted scanner context into the selected Paper strategy.
     from webapp.tradebot.pullback_corto import PullbackCortoEMA
-
     snapshot = {
         "simbolo": "AAPL",
         "tramo_actual": 1,
