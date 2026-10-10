@@ -1,8 +1,8 @@
 """Paper-only state machine for the short EMA pullback strategy.
 
-Higher-timeframe EMA values must be supplied by TradeScanner's published
-scanner_conditions. Missing EMA context always blocks entry; minute EMAs are
-never substituted for daily/weekly EMAs.
+Daily/weekly EMAs are calculated from historical bars by the market-data motor.
+TradeScanner-provided EMA values are accepted as a fallback, but missing higher-
+timeframe context always blocks entry; minute EMAs are never substituted.
 """
 from __future__ import annotations
 
@@ -57,17 +57,22 @@ def _dragonfly(candle: dict | None) -> bool:
     return body <= span * 0.30 and lower >= max(body * 2.0, span * 0.50) and upper <= span * 0.15
 
 
-def _ema_context(scanner: dict) -> tuple[float | None, list[tuple[str, float]]]:
+def _ema_context(scanner: dict, snapshot: dict | None = None) -> tuple[float | None, list[tuple[str, float]]]:
+    snapshot = snapshot or {}
     ema20 = _number(scanner, "ema20", "tecnico_ema20", "ema20_minuto")
+    if ema20 is None:
+        ema20 = _number(snapshot, "ema20")
     levels = []
     aliases = (
-        ("EMA50 diaria", ("ema50_daily", "ema50_dia", "tecnico_ema50_dia")),
-        ("EMA200 diaria", ("ema200_daily", "ema200_dia", "tecnico_ema200_dia")),
-        ("EMA50 semanal", ("ema50_weekly", "ema50_semana", "tecnico_ema50_semana")),
-        ("EMA200 semanal", ("ema200_weekly", "ema200_semana", "tecnico_ema200_semana")),
+        ("EMA50 diaria", ("ema50_daily", "ema50_dia", "tecnico_ema50_dia", "ema50_diaria")),
+        ("EMA200 diaria", ("ema200_daily", "ema200_dia", "tecnico_ema200_dia", "ema200_diaria")),
+        ("EMA50 semanal", ("ema50_weekly", "ema50_semana", "tecnico_ema50_semana", "ema50_semanal")),
+        ("EMA200 semanal", ("ema200_weekly", "ema200_semana", "tecnico_ema200_semana", "ema200_semanal")),
     )
     for label, keys in aliases:
         value = _number(scanner, *keys)
+        if value is None:
+            value = _number(snapshot, *keys)
         if value is not None:
             levels.append((label, value))
     return ema20, levels
@@ -176,9 +181,7 @@ class PullbackCortoEMA:
             return self._result(symbol, "HOLD", f"corto_tercio_{tramo}",
                                 "Mantener corto: reglas intraminuto no activaron salida.", price, self.stop_loss, True)
 
-        ema20, levels = _ema_context(scanner)
-        if ema20 is None:
-            ema20 = _number(snapshot, "ema20")
+        ema20, levels = _ema_context(scanner, snapshot)
         if ema20 is None or not levels:
             return self._result(symbol, "WAIT", "falta_contexto_ema",
                                 "Entrada bloqueada: TradeScanner debe aportar EMA20 y EMA50/EMA200 diaria o semanal.", price)
