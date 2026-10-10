@@ -404,15 +404,18 @@ class MotorVelas:
             motor = self._obtener_motor(simbolo)
             motor.cargar_historial(barras)
 
-            # Fetch higher-timeframe bars separately so the short strategy can
-            # verify the daily/weekly EMA touch itself. Fail closed on any gap.
+            # Fetch only completed higher-timeframe bars so today's/this week's
+            # partial candle cannot distort the EMA touch verification.
+            daily_end = fin.replace(hour=0, minute=0, second=0, microsecond=0)
+            weekly_end = daily_end - timedelta(days=daily_end.weekday())
+            # Fail closed on any missing higher-timeframe context.
             ema_values = {"ema50_diaria": None, "ema200_diaria": None, "ema50_semanal": None, "ema200_semanal": None}
             try:
                 daily_request = StockBarsRequest(
                     symbol_or_symbols=simbolo,
                     timeframe=TimeFrame.Day,
-                    start=fin - timedelta(days=500),
-                    end=fin,
+                    start=daily_end - timedelta(days=500),
+                    end=daily_end,
                     limit=300,
                     feed=DataFeed.IEX,
                 )
@@ -427,8 +430,8 @@ class MotorVelas:
                 weekly_request = StockBarsRequest(
                     symbol_or_symbols=simbolo,
                     timeframe=TimeFrame.Week,
-                    start=fin - timedelta(days=365 * 7),
-                    end=fin,
+                    start=weekly_end - timedelta(days=365 * 7),
+                    end=weekly_end,
                     limit=300,
                     feed=DataFeed.IEX,
                 )
