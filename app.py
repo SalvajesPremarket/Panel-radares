@@ -5462,7 +5462,7 @@ def _render_scanner():
         _usuario_en_horario = _usuario_hora_ini <= _min_actual_ui < _usuario_hora_fin
     else:
         _usuario_en_horario = _min_actual_ui >= _usuario_hora_ini or _min_actual_ui < _usuario_hora_fin
-    if PUBLIC_PREVIEW or not _usuario_motor_activo or not _usuario_en_horario:
+    if not _usuario_motor_activo or not _usuario_en_horario:
         filas_reales = []
     else:
         try:
