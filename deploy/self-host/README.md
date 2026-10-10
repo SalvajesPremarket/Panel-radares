@@ -34,9 +34,8 @@ Caddy can issue HTTPS certificates after both DNS records resolve publicly and p
 
 This setup is not yet a declaration that the platform is production-ready:
 
-- The current signal adapter in `webapp/api/signal_service.py` stores signals in process memory, so a web restart loses that signal history. Move signals to PostgreSQL before relying on persistent group history.
-- Paper positions and runtime state are also held in process memory. Define and test persistence/recovery before treating simulated performance records as durable.
-- Verify the real end-to-end route: scanner final result → authenticated signal ingest → selected TradeBot strategy → Paper decision/exit.
+- Scanner signals and the manual Paper simulator's positions/decisions are persisted in PostgreSQL. The automatic runtime's active short-strategy state and the LONG strategy's internal state still need durable recovery before relying on unattended operation.
+- The scanner publisher forwards EMA20 plus daily/weekly EMA50/EMA200 context when the motor has those values; delivery failures remain retryable. Verify the real end-to-end route: scanner final result → authenticated signal ingest → selected TradeBot strategy → Paper decision/exit.
 - Verify account access, trial status, session cookies over HTTPS, restart behavior, database backup and restore, and memory usage with the chosen asset universe.
 - Keep `TRADESCANNER_TRADEBOT_AUTO_PAPER=false` unless automatic Paper startup is deliberately being tested. No live order executor should be enabled as part of this migration.
 - This Compose setup uses one VPS for cost efficiency; it is a single point of failure. Keep tested backups off the VPS before onboarding users.
