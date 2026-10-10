@@ -22,3 +22,13 @@ def test_self_host_scanner_ingest_uses_private_web_service():
 
     env_example = (ROOT / "deploy" / "self-host" / ".env.example").read_text(encoding="utf-8")
     assert "TRADESCANNER_COOKIE_DOMAIN=.example.com" in env_example
+
+
+def test_auth_cookie_domain_can_cover_web_and_scanner(monkeypatch):
+    from webapp.auth.server import cookie_domain
+
+    monkeypatch.setenv("TRADESCANNER_COOKIE_DOMAIN", ".yourdomain.com")
+    assert cookie_domain() == ".yourdomain.com"
+
+    monkeypatch.delenv("TRADESCANNER_COOKIE_DOMAIN", raising=False)
+    assert cookie_domain() is None
