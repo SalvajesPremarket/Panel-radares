@@ -1,4 +1,74 @@
 <!doctype html>
 <html lang="es">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradeScanner</title><style>body{margin:0;background:#071018;color:#eef5f7;font-family:Arial,sans-serif}header{display:flex;justify-content:space-between;align-items:center;padding:24px 7%;border-bottom:1px solid #20323c}.brand{font-size:22px;font-weight:800}nav a{color:#dce8ec;text-decoration:none;margin-left:24px}.btn{background:#e9f1f4;color:#071018!important;padding:12px 18px;border-radius:9px;font-weight:700}.hero{max-width:1100px;margin:auto;padding:110px 7%;display:grid;grid-template-columns:1.2fr .8fr;gap:60px;align-items:center}.tag{font-size:12px;letter-spacing:2px;color:#8ed4b5;font-weight:bold}.hero h1{font-size:clamp(44px,7vw,76px);line-height:1;margin:18px 0}.hero p{font-size:19px;line-height:1.6;color:#9eb0b8}.card{background:#0c1820;border:1px solid #263a44;border-radius:18px;padding:28px}.row{padding:18px 0;border-bottom:1px solid #263a44;display:flex;justify-content:space-between}.green{color:#8ed4b5}section{padding:70px 7%;background:#09141b;text-align:center}.plans{max-width:1100px;margin:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}.plan{text-align:left;background:#0c1820;border:1px solid #263a44;border-radius:16px;padding:25px}.price{font-size:36px;font-weight:800}@media(max-width:750px){.hero{grid-template-columns:1fr;padding-top:65px}.plans{grid-template-columns:1fr}nav a:not(.btn){display:none}}</style></head>
-<body><header><div class="brand">TradeScanner</div><nav><a href="#planes">Planes</a><a href="/login">Iniciar sesión</a><a class="btn" href="/register">Probar 1 mes</a></nav></header><main><div class="hero"><div><div class="tag">SCANNER · BOT · CONTROL</div><h1>Encuentra oportunidades.<br><span class="green">Opera con disciplina.</span></h1><p>Una plataforma para conocer el TradeScanner, evaluar sus señales y avanzar desde el scanner hacia el flujo del bot de forma controlada.</p><p><a class="btn" href="/register">Comenzar prueba gratuita</a></p></div><div class="card"><div class="green">● MERCADO MONITOREADO</div><div class="row"><b>Scanner</b><span>Radar de oportunidades</span></div><div class="row"><b>Bot</b><span>Paper trading</span></div><div class="row"><b>Cuenta</b><span>Acceso protegido</span></div></div></div><section id="planes"><h2>Prueba TradeScanner durante 1 mes</h2><p>Evalúa el producto y aporta recomendaciones.</p><div class="plans"><div class="plan"><h3>Trial</h3><div class="price">$0</div><p>1 mes completo</p><a class="btn" href="/register">Crear cuenta</a></div><div class="plan"><h3>Mensual</h3><div class="price">No activo</div><p>$28/mes es solo un precio de referencia; no está disponible para contratación.</p></div><div class="plan"><h3>Anual</h3><div class="price">No activo</div><p>$270/año es solo un precio de referencia; no está disponible para contratación.</p></div></div><p style="margin-top:24px;color:#9eb0b8">La facturación está desactivada. Actualmente no se aceptan pagos ni se crean suscripciones de pago.</p></section></main></body></html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TradeScanner &amp; TradeBot</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#071018;color:#eef5f7;font-family:Arial,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:20px 7%;border-bottom:1px solid #20323c}
+.brand{font-size:clamp(18px,2.5vw,24px);font-weight:800;white-space:nowrap}
+.brand span{color:#8ed4b5}
+nav{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+nav a{color:#dce8ec;text-decoration:none;padding:9px 10px;border-radius:8px}
+.btn{display:inline-block;background:#e9f1f4;color:#071018!important;padding:12px 18px;border-radius:9px;font-weight:700;text-decoration:none}
+.btn.secondary{background:#142630;color:#e9f1f4!important;border:1px solid #304650}
+.hero{max-width:1100px;margin:auto;padding:100px 7%;display:grid;grid-template-columns:1.2fr .8fr;gap:60px;align-items:center}
+.tag{font-size:12px;letter-spacing:2px;color:#8ed4b5;font-weight:bold}
+.hero h1{font-size:clamp(44px,7vw,76px);line-height:1;margin:18px 0}
+.hero p{font-size:19px;line-height:1.6;color:#9eb0b8}
+.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+.card{background:#0c1820;border:1px solid #263a44;border-radius:18px;padding:28px}
+.row{padding:18px 0;border-bottom:1px solid #263a44;display:flex;justify-content:space-between;gap:16px}
+.row:last-child{border-bottom:0}
+.green{color:#8ed4b5}
+section{padding:70px 7%;background:#09141b;text-align:center}
+.plans{max-width:1100px;margin:auto;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.plan{text-align:left;background:#0c1820;border:1px solid #263a44;border-radius:16px;padding:25px}
+.price{font-size:36px;font-weight:800}
+@media(max-width:750px){header{align-items:flex-start;flex-direction:column;padding:18px 5%}nav{justify-content:flex-start;gap:4px}nav a{padding:8px 7px;font-size:14px}.hero{grid-template-columns:1fr;padding:60px 6%;gap:32px}.plans{grid-template-columns:1fr}.hero h1{font-size:clamp(40px,12vw,60px)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">TradeScanner <span>&amp;</span> TradeBot <span aria-hidden="true">🤖</span></div>
+  <nav aria-label="Navegación principal">
+    <a href="https://jd6gih.streamlit.app" target="_blank" rel="noopener">TradeScanner ↗</a>
+    <a href="/scanner">TradeBot 🤖</a>
+    <a href="#planes">Planes</a>
+    <a href="/login">Iniciar sesión</a>
+    <a class="btn" href="/register">Probar 1 mes</a>
+  </nav>
+</header>
+<main>
+  <div class="hero">
+    <div>
+      <div class="tag">SCANNER · BOT · CONTROL</div>
+      <h1>Encuentra oportunidades.<br><span class="green">Opera con disciplina.</span></h1>
+      <p>Una plataforma que reúne TradeScanner para explorar oportunidades y TradeBot para consultar el flujo del bot de forma controlada.</p>
+      <div class="actions">
+        <a class="btn" href="https://jd6gih.streamlit.app" target="_blank" rel="noopener">Abrir TradeScanner ↗</a>
+        <a class="btn secondary" href="/scanner">Entrar a TradeBot 🤖</a>
+      </div>
+    </div>
+    <div class="card">
+      <div class="green">● PLATAFORMA TRADESCANNER &amp; TRADEBOT</div>
+      <div class="row"><b>TradeScanner</b><span>Radar de oportunidades</span></div>
+      <div class="row"><b>TradeBot 🤖</b><span>Flujo del bot en modo controlado</span></div>
+      <div class="row"><b>Cuenta</b><span>Acceso protegido</span></div>
+    </div>
+  </div>
+  <section id="planes">
+    <h2>Prueba TradeScanner &amp; TradeBot durante 1 mes</h2>
+    <p>Evalúa el producto y aporta recomendaciones.</p>
+    <div class="plans">
+      <div class="plan"><h3>Trial</h3><div class="price">$0</div><p>1 mes completo</p><a class="btn" href="/register">Crear cuenta</a></div>
+      <div class="plan"><h3>Mensual</h3><div class="price">No activo</div><p>$28/mes es solo un precio de referencia; no está disponible para contratación.</p></div>
+      <div class="plan"><h3>Anual</h3><div class="price">No activo</div><p>$270/año es solo un precio de referencia; no está disponible para contratación.</p></div>
+    </div>
+    <p style="margin-top:24px;color:#9eb0b8">La facturación está desactivada. Actualmente no se aceptan pagos ni se crean suscripciones de pago.</p>
+  </section>
+</main>
+</body>
+</html>
