@@ -128,6 +128,12 @@ def commercial_user(user=Depends(get_current_user)):
         raise HTTPException(status_code=403,detail="Acceso comercial no activo")
     return user
 
+def runtime_operator(user=Depends(commercial_user)):
+    """Only an administrator may control the single shared automatic Paper runtime."""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Solo un administrador puede encender o apagar el runtime global de TradeBot")
+    return user
+
 def scanner_ui_url():
     value = str(os.getenv("TRADESCANNER_SCANNER_URL", DEFAULT_SCANNER_URL) or "").strip()
     if not value:
@@ -182,7 +188,7 @@ def tradebot_status(user=Depends(commercial_user)):
 
 
 @app.post("/api/v1/tradebot/start")
-def tradebot_start(payload: TradeBotStartIn, user=Depends(commercial_user)):
+def tradebot_start(payload: TradeBotStartIn, user=Depends(runtime_operator)):
     """Start the selected automatic strategy in Paper mode only."""
     return {
         "mode": "paper",
@@ -191,7 +197,7 @@ def tradebot_start(payload: TradeBotStartIn, user=Depends(commercial_user)):
     }
 
 @app.post("/api/v1/tradebot/stop")
-def tradebot_stop(user=Depends(commercial_user)):
+def tradebot_stop(user=Depends(runtime_operator)):
     """Stop the automatic Paper runtime; never sends broker orders."""
     return {
         "mode": "paper",
