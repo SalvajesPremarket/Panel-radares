@@ -260,6 +260,11 @@ class TradeBotPaperRuntime:
                         active = {"symbol": symbol, "entry_price": float(price), "stop_loss": decision.get("stop_loss"), "quantity": quantity, "strategy": "Pullback corto ema50 ó 200 día ó semana"}
                         with self._lock:
                             self._short_position = active
+                    else:
+                        strategy.position_open = False
+                        strategy.entry_price = None
+                        strategy.stop_loss = None
+                        decision = {**decision, "accion": "WAIT", "estado": "capital_insuficiente", "motivo": "Capital Paper insuficiente para simular al menos una acción corta."}
                 elif action == "HOLD" and active:
                     new_stop = decision.get("stop_loss")
                     if new_stop is not None:
