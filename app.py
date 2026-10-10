@@ -4235,7 +4235,7 @@ pre {{ background:#1e1e1e; padding:25px; border-radius:8px; border:1px solid #33
         # Guardamos una fotografía del resultado REAL de este ciclo antes de publicar
         # la lista nueva. Esto evita perder candidatos cuando desaparecen en el siguiente ciclo.
         p_hist = dict(filtros_tf)
-        p_hist.update({"cruce_ema": "Hacia arriba", "top_n": 10, "orden": "Actualizado"})
+        p_hist.update({"top_n": 10, "orden": "Actualizado"})
         resultados_finales_hist = filtrar_resultados(enriquecidos, p_hist)
 
         # PRUEBA 6: iniciar/actualizar observaciones posteriores a la señal.
@@ -5313,9 +5313,9 @@ def _render_scanner():
     # (El registro de la temporalidad en el motor se hace más abajo, justo después de
     # armar params_ui, para entregarle junto con ella los filtros de esta pantalla.)
 
-    # Regla fija del scanner: la señal es siempre EMA20 hacia arriba.
-    # El selector sigue visible, pero no puede cambiar la lógica dura del motor.
-    ema_ui = "Hacia arriba"
+    # Respetar la dirección EMA20 elegida por el usuario; no imponer una dirección global.
+    if ema_ui not in ("Hacia arriba", "Hacia abajo", "Neutro", "Vela nueva sobre EMA20 + HH/HL"):
+        ema_ui = "Hacia arriba"
     # Las pestañas EMA20/50/200 son filtros reales (estado + condición).
     _estados_ok = ("Por encima", "Por debajo", "Neutro")
     if ema20_estado_ui not in _estados_ok:
