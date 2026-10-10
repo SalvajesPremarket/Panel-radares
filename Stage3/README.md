@@ -1,31 +1,37 @@
-# Stage 3 — Contrato de arquitectura
+# Stage 3 — Arquitectura e integración
 
-Stage 3 no es una segunda aplicación Streamlit. Es la capa de integración que permite que TradeScanner y BotTradeScanner trabajen juntos sin duplicar conexiones de mercado ni mezclar responsabilidades.
+Esta carpeta conserva el contrato de arquitectura; no es una segunda aplicación y no debe duplicar código ejecutable.
 
-## Componentes
+## Componentes activos
 
-1. TradeScanner: detecta candidatos y muestra los resultados del scanner.
-2. Market stream compartido: entrega datos de mercado al motor de velas.
-3. BotTradeScanner: consume candidatos/snapshots y ejecuta la estrategia LONG actual junto con sus controles de riesgo.
-4. webapp: servicios auxiliares de páginas, autenticación, cuenta y API de señales.
+1. **TradeScanner**: la aplicación Streamlit cuyo punto de entrada único es `/app.py`.
+2. **Motor de mercado compartido**: entrega datos de mercado al motor de velas.
+3. **BotTradeScanner**: estrategias LONG y SHORT en modo Paper, con controles de riesgo.
+4. **webapp**: interfaz web, autenticación, cuentas, API privada de señales y TradeBot.
+5. **PostgreSQL**: persistencia de cuentas, sesiones, señales y estado del simulador Paper manual.
 
-La estrategia SHORT no está implementada en esta fase y queda fuera del alcance actual.
+## Despliegue propio
 
-## Regla crítica
+La configuración preparada está concentrada en `deploy/self-host/`:
 
-Debe existir un único punto de entrada de Streamlit para el scanner: `/app.py`.
+- Docker Compose coordina web, scanner, PostgreSQL y proxy HTTPS.
+- Los puertos internos de aplicación y la base de datos no se publican directamente.
+- Caddy termina HTTPS para los subdominios del panel y del scanner.
+- El runtime automático de TradeBot permanece desactivado por defecto; la ejecución real no forma parte del despliegue.
 
-BotTradeScanner no debe depender de variables internas de Streamlit. La comunicación debe pasar por contratos explícitos, como `MotorVelasBridge`.
-
-El objetivo es soportar múltiples usuarios sin crear una conexión WebSocket de Alpaca por usuario ni duplicar el motor.
-
-## Estado
-
-La integración del motor de velas compartido con el bot LONG existe. El puente puede utilizar el market stream del scanner y mantiene límites de suscripción configurados en el código. El publisher de señales de la web es un canal aparte: su entrega depende de que endpoint y secreto estén configurados en el entorno.
-
-## Límites de esta fase
+## Reglas que no deben romperse
 
 - Mantener `app.py` como punto de entrada único de Streamlit.
-- No alterar filtros ni fórmulas del scanner desde la capa de integración.
-- Mantener el bot en PAPER mientras no exista una autorización explícita para otra modalidad.
-- No habilitar pagos ni ejecución LIVE como parte de la depuración documental.
+- No cambiar filtros ni fórmulas de TradeScanner desde la capa web.
+- Usar contratos explícitos entre Scanner, API y Bot.
+- No crear conexiones de mercado independientes por cada usuario si puede compartirse el stream.
+- Mantener las operaciones en Paper hasta completar pruebas de extremo a extremo y recibir autorización expresa para cualquier cambio de modalidad.
+
+## Validaciones pendientes antes de darlo por listo
+
+- Confirmar scanner → publicación → API → estrategia Paper con datos reales de mercado, sin órdenes reales.
+- Probar recuperación de señales y del estado Paper manual tras reinicios.
+- Definir recuperación segura para el estado del runtime automático y su posición Paper antes de depender de una operación continua.
+- Probar copia de seguridad y restauración de PostgreSQL.
+- Confirmar autenticación, permisos de usuarios, HTTPS, secretos y límites de recursos en el VPS.
+- No eliminar módulos antiguos solo por su nombre: verificar primero que no existan importaciones, rutas, workflows o instrucciones activas que dependan de ellos.
