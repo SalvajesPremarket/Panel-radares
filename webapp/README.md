@@ -9,15 +9,17 @@ Esta carpeta contiene la capa web auxiliar, separada del motor principal de Stre
 - `webapp/routes.py`: sirve `index.html`, `login.html`, `register.html`, `account/dashboard.html` y `scanner/index.html`.
 - `webapp/auth/`: autenticación y sesiones.
 - `webapp/account/`: página y endpoints de cuenta.
-- `webapp/api/`: API privada, señales, publisher y adaptador de integración.
+- `webapp/api/`: API privada de señales, servicio de señales y publisher.
 - `webapp/billing/README.md`: documentación de billing previsto; no es un servicio de pago implementado.
 - `webapp/product/` y `webapp/recommendations/`: documentación y esquema de recomendaciones.
 
-La estrategia, el riesgo y la ejecución/paper del bot están en `BotTradeScanner/`, fuera de esta carpeta. No existe un paquete `webapp/bot/` ni un directorio `webapp/database/` en la estructura actual.
+Los endpoints heredados `BotTradeScanner/api/server.py` y el adaptador `webapp/api/scanner_adapter.py` fueron retirados por no formar parte del flujo activo. La publicación existente está en `webapp/api/publisher.py`; no asumir que está operativa en producción sin verificar la configuración del endpoint y el secreto.
+
+La estrategia, el riesgo y la ejecución PAPER del bot están en `BotTradeScanner/`, fuera de esta carpeta. No existe un paquete `webapp/bot/` ni un directorio `webapp/database/` en la estructura actual.
 
 ## Base de datos persistente en Render
 
-La web usa PostgreSQL cuando la variable de entorno `DATABASE_URL` está configurada. SQLite queda reservado para desarrollo local. En Render, la aplicación ahora falla de forma explícita si falta `DATABASE_URL`, en lugar de guardar cuentas y sesiones en el disco efímero del servicio.
+La web usa PostgreSQL cuando la variable de entorno `DATABASE_URL` está configurada. SQLite queda reservado para desarrollo local. En Render, la aplicación falla de forma explícita si falta `DATABASE_URL`, en lugar de guardar cuentas y sesiones en el disco efímero del servicio.
 
 En el servicio Render `tradescanner-webapp`:
 
@@ -30,9 +32,9 @@ La base PostgreSQL debe estar activa y accesible antes de desplegar esta versió
 
 ## Separación y seguridad
 
-No mover ni reescribir `app.py` para agregar cuentas, pagos o el bot. El scanner y el bot deben comunicarse mediante contratos explícitos; el adaptador no debe cambiar fórmulas ni filtros por sí solo.
+No mover ni reescribir `app.py` para agregar cuentas, pagos o el bot. El scanner y el bot deben comunicarse mediante contratos explícitos; el publisher no debe cambiar fórmulas ni filtros por sí solo.
 
-Las claves de mercado y broker no deben exponerse al navegador ni incluirse en archivos públicos. La ejecución real contra un broker requiere autorización explícita, controles de riesgo, auditoría e interruptor de emergencia. El bot actual debe tratarse como paper/validación hasta verificar la configuración de ejecución.
+Las claves de mercado y broker no deben exponerse al navegador ni incluirse en archivos públicos. La interfaz operativa actual debe tratar el bot como PAPER. La ejecución real contra un broker requiere una etapa separada, controles de riesgo, auditoría e interruptor de emergencia. Los pagos no están habilitados por esta documentación.
 
 ## Arranque de la Web App
 
