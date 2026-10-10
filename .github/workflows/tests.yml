@@ -47,5 +47,6 @@ jobs:
 
       - name: Validate and build self-hosted containers
         run: |
+          bash -n deploy/self-host/backup-postgres.sh
           docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml config -q
           docker compose --env-file deploy/self-host/.env.example -f deploy/self-host/compose.yaml build web scanner
