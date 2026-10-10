@@ -1,0 +1,9 @@
+{$WEB_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy web:8000
+}
+
+{$SCANNER_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy scanner:8501
+}
