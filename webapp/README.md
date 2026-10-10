@@ -28,7 +28,7 @@ En el servicio Render `tradescanner-webapp`:
 3. No pegues la URL de conexión ni contraseñas en GitHub, archivos de código o mensajes públicos.
 4. Comprueba el estado y la fecha de expiración de la base en el panel de Render. Las bases del plan gratuito pueden expirar; planifica una actualización o migración antes de la fecha indicada para no perder datos.
 
-La base PostgreSQL debe estar activa y accesible antes de desplegar. No configures `DATABASE_URL` con una URL de ejemplo. Las señales y el simulador Paper manual son persistentes; el estado de la estrategia corta Paper se restaura al reiniciar. La recuperación del estado interno de la estrategia LONG sigue pendiente antes de depender de operación automática continua.
+La base PostgreSQL debe estar activa y accesible antes de desplegar. No configures `DATABASE_URL` con una URL de ejemplo. Las señales, el simulador Paper manual y los estados de las estrategias automáticas LONG/SHORT Paper se guardan para recuperarse tras reinicios. Esta recuperación debe validarse de extremo a extremo con datos de mercado antes de depender de operación automática continua.
 
 ## Separación y seguridad
 
