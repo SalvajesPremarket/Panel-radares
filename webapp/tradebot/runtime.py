@@ -330,21 +330,51 @@ class TradeBotPaperRuntime:
         if state.get("strategy") != "Pullback corto ema50 ó 200 día ó semana":
             return {}
         raw_position = state.get("short_position")
-        if raw_position and self._operational_config.get("estrategia") != state.get("strategy"):
-            raise RuntimeError("Hay una posición corta Paper guardada. Selecciona la estrategia Pullback corto para recuperar su seguimiento.")
+        if raw_position is not None:
+            if not isinstance(raw_position, dict):
+                raise RuntimeError("La posición corta Paper guardada tiene un formato inválido; recuperación bloqueada.")
+            required = {"symbol", "entry_price", "stop_loss", "quantity", "strategy"}
+            if not required.issubset(raw_position):
+                raise RuntimeError("La posición corta Paper guardada está incompleta; recuperación bloqueada.")
+            try:
+                valid_position = (
+                    bool(str(raw_position["symbol"]).strip())
+                    and float(raw_position["entry_price"]) > 0
+                    and float(raw_position["stop_loss"]) > 0
+                    and int(raw_position["quantity"]) > 0
+                    and raw_position["strategy"] == state.get("strategy")
+                )
+            except (TypeError, ValueError):
+                valid_position = False
+            if not valid_position:
+                raise RuntimeError("La posición corta Paper guardada no supera la validación; recuperación bloqueada.")
+            if self._operational_config.get("estrategia") != state.get("strategy"):
+                raise RuntimeError("Hay una posición corta Paper guardada. Selecciona la estrategia Pullback corto para recuperar su seguimiento.")
         strategy_state = state.get("strategy_state") or {}
+        if not isinstance(strategy_state, dict):
+            raise RuntimeError("El estado de la estrategia corta Paper está corrupto; recuperación bloqueada.")
+        decisions = state.get("strategy_decisions") or []
+        if not isinstance(decisions, list) or any(not isinstance(item, dict) for item in decisions):
+            raise RuntimeError("El historial de decisiones cortas Paper está corrupto; recuperación bloqueada.")
+        last_decision = state.get("last_strategy_decision")
+        if last_decision is not None and not isinstance(last_decision, dict):
+            raise RuntimeError("La última decisión corta Paper está corrupta; recuperación bloqueada.")
+        try:
+            candidate_count = int(state.get("candidate_count") or 0)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError("El contador de candidatos Paper está corrupto; recuperación bloqueada.") from exc
         for key, value in strategy_state.items():
             if key == "last_previous_candle" and isinstance(value, list):
                 value = tuple(value)
             if hasattr(strategy, key):
                 setattr(strategy, key, value)
         with self._lock:
-            self._short_position = raw_position if isinstance(raw_position, dict) else None
-            self._last_strategy_decision = state.get("last_strategy_decision")
-            self._strategy_decisions = list(state.get("strategy_decisions") or [])[-100:]
+            self._short_position = dict(raw_position) if raw_position is not None else None
+            self._last_strategy_decision = last_decision
+            self._strategy_decisions = decisions[-100:]
             self._selected_symbol = str(state.get("selected_symbol") or "")
             self._selected_confidence = state.get("selected_confidence")
-            self._candidate_count = int(state.get("candidate_count") or 0)
+            self._candidate_count = candidate_count
         return state
 
     def _run_pullback_corto(self, bridge, store, strategy) -> None:
