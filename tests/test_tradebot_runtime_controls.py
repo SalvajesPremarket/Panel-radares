@@ -104,3 +104,20 @@ def test_pullback_paper_runtime_state_survives_restart(tmp_path, monkeypatch):
     assert restored_strategy.stop_loss == 12.8
     assert restored_strategy.last_previous_candle == (12.4, 13.0, 12.0, 12.6)
     assert restarted._strategy_decisions[-1]["action"] == "SHORT"
+
+def test_runtime_ignores_stale_scanner_candidates():
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    fresh = (now - timedelta(seconds=20)).isoformat()
+    stale = (now - timedelta(minutes=10)).isoformat()
+    runtime = TradeBotPaperRuntime()
+
+    result = runtime._fresh_signals([
+        {"symbol": "AAPL", "timestamp": fresh},
+        {"symbol": "MSFT", "timestamp": stale},
+        {"symbol": "NVDA"},
+        {"symbol": "TSLA", "timestamp": "not-a-timestamp"},
+    ])
+
+    assert [item["symbol"] for item in result] == ["AAPL"]
