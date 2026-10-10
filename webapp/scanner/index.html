@@ -52,7 +52,7 @@ async function load(){
  document.querySelector('#status').innerHTML=[
   ['Acceso','✓ autorizado','ok'],
   ['Adaptador API',s.scanner==='available'?'Accesible':'No disponible',s.scanner==='available'?'ok':'bad'],
-  ['Publicación de señales',s.signal_ingest_configured?'Configurada':'Pendiente de configurar',s.signal_ingest_configured?'ok':'warn'],
+  ['Clave receptora API',s.signal_ingest_configured?'Configurada en la web':'Pendiente en la web',s.signal_ingest_configured?'ok':'warn'],
   ['Origen',s.source,''],
   ['Scanner en vivo',s.live_ui_configured?'Enlace configurado':'No configurado',s.live_ui_configured?'ok':'warn']
  ].map(x=>'<article class="card"><div class="muted">'+esc(x[0])+'</div><div class="value '+x[2]+'">'+esc(x[1])+'</div></article>').join('');
