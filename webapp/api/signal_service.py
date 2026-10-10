@@ -21,6 +21,7 @@ class Signal:
     signal_id: str = ""
 
     def __post_init__(self):
+        self.symbol = self.symbol.strip().upper()
         if not self.signal_id:
             from uuid import uuid4
             self.signal_id = uuid4().hex
