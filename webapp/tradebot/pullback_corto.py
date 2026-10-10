@@ -140,7 +140,7 @@ class PullbackCortoEMA:
             self.last_previous_candle = candle_signature
             if self.position_open:
                 # For a short, only lower the stop; never move it farther away.
-                if prev_close > (self.entry_price or 0):
+                if prev_close > 0:
                     self.stop_loss = min(self.stop_loss, prev_close) if self.stop_loss is not None else prev_close
                 # If the just-closed candle reached support/autocorrection, exit.
                 body_mid = (prev_open + prev_close) / 2
