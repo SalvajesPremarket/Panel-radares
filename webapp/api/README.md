@@ -1,9 +1,7 @@
-# API privada y adaptador del scanner
+# API privada de TradeScanner
 
-La API comercial consume señales normalizadas. scanner_adapter.py define la frontera con el motor real.
+La API comercial recibe señales normalizadas en `webapp/api/server.py` y las almacena mediante `webapp/api/signal_service.py`.
 
-El adaptador recibe una instancia del servicio scanner ya existente y lee servicio.resultados. No importa app.py, no crea otro scanner y no cambia ningún filtro.
+El scanner productivo publica sus resultados finales desde `app.py` mediante `webapp/api/publisher.py`. El envío usa `TRADESCANNER_SIGNAL_INGEST_URL` y `TRADESCANNER_SIGNAL_INGEST_SECRET`.
 
-La integración final debe invocar publish_service_results(servicio, timeframe) desde el ciclo apropiado del motor. Esa llamada se hará solamente cuando se autorice explícitamente una modificación de app.py.
-
-Mientras tanto, la API y el bot pueden probarse con publish_signal() sin tocar el motor productivo.
+No se importa `app.py` desde la API ni se crea un segundo scanner. La integración de señales se mantiene en un solo sentido: el scanner existente publica candidatos finales y el servicio web los recibe.
