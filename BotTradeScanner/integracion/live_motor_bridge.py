@@ -54,6 +54,7 @@ class MotorVelasBridge:
         self._simbolos_deseados = set()
         self._simbolos_deseados_ordenados = []
         self._ultima_error = None
+        self._estado_preparacion = "Esperando candidatos"
         self._proximo_reintento_ts = 0.0
         self._cooldown_reconexion_seg = 120.0
 
@@ -144,6 +145,12 @@ class MotorVelasBridge:
                 self._simbolos_solicitados.add(symbol)
 
         if retirar or nuevos:
+            if nuevos:
+                with self._lock:
+                    self._estado_preparacion = f"Preparando historial: {\", \".join(nuevos)}"
+            elif retirar:
+                with self._lock:
+                    self._estado_preparacion = "Retirando símbolos anteriores"
             if stream_compartido:
                 # Keep only already-prepared desired symbols while the worker
                 # loads history for new candidates. This unsubscribes retired
@@ -184,8 +191,11 @@ class MotorVelasBridge:
         # Solo una precarga/suscripcion a la vez para no disparar llamadas
         # historicas concurrentes contra Alpaca.
         with self._subscribe_lock:
+            etapa = "esperando el stream del motor"
             try:
                 if getattr(self, "market_stream", None) is None:
+                    with self._lock:
+                        self._estado_preparacion = etapa
                     self._esperar_stream()
 
                 for symbol in retirar:
@@ -196,10 +206,15 @@ class MotorVelasBridge:
                         self._simbolos_cargados.discard(symbol)
 
                 if nuevos:
+                    etapa = f"precargando historial para {\", \".join(nuevos)}"
+                    with self._lock:
+                        self._estado_preparacion = etapa
                     self.motor.precargar_historial(nuevos, cantidad=300)
 
                 for symbol in nuevos:
+                    etapa = f"registrando símbolo {symbol}"
                     with self._lock:
+                        self._estado_preparacion = etapa
                         sigue_deseado = symbol in self._simbolos_deseados
                     if not sigue_deseado:
                         with self._lock:
@@ -221,10 +236,17 @@ class MotorVelasBridge:
                         desired_order = list(self._simbolos_deseados_ordenados)
                         prepared = all(s in self._simbolos_cargados for s in desired_order)
                     if prepared:
+                        etapa = f"solicitando suscripción WebSocket: {\", \".join(desired_order)}"
+                        with self._lock:
+                            self._estado_preparacion = etapa
                         self.market_stream.start(desired_order)
-            except Exception as exc:
-                self._ultima_error = str(exc)
                 with self._lock:
+                    self._ultima_error = None
+                    self._estado_preparacion = "Historial preparado; suscripción solicitada" if desired_order else "Esperando candidatos"
+            except Exception as exc:
+                self._ultima_error = f"{etapa}: {type(exc).__name__}: {exc}"[:500]
+                with self._lock:
+                    self._estado_preparacion = f"ERROR en {etapa}"
                     for symbol in nuevos:
                         self._simbolos_solicitados.discard(symbol)
 
@@ -266,6 +288,7 @@ class MotorVelasBridge:
             "last_consumer_error": str(salud.get("last_consumer_error") or "") if stream_compartido is not None else "",
             "ultimo_trade": getattr(self.motor, "ultimo_trade", None),
             "error": self._ultima_error or error_stream,
+            "estado_preparacion": self._estado_preparacion,
             "limite_simbolos": self.MAX_SIMBOLOS_BASIC,
             "stream_compartido": stream_compartido is not None,
             "feed": str(salud.get("feed") or "") if stream_compartido is not None else "",
