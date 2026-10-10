@@ -24,6 +24,8 @@ class TradeBotPaperRuntime:
         self._started_at: float | None = None
         self._last_sync_at: float | None = None
         self._candidate_count = 0
+        self._selected_symbol = ""
+        self._selected_confidence: float | None = None
         self._manual_requested = False
         self._operational_config = {
             "capital_asignado": 600.0,
@@ -137,10 +139,46 @@ class TradeBotPaperRuntime:
 
             while not self._stop.wait(5.0):
                 signals = store.list(limit=100)
-                # Strategy remains responsible for every entry/exit decision.
-                bot.sync_signals(signals)
+                # Select the highest-confidence scanner symbol for new entries.
+                # Existing LONG states remain managed by BotLongRealtime for exits.
+                candidates_by_symbol: dict[str, dict] = {}
+                for signal in signals:
+                    symbol = str(signal.get("symbol") or signal.get("simbolo") or signal.get("ticker") or "").strip().upper()
+                    if not symbol:
+                        continue
+                    try:
+                        confidence = float(signal.get("confidence") or 0)
+                    except (TypeError, ValueError):
+                        confidence = 0.0
+                    current = candidates_by_symbol.get(symbol)
+                    timestamp = str(signal.get("timestamp") or signal.get("actualizado") or "")
+                    current_timestamp = str((current or {}).get("timestamp") or (current or {}).get("actualizado") or "")
+                    if current is None:
+                        candidates_by_symbol[symbol] = signal
+                    else:
+                        try:
+                            current_confidence = float(current.get("confidence") or 0)
+                        except (TypeError, ValueError):
+                            current_confidence = 0.0
+                        if (confidence, timestamp) > (current_confidence, current_timestamp):
+                            candidates_by_symbol[symbol] = signal
+                def ranking(item):
+                    signal = item[1]
+                    try:
+                        confidence = float(signal.get("confidence") or 0)
+                    except (TypeError, ValueError):
+                        confidence = 0.0
+                    return confidence, str(signal.get("timestamp") or signal.get("actualizado") or "")
+                ranked = sorted(candidates_by_symbol.items(), key=ranking, reverse=True)
+                best = ranked[0] if ranked else None
+                bot.sync_signals([best[1]] if best else [])
                 with self._lock:
-                    self._candidate_count = len({str(s.get("symbol") or s.get("simbolo") or "").upper() for s in signals if s.get("symbol") or s.get("simbolo")})
+                    self._candidate_count = len(candidates_by_symbol)
+                    self._selected_symbol = best[0] if best else ""
+                    try:
+                        self._selected_confidence = float(best[1].get("confidence")) if best and best[1].get("confidence") is not None else None
+                    except (TypeError, ValueError):
+                        self._selected_confidence = None
                     self._last_sync_at = time.time()
         except Exception as exc:
             with self._lock:
@@ -157,6 +195,8 @@ class TradeBotPaperRuntime:
             started_at = self._started_at
             last_sync_at = self._last_sync_at
             candidate_count = self._candidate_count
+            selected_symbol = self._selected_symbol
+            selected_confidence = self._selected_confidence
             manual_requested = self._manual_requested
             operational_config = dict(self._operational_config)
         bridge_status = {}
@@ -179,6 +219,8 @@ class TradeBotPaperRuntime:
             "real_trading_enabled": False,
             "broker_order_executor_created": False,
             "candidate_count": candidate_count,
+            "selected_symbol": selected_symbol,
+            "selected_confidence": selected_confidence,
             "started_at": started_at,
             "last_signal_sync_at": last_sync_at,
             "last_error": last_error or bridge_status.get("error", ""),

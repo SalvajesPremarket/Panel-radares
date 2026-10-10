@@ -2,10 +2,34 @@
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradeBot 🤖 · Paper Trading</title>
 <style>
 :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#07111f;color:#eef4ff;font-family:Inter,system-ui,sans-serif}.wrap{width:min(1120px,92vw);margin:26px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}.links{display:flex;gap:10px;flex-wrap:wrap}.links a,a{color:#8bb5ff;text-decoration:none}.links a,button{padding:9px 12px;border:1px solid #30455f;border-radius:9px;background:#12243a;color:#eef4ff;cursor:pointer}.brand{font-size:clamp(28px,5vw,38px);font-weight:850;margin:18px 0 5px}.muted{color:#9fb0c6}.notice{margin:18px 0;padding:16px;border:1px solid #8b6930;border-radius:13px;background:#251e10;color:#ffdfa0;line-height:1.5}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:13px;margin:16px 0}.card{background:#0d1b2d;border:1px solid #20344e;border-radius:15px;padding:17px;min-width:0}.value{font-size:21px;font-weight:750;margin-top:7px;overflow-wrap:anywhere}.good{color:#7ee2ae}.warn{color:#ffd27d}.bad{color:#ff9d9d}.section{margin-top:18px}.section h2{font-size:19px}.formgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}.field label{display:block;font-size:13px;color:#9fb0c6;margin-bottom:6px}.field input,.field select{width:100%;padding:11px;border-radius:8px;border:1px solid #30455f;background:#07111f;color:#eef4ff}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}.primary{background:#d8f3e5;color:#07111f;border-color:#d8f3e5;font-weight:750}.statusmsg{margin-top:12px;min-height:24px}.listitem{padding:12px 0;border-top:1px solid #20344e;overflow-wrap:anywhere}.listitem:first-child{border-top:0}.empty{color:#9fb0c6;padding:14px 0}.small{font-size:12px;color:#9fb0c6}footer{padding:24px 0;color:#8296ad;font-size:12px}
+
+/* High-contrast professional light theme: dark text on light surfaces. */
+:root{color-scheme:light}
+body{background:#eef2f7;color:#172033}
+.links a,a{color:#1d4ed8}
+.links a,button{border-color:#cbd5e1;background:#e2e8f0;color:#172033}
+.links a:hover,button:hover{background:#cbd5e1}
+.brand{color:#0f172a}
+.muted{color:#475569}
+.notice{background:#fff7ed;border-color:#fdba74;color:#9a3412}
+.card{background:#fff;border-color:#cbd5e1;color:#172033;box-shadow:0 3px 12px rgba(15,23,42,.045)}
+.value{color:#0f172a}
+.good{color:#166534}
+.warn{color:#92400e}
+.bad{color:#b91c1c}
+.field label{color:#334155}
+.field input,.field select{background:#fff;color:#0f172a;border-color:#94a3b8}
+.field input:focus,.field select:focus{outline:2px solid #2563eb;outline-offset:1px;border-color:#2563eb}
+.primary{background:#123b68;color:#fff;border-color:#123b68}
+.primary:hover{background:#174f89}
+.statusmsg{color:#172033}
+.listitem{border-color:#e2e8f0;color:#172033}
+.empty,.small,footer{color:#475569}
+
 </style></head><body><main class="wrap">
 <header class="top"><div class="links"><a href="/">← TradeScanner &amp; TradeBot</a><a href="/account">Mi cuenta</a><a href="https://jd6gih.streamlit.app" target="_blank" rel="noopener">Abrir TradeScanner ↗</a></div><button id="logout">Cerrar sesión</button></header>
 <h1 class="brand">🤖 TradeBot</h1><div class="muted">Panel propio del bot · simulación Paper Trading</div>
-<div class="notice"><strong>Modo seguro: PAPER.</strong> Esta pantalla no se conecta a un broker ni envía órdenes reales. La simulación manual está conectada; el motor automático de estrategia y su feed de mercado todavía no están configurados. Las operaciones simuladas se guardan en memoria y se reinician si el servicio se reinicia.</div>
+<div class="notice"><strong>Modo seguro: PAPER.</strong> No se envían órdenes reales. Al encender, TradeBot toma el candidato con mayor puntuación de confianza entre las señales recibidas de TradeScanner y aplica la estrategia elegida. Si no llegan señales o no hay datos de mercado válidos, no debe abrir operaciones. La conexión de señales y el feed deben estar configurados en Render.</div>
 <div class="grid" id="status"><div class="card">Cargando estado…</div></div>
 <section class="card section"><h2>Control automático · PAPER</h2><p class="muted">Configura una vez los límites y enciende el motor automático. En esta fase solo opera en simulación; las órdenes reales están deshabilitadas.</p>
 <form id="autoForm"><div class="formgrid">
@@ -14,13 +38,7 @@
 <div class="field"><label for="slPct">Stop Loss (%)</label><input id="slPct" type="number" min="0.1" max="50" step="0.1" value="2" required></div>
 <div class="field"><label for="tpPct">Take Profit (%)</label><input id="tpPct" type="number" min="0.1" max="100" step="0.1" value="4" required></div>
 </div><div class="actions"><button class="primary" id="startAuto" type="button">ENCENDER PAPER</button><button id="stopAuto" type="button">APAGAR</button><button id="refreshAuto" type="button">Actualizar estado</button></div><div id="autoResult" class="statusmsg" role="status"></div></form><div id="autoStatus" class="small">Consultando estado del motor…</div></section>
-<section class="card section"><h2>Probar operación simulada</h2><p class="muted">Registra una entrada o salida ficticia en el simulador. No afecta ninguna cuenta de corretaje.</p>
-<form id="paperForm"><div class="formgrid">
-<div class="field"><label for="symbol">Símbolo</label><input id="symbol" name="symbol" maxlength="20" value="AAPL" required></div>
-<div class="field"><label for="action">Acción simulada</label><select id="action" name="action"><option value="BUY">BUY · Abrir posición</option><option value="EXIT">EXIT · Cerrar posición</option><option value="HOLD">HOLD · Mantener</option><option value="WATCH">WATCH · Vigilar</option><option value="WAIT">WAIT · Esperar</option></select></div>
-<div class="field"><label for="price">Precio de referencia ($)</label><input id="price" name="price" type="number" min="0.01" step="0.01" value="10" required></div>
-<div class="field"><label for="stop">Stop Loss ($, obligatorio en BUY)</label><input id="stop" name="stop_loss" type="number" min="0.01" step="0.01" value="9"></div>
-</div><div class="actions"><button class="primary" type="submit">Evaluar en Paper</button><button type="button" id="refresh">Actualizar panel</button></div><div id="result" class="statusmsg" role="status"></div></form></section>
+<section class="card section" id="strategySection"><h2>Estrategia para hoy</h2><p class="muted">Elige la estrategia; TradeBot buscará automáticamente el mejor activo entre los resultados que reciba de TradeScanner. No tienes que escribir símbolos ni escoger acciones manualmente.</p><div class="formgrid"><div class="field"><label for="strategy">Estrategia</label><select id="strategy" name="strategy"><option value="LongSalvajesPreMarket">Long Salvajes PreMarket</option></select></div><div class="field"><label>Selección de activo</label><div class="value">Automática · mayor confianza</div><div class="small">Prioriza la puntuación de TradeScanner y conserva la estrategia de entrada del bot.</div></div></div><div id="strategyInfo" class="statusmsg" role="status">Estrategia disponible: Long Salvajes PreMarket.</div><div class="actions"><button type="button" id="refresh">Actualizar panel</button></div></section>
 <div class="grid section"><section class="card"><h2>Posiciones simuladas</h2><div id="positions" class="empty">Cargando…</div></section><section class="card"><h2>Historial reciente</h2><div id="decisions" class="empty">Cargando…</div></section></div>
 <footer>TradeBot 🤖 · Sin órdenes reales · Facturación desactivada</footer></main>
 <script>
@@ -32,10 +50,10 @@ async function load(){
  const res=await get('/api/v1/tradebot/status');
  if(res.status===401){location.href='/login';return;}
  if(!res.ok){document.querySelector('#status').innerHTML='<div class="card bad">Acceso no activo o no fue posible consultar TradeBot. Revisa tu sesión y el acceso de la cuenta.</div>';return;}
- const d=await res.json(),s=d.status,auto=d.automatic_runtime||{};
- if(auto.config_operativa){document.querySelector('#capital').value=auto.config_operativa.capital_asignado;document.querySelector('#allocation').value=auto.config_operativa.porcentaje_operacion;document.querySelector('#slPct').value=auto.config_operativa.stop_loss_pct;document.querySelector('#tpPct').value=auto.config_operativa.take_profit_pct;}
+ const d=await res.json(),s=d.status,auto=d.automatic_runtime||d.runtime||{};
+ if(auto.config_operativa){document.querySelector('#capital').value=auto.config_operativa.capital_asignado;document.querySelector('#allocation').value=auto.config_operativa.porcentaje_operacion;document.querySelector('#slPct').value=auto.config_operativa.stop_loss_pct;document.querySelector('#tpPct').value=auto.config_operativa.take_profit_pct;document.querySelector('#strategy').value=auto.config_operativa.estrategia||'LongSalvajesPreMarket';}
  const autoLabel=auto.state==='running'?'ENCENDIDO · PAPER':(auto.state==='needs_credentials'?'FALTAN CREDENCIALES':(auto.state==='error'?'ERROR DEL MOTOR':(auto.state==='stopped'?'APAGADO':'APAGADO / PENDIENTE')));
- document.querySelector('#autoStatus').textContent='Estado: '+autoLabel+' · Feed: '+(auto.market_data_connected?'conectado':'sin conexión')+' · Candidatos: '+(auto.candidate_count||0)+' · Órdenes reales: DESACTIVADAS'+(auto.last_error?' · '+auto.last_error:'');
+ document.querySelector('#autoStatus').textContent='Estado: '+autoLabel+' · Feed: '+(auto.market_data_connected?'conectado':'sin conexión')+' · Candidatos TradeScanner: '+(auto.candidate_count||0)+' · Mejor candidato: '+(auto.selected_symbol||'esperando señales')+(auto.selected_confidence!=null?' ('+Number(auto.selected_confidence).toFixed(0)+' puntos)':'')+' · Órdenes reales: DESACTIVADAS'+(auto.last_error?' · '+auto.last_error:'');
  document.querySelector('#status').innerHTML=[
  ['Modo','PAPER · simulación','good'],
  ['Simulador',d.paper_simulator_connected?'Conectado':'No disponible',d.paper_simulator_connected?'good':'bad'],
@@ -48,15 +66,15 @@ async function load(){
 }
 async function loadPositions(){const r=await get('/api/v1/tradebot/positions');if(!r.ok)return;const d=await r.json();const el=document.querySelector('#positions');if(!d.items.length){el.innerHTML='<div class="empty">No hay posiciones simuladas abiertas.</div>';return;}el.innerHTML=d.items.map(p=>'<div class="listitem"><strong>'+esc(p.simbolo)+'</strong> · '+esc(p.cantidad)+' acciones<br>Entrada: '+money(p.precio_entrada)+' · Stop: '+money(p.stop_loss)+'<div class="small">Exposición: '+money(p.capital_expuesto)+' · '+esc(p.estrategia)+'</div></div>').join('');}
 async function loadDecisions(){const r=await get('/api/v1/tradebot/decisions?limit=30');if(!r.ok)return;const d=await r.json();const el=document.querySelector('#decisions');if(!d.items.length){el.innerHTML='<div class="empty">Aún no hay evaluaciones en Paper.</div>';return;}el.innerHTML=d.items.map(x=>'<div class="listitem"><strong>'+esc(x.simbolo||'—')+' · '+esc(x.action.toUpperCase())+'</strong> · '+esc(x.mode)+'<div class="small">'+esc(x.reason)+' · '+esc(x.created_at)+'</div><div class="small">Precio: '+money(x.precio)+' · P/L: '+money(x.pnl_realizado)+'</div></div>').join('');}
-document.querySelector('#paperForm').addEventListener('submit',async e=>{e.preventDefault();const form=e.currentTarget;const action=form.elements.action.value;const payload={symbol:form.symbol.value,action,price:Number(form.price.value),stop_loss:form.stop_loss.value?Number(form.stop_loss.value):null};const out=document.querySelector('#result');out.textContent='Procesando simulación…';const r=await get('/api/v1/tradebot/evaluate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const d=await r.json().catch(()=>({detail:'Respuesta no válida'}));if(!r.ok){out.textContent=d.detail||'No fue posible evaluar la simulación.';return;}out.textContent='Resultado Paper: '+d.result.action.toUpperCase()+' · '+d.result.reason;await load();});
+
 document.querySelector('#refresh').onclick=load;
 async function autoAction(path){
  const out=document.querySelector('#autoResult');out.textContent='Procesando…';
  let opts={method:'POST',headers:{'Content-Type':'application/json'}};
- if(path.endsWith('/start')) opts.body=JSON.stringify({capital_asignado:Number(document.querySelector('#capital').value),porcentaje_operacion:Number(document.querySelector('#allocation').value),stop_loss_pct:Number(document.querySelector('#slPct').value),take_profit_pct:Number(document.querySelector('#tpPct').value),estrategia:'LongSalvajesPreMarket'});
+ if(path.endsWith('/start')) opts.body=JSON.stringify({capital_asignado:Number(document.querySelector('#capital').value),porcentaje_operacion:Number(document.querySelector('#allocation').value),stop_loss_pct:Number(document.querySelector('#slPct').value),take_profit_pct:Number(document.querySelector('#tpPct').value),estrategia:document.querySelector('#strategy').value});
  const r=await get(path,opts);const d=await r.json().catch(()=>({detail:'Respuesta no válida'}));
  if(!r.ok){out.textContent=d.detail||'No fue posible cambiar el estado del motor.';await load();return;}
- out.textContent=path.endsWith('/start')?'Solicitud de encendido enviada. Verifica feed y candidatos antes de confiar en la simulación.':'Solicitud de apagado enviada.';
+ out.textContent=path.endsWith('/start')?'Solicitud de encendido enviada con estrategia '+document.querySelector('#strategy').selectedOptions[0].text+'. TradeBot elegirá el mejor candidato recibido de TradeScanner.':'Solicitud de apagado enviada.';
  await load();
 }
 document.querySelector('#startAuto').onclick=()=>autoAction('/api/v1/tradebot/start');
