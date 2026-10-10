@@ -1,12 +1,19 @@
 <!doctype html>
-<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradeScanner — Scanner</title>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TradeBot 🤖</title>
 <style>
-body{margin:0;background:#07111f;color:#eef4ff;font-family:Inter,system-ui,sans-serif}.wrap{width:min(1180px,92vw);margin:28px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:16px}.muted{color:#9fb0c6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:20px 0}.card{background:#0d1b2d;border:1px solid #20344e;border-radius:16px;padding:18px}.value{font-size:21px;font-weight:750;margin-top:7px}.ok{color:#7ee2ae}.warn{color:#ffd27d}.bad{color:#ff9d9d}button{padding:10px 14px;border:1px solid #30455f;border-radius:9px;background:#12243a;color:white;cursor:pointer}a{color:#8bb5ff;text-decoration:none}.signal{border-top:1px solid #20344e;padding:14px 0}.signal:first-child{border-top:0}.meta{font-size:13px;color:#9fb0c6;margin-top:5px}.empty{text-align:center;padding:35px 10px;color:#9fb0c6}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+body{margin:0;background:#07111f;color:#eef4ff;font-family:Inter,system-ui,sans-serif}.wrap{width:min(1180px,92vw);margin:28px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}.toplinks{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.botbrand{font-size:clamp(27px,5vw,36px);font-weight:850;letter-spacing:.3px;margin:8px 0}.robot{display:inline-flex;align-items:center;justify-content:center;margin-right:8px;font-size:.92em;filter:drop-shadow(0 0 8px #3a8fff55)}.muted{color:#9fb0c6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:20px 0}.card{background:#0d1b2d;border:1px solid #20344e;border-radius:16px;padding:18px}.value{font-size:21px;font-weight:750;margin-top:7px}.ok{color:#7ee2ae}.warn{color:#ffd27d}.bad{color:#ff9d9d}button{padding:10px 14px;border:1px solid #30455f;border-radius:9px;background:#12243a;color:white;cursor:pointer}a{color:#8bb5ff;text-decoration:none}.toplinks a{padding:8px 10px;border:1px solid #263d59;border-radius:9px}.signal{border-top:1px solid #20344e;padding:14px 0}.signal:first-child{border-top:0}.meta{font-size:13px;color:#9fb0c6;margin-top:5px}.empty{text-align:center;padding:35px 10px;color:#9fb0c6}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 </style></head><body><main class="wrap">
-<div class="top"><div><a href="/account">← Dashboard</a><h1>Scanner privado</h1><div class="muted" id="welcome"></div></div><button id="logout">Cerrar sesión</button></div>
+<div class="top">
+  <div>
+    <div class="toplinks"><a href="/account">← Dashboard</a><a href="https://jd6gih.streamlit.app" target="_blank" rel="noopener">Abrir TradeScanner ↗</a></div>
+    <h1 class="botbrand"><span class="robot" aria-hidden="true">🤖</span>TradeBot</h1>
+    <div class="muted" id="welcome">Panel del bot · acceso protegido</div>
+  </div>
+  <button id="logout">Cerrar sesión</button>
+</div>
 <div class="grid" id="status"></div>
-<section class="card" id="liveWrap" style="display:none"><div class="toolbar"><div><h2 style="margin:0">Scanner en vivo</h2><div class="muted">El Scanner real se abre directamente. El motor sigue separado del Web App.</div></div><a id="openLive" target="_blank" rel="noopener">Abrir TradeScanner ↗</a></div></section>
-<section class="card"><div class="toolbar"><div><h2 style="margin:0">Señales</h2><div class="muted">Datos publicados por el adaptador privado del scanner.</div></div><button id="refresh">Actualizar</button></div><div id="signals" class="empty">Cargando…</div></section>
+<section class="card" id="liveWrap" style="display:none"><div class="toolbar"><div><h2 style="margin:0">TradeScanner en vivo</h2><div class="muted">El scanner real se abre directamente. El motor sigue separado de la aplicación web.</div></div><a id="openLive" target="_blank" rel="noopener">Abrir TradeScanner ↗</a></div></section>
+<section class="card"><div class="toolbar"><div><h2 style="margin:0">Señales de TradeScanner</h2><div class="muted">Señales publicadas por el adaptador privado del scanner.</div></div><button id="refresh">Actualizar</button></div><div id="signals" class="empty">Cargando…</div></section>
 </main>
 <script>
 async function get(url){return fetch(url,{credentials:'include'});}
@@ -21,7 +28,7 @@ async function load(){
  const s=await st.json();
  document.querySelector('#status').innerHTML=[
   ['Acceso','✓ autorizado','ok'],
-  ['Scanner','✓ '+s.scanner,'ok'],
+  ['TradeScanner','✓ '+s.scanner,'ok'],
   ['Origen',s.source,''],
   ['Integridad','app.py aislado','ok'],
   ['Vista en vivo',s.live_ui_configured?'✓ configurada':'Pendiente de configurar',s.live_ui_configured?'ok':'warn']
@@ -34,7 +41,7 @@ async function load(){
  const sr=await get('/api/v1/signals?limit=100');
  if(!sr.ok){document.querySelector('#signals').innerHTML='<span class="bad">No fue posible consultar las señales.</span>';return;}
  const data=await sr.json(); const items=data.items||[];
- if(!items.length){document.querySelector('#signals').innerHTML='<div class="empty"><strong>Sin señales por ahora</strong><br>El adaptador está accesible, pero todavía no hay señales publicadas por el scanner.</div>';return;}
+ if(!items.length){document.querySelector('#signals').innerHTML='<div class="empty"><strong>Sin señales por ahora</strong><br>El adaptador está accesible, pero todavía no hay señales publicadas por TradeScanner.</div>';return;}
  document.querySelector('#signals').className='';
  document.querySelector('#signals').innerHTML=items.map(x=>'<div class="signal"><div><strong>'+esc(x.symbol)+'</strong> · '+esc(x.signal_type)+' · '+esc(x.timeframe)+'</div><div class="meta">Precio: '+esc(x.price)+' · Confianza: '+esc(x.confidence)+' · Fuente: '+esc(x.source)+'</div><div class="meta">'+esc(x.timestamp)+'</div></div>').join('');
 }
