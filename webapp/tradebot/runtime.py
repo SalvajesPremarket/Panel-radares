@@ -70,9 +70,14 @@ class TradeBotPaperRuntime:
         if config["estrategia"] not in {"LongSalvajesPreMarket", "Pullback corto ema50 ó 200 día ó semana"}:
             raise ValueError("Estrategia no disponible.")
         with self._lock:
+            thread = self._thread
+            running = bool(thread and thread.is_alive() and not self._stop.is_set())
+            previous_strategy = self._operational_config["estrategia"]
+            if running and config["estrategia"] != previous_strategy:
+                raise ValueError("Apaga TradeBot antes de cambiar de estrategia.")
             self._operational_config = config
             bot = self._bot
-        if bot is not None and hasattr(bot, "configurar_riesgo"):
+        if config["estrategia"] == "LongSalvajesPreMarket" and bot is not None and hasattr(bot, "configurar_riesgo"):
             bot.configurar_riesgo(**config)
         return dict(config)
 
