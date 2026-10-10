@@ -23,6 +23,7 @@ def test_scanner_dashboard_links_to_tradebot_and_shows_signal_adapter_status():
     assert "/api/v1/scanner/status" in scanner
     assert "/api/v1/signals?limit=100" in scanner
     assert "Clave receptora API" in scanner
+    assert 'href="https://jd6gih.streamlit.app"' not in scanner
 
 
 def test_tradebot_dashboard_keeps_paper_only_controls_and_own_scanner_link():
