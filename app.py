@@ -6424,6 +6424,8 @@ def _render_scanner():
                     f" · ACK trades/quotes: {len(_ack.get('trades', []))}/{len(_ack.get('quotes', []))}"
                     f" · errores stream: {_mv.get('stream_errors', 0)}"
                 )
+                if _mv.get("estado_preparacion"):
+                    st.caption(f"Preparación motor: {_mv.get('estado_preparacion')}")
                 if _mv.get("stream_last_error"):
                     st.warning(f"Stream Alpaca: {_mv.get('stream_last_error')}")
                 elif _mv.get("last_consumer_error"):
