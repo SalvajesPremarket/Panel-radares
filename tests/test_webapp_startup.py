@@ -43,6 +43,18 @@ def test_render_requires_persistent_database_url(monkeypatch):
 from BotTradeScanner.riesgo.paper import PaperBot
 from webapp.api import server
 
+def test_only_admin_can_control_global_paper_runtime():
+    from fastapi import HTTPException
+
+    assert server.runtime_operator(user={"role": "admin", "account_status": "admin"})["role"] == "admin"
+    for role in ("user", "support", ""):
+        try:
+            server.runtime_operator(user={"role": role, "account_status": "active_monthly"})
+        except HTTPException as exc:
+            assert exc.status_code == 403
+        else:
+            raise AssertionError(f"El rol {role!r} no debe controlar el runtime global")
+
 
 def test_tradebot_status_explicitly_disables_real_trading(monkeypatch):
     monkeypatch.setattr(server, "_paper_bots", {})
